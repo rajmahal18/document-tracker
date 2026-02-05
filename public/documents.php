@@ -76,7 +76,7 @@ if ($date_to !== "") {
 $sql = "
   SELECT
     id, tracking_no, requester, document_date, subject, content_type,
-    current_status,
+    current_status, current_section_id,
     TIMESTAMPDIFF(DAY, status_updated_at, NOW()) AS days_stuck
   FROM documents
 ";
@@ -244,6 +244,7 @@ $stats = [
             "requester" => $d["requester"],
             "document_date" => $d["document_date"],
             "subject" => $d["subject"],
+            "current_section_id" => (int)$d["current_section_id"],
             "content_type" => $d["content_type"],
             "days_stuck" => $days,
             "status_label" => $label,
@@ -300,6 +301,10 @@ $stats = [
 
 
   <div class="drawerActions">
+    <?php if (in_array($role, ["admin","receiver","encoder"], true)): ?>
+      <button id="btnAckReceived" class="btnGhost" type="button">Received</button>
+    <?php endif; ?>
+
     <?php if (in_array($role, ["admin","receiver","encoder"], true)): ?>
       <button id="btnUnderAction" class="btnGhost" type="button">Mark Under Action</button>
     <?php endif; ?>

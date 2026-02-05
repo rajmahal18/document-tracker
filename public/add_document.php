@@ -39,24 +39,32 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
     $error = "Your account has no section assigned. Ask admin to set your section_id.";
   } else {
     // Insert into documents
+    $currentSectionId = (int)($_SESSION["section_id"] ?? 1); // or set to Records section id
+
     $stmt = $conn->prepare("
-      INSERT INTO documents
-      (tracking_no, requester, document_date, subject, content_type, comm_type, current_status, status_updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'incoming', NOW())
+      INSERT INTO documents (tracking_no, requester, document_date, subject, content_type, comm_type, current_status, current_section_id, status_updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'incoming', ?, NOW())
     ");
-    $stmt->bind_param("ssssss", $tracking_no, $requester, $document_date, $subject, $content_type, $comm_type);
+
+    $stmt->bind_param("ssssssi",
+      $tracking_no, $requester, $document_date, $subject, $content_type, $comm_type, $currentSectionId
+    );
+
     $stmt->execute();
 
     $docId = (int)$conn->insert_id;
 
-    // Insert initial history (received at records + routed to first section)
+    // Insert initial history (created at records)
     $stmt = $conn->prepare("
       INSERT INTO doc_history (document_id, from_section_id, to_section_id, action, remarks, acted_by)
-      VALUES (?, ?, ?, 'received', 'Document received at Records', ?)
+      VALUES (?, ?, ?, 'created', 'Document created at Records', ?)
     ");
     $userId = (int)($_SESSION["user_id"] ?? 0);
-    $stmt->bind_param("iiii", $docId, $fromSectionId, $toSectionId, $userId);
+
+    // for "created", keep it anchored to Records (no handoff yet)
+    $stmt->bind_param("iiii", $docId, $fromSectionId, $fromSectionId, $userId);
     $stmt->execute();
+
 
     redirect(PUBLIC_PATH . "/documents.php");
   }

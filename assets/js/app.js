@@ -15,6 +15,7 @@
   const elTimeline = document.getElementById("d_timeline");
 
   const btnUnderAction = document.getElementById("btnUnderAction");
+  const btnAckReceived = document.getElementById("btnAckReceived");
   const btnRelease = document.getElementById("btnRelease");
   const btnArchive = document.getElementById("btnArchive");
 
@@ -34,6 +35,7 @@
   function prettyAction(a) {
   const key = (a ?? "").toString().trim();
   const map = {
+    created: "Created",
     received: "Received",
     forwarded: "Forwarded",
     released: "Released",
@@ -182,6 +184,37 @@
     }
   }
 
+  async function ackReceived() {
+    const docId = elId?.value;
+    if (!docId) return;
+
+    const form = new FormData();
+    form.append("document_id", docId);
+    form.append("remarks", elRemarks ? elRemarks.value : "");
+    form.append("csrf_token", window.__CSRF__ || "");
+
+    try {
+      const res = await fetch(`${API}/ack_received.php`, {
+        method: "POST",
+        body: form,
+        headers: { "Accept": "application/json" }
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.ok) {
+        console.log("Ack received response:", data);
+        alert(data?.error || `Failed to acknowledge received. (${res.status})`);
+        return;
+      }
+
+      location.reload();
+    } catch {
+      alert("Failed to acknowledge received (network error).");
+    }
+  }
+
+
   closeBtn?.addEventListener("click", closeDrawer);
   backdrop?.addEventListener("click", closeDrawer);
 
@@ -194,6 +227,7 @@
     });
   });
 
+  btnAckReceived?.addEventListener("click", ackReceived);
   btnUnderAction?.addEventListener("click", () => updateStatus("under_action"));
   btnRelease?.addEventListener("click", () => updateStatus("released"));
   btnArchive?.addEventListener("click", () => updateStatus("archived"));

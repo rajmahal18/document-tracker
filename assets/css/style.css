@@ -818,4 +818,12 @@ button:hover {
   gap: 14px;
   align-items: flex-start;
 }
-  
+
+.action-created {
+  background: #f0f9ff;
+  border-color: #bae6fd;
+}
+.action-created .tIcon { background: #0284c7; }
+.action-created .tAction { color: #0284c7; }
+
+
