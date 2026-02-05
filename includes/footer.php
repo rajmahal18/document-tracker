@@ -5,6 +5,7 @@
     <span>© 2026 Ministry of Public Works - BARMM</span>
     <span class="muted">All activities may be monitored.</span>
   </footer>
-<script src="/document-tracker/assets/js/app.js"></script>
+
+  <script src="<?= ASSETS_PATH ?>/js/app.js?v=1"></script>
 </body>
 </html>

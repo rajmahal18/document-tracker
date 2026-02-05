@@ -18,6 +18,10 @@
   const btnRelease = document.getElementById("btnRelease");
   const btnArchive = document.getElementById("btnArchive");
 
+  // ✅ Base paths from PHP (fallback to old value if missing)
+  const APP = window.__APP__ || {};
+  const API = APP.api || "/document-tracker/api";
+
   function esc(s) {
     return (s ?? "").toString()
       .replaceAll("&", "&amp;")
@@ -69,13 +73,22 @@
     if (!elTimeline) return;
 
     try {
-      const res = await fetch(`/document-tracker/get_history.php?document_id=${encodeURIComponent(docId)}`);
+      const url = `${API}/get_history.php?document_id=${encodeURIComponent(docId)}`;
+      const res = await fetch(url, { headers: { "Accept": "application/json" } });
+
       if (!res.ok) {
-        elTimeline.textContent = "Failed to load timeline.";
+        elTimeline.textContent = `Failed to load timeline. (${res.status})`;
         return;
       }
 
-      const data = await res.json();
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        elTimeline.textContent = "Failed to load timeline (invalid JSON response).";
+        return;
+      }
+
       if (!data.ok) {
         elTimeline.textContent = data.error || "No timeline.";
         return;
@@ -89,23 +102,22 @@
 
       elTimeline.innerHTML = `
         <div class="timeline">
-            ${items.map(i => `
+          ${items.map(i => `
             <div class="tItem action-${esc(i.action)}">
-                <div class="tIcon"></div>
+              <div class="tIcon"></div>
 
-                <div class="tContent">
+              <div class="tContent">
                 <div class="tRow">
-                    <div class="tAction">${esc(prettyAction(i.action))}</div>
-                    <div class="tMeta">${esc(i.acted_at)} • ${esc(i.actor)}</div>
+                  <div class="tAction">${esc(prettyAction(i.action))}</div>
+                  <div class="tMeta">${esc(i.acted_at)} • ${esc(i.actor || "")}</div>
                 </div>
 
                 ${i.remarks ? `<div class="tRemark">${esc(i.remarks)}</div>` : ""}
-                </div>
+              </div>
             </div>
-            `).join("")}
+          `).join("")}
         </div>
-        `;
-
+      `;
     } catch (e) {
       elTimeline.textContent = "Failed to load timeline.";
     }
@@ -120,18 +132,22 @@
     form.append("new_status", newStatus);
     form.append("remarks", elRemarks ? elRemarks.value : "");
 
-    const res = await fetch("/document-tracker/update_status.php", {
-      method: "POST",
-      body: form
-    });
+    try {
+      const res = await fetch(`${API}/update_status.php`, {
+        method: "POST",
+        body: form,
+        headers: { "Accept": "application/json" }
+      });
 
-    if (!res.ok) {
-      alert("Failed to update status. Check update_status.php.");
-      return;
+      if (!res.ok) {
+        alert(`Failed to update status. (${res.status})`);
+        return;
+      }
+
+      location.reload();
+    } catch {
+      alert("Failed to update status (network error).");
     }
-
-    // simplest reliable refresh:
-    location.reload();
   }
 
   closeBtn?.addEventListener("click", closeDrawer);

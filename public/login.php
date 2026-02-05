@@ -1,11 +1,11 @@
 <?php
 declare(strict_types=1);
 
-require __DIR__ . "/includes/bootstrap.php"; // session + db + helpers
+require __DIR__ . "/../includes/bootstrap.php"; // session + db + constants + helpers
 
 // If already logged in, go to documents
 if (is_logged_in()) {
-  redirect("/document-tracker/documents.php");
+  redirect(PUBLIC_PATH . "/documents.php");
 }
 
 $pageTitle = "Login - Document Tracker";
@@ -31,12 +31,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
       $_SESSION["full_name"] = $user["full_name"];
       $_SESSION["role"]      = $user["role"];
 
-      redirect("/document-tracker/documents.php");
+      redirect(PUBLIC_PATH . "/documents.php");
     }
   }
 }
 
-require __DIR__ . "/includes/layout.php";
+require __DIR__ . "/../includes/layout.php";
 ?>
 
 <div class="grid">
@@ -53,7 +53,7 @@ require __DIR__ . "/includes/layout.php";
       </div>
     <?php endif; ?>
 
-    <form method="POST" action="/document-tracker/login.php">
+    <form method="POST" action="<?= PUBLIC_PATH ?>/login.php">
       <label>Username / Email</label>
       <input
         type="text"
@@ -101,4 +101,4 @@ require __DIR__ . "/includes/layout.php";
   </aside>
 </div>
 
-<?php require __DIR__ . "/includes/footer.php"; ?>
+<?php require __DIR__ . "/../includes/footer.php"; ?>

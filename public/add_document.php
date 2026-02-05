@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-require __DIR__ . "/includes/bootstrap.php";
+require __DIR__ . "/../includes/bootstrap.php";
 require_login();
 
 $pageTitle = "Add Document";
@@ -27,22 +27,22 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $stmt->bind_param("ssssss", $tracking_no, $requester, $document_date, $subject, $content_type, $comm_type);
     $stmt->execute();
 
-    $docId = $stmt->insert_id;
+    $docId = $conn->insert_id; // ✅ mysqli insert id
 
     // Insert history = RECEIVED
     $stmt = $conn->prepare("
       INSERT INTO doc_history (document_id, action, remarks, acted_by)
       VALUES (?, 'received', 'Document received at Records', ?)
     ");
-    $userId = (int)$_SESSION["user_id"];
+    $userId = (int)($_SESSION["user_id"] ?? 0);
     $stmt->bind_param("ii", $docId, $userId);
     $stmt->execute();
 
-    redirect("/document-tracker/documents.php");
+    redirect(PUBLIC_PATH . "/documents.php"); // ✅ cleaned
   }
 }
 
-require __DIR__ . "/includes/layout.php";
+require __DIR__ . "/../includes/layout.php";
 ?>
 
 <h1>Add New Document</h1>
@@ -75,9 +75,9 @@ require __DIR__ . "/includes/layout.php";
 
     <div style="margin-top:16px;">
       <button type="submit" class="btnPrimary">Save Document</button>
-      <a href="/document-tracker/documents.php" class="btnGhost" style="text-decoration:none;">Cancel</a>
+      <a href="<?= PUBLIC_PATH ?>/documents.php" class="btnGhost" style="text-decoration:none;">Cancel</a>
     </div>
   </form>
 </div>
 
-<?php require __DIR__ . "/includes/footer.php"; ?>
+<?php require __DIR__ . "/../includes/footer.php"; ?>

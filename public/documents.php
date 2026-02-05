@@ -1,21 +1,11 @@
 <?php
 declare(strict_types=1);
 
-require __DIR__ . "/includes/bootstrap.php";
+require __DIR__ . "/../includes/bootstrap.php";
 require_login();
 
 $pageTitle = "Documents - Document Tracker";
-require __DIR__ . "/includes/layout.php";
-
-function status_label(string $s): array {
-  return match($s) {
-    "incoming" => ["Incoming", "incoming"],
-    "under_action" => ["Under Action", "action"],
-    "released" => ["Released", "released"],
-    "archived" => ["Archived", "archived"],
-    default => ["Unknown", "archived"]
-  };
-}
+require __DIR__ . "/../includes/layout.php";
 
 $search = trim($_GET["q"] ?? "");
 $status = trim($_GET["status"] ?? "");
@@ -86,7 +76,7 @@ $stats = [
 
 <div style="display:flex;justify-content:space-between;align-items:center;">
   <h1>Document List</h1>
-  <a href="/document-tracker/add_document.php" class="btnPrimary" style="text-decoration:none;">
+  <a href="<?= PUBLIC_PATH ?>/add_document.php" class="btnPrimary" style="text-decoration:none;">
     + Add Document
   </a>
 </div>
@@ -127,7 +117,7 @@ $stats = [
   </div>
 </div>
 
-<form class="toolbar" method="GET" action="/document-tracker/documents.php">
+<form class="toolbar" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
   <div class="filters">
     <div class="control">
       <label>Status</label>
@@ -253,4 +243,4 @@ $stats = [
   </div>
 </aside>
 
-<?php require __DIR__ . "/includes/footer.php"; ?>
+<?php require __DIR__ . "/../includes/footer.php"; ?>
