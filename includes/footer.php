@@ -6,6 +6,7 @@
     <span class="muted">All activities may be monitored.</span>
   </footer>
 
-  <script src="<?= ASSETS_PATH ?>/js/app.js?v=1"></script>
+  <script src="<?= ASSETS_PATH ?>/js/app.js?v=3"></script>
+
 </body>
 </html>

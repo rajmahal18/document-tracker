@@ -7,16 +7,36 @@ require_login();
 $pageTitle = "Add Document";
 $error = "";
 
-if ($_SERVER["REQUEST_METHOD"] === "POST") {
-  $tracking_no = "TRK-" . time(); // simple unique
-  $requester = trim($_POST["requester"] ?? "");
-  $document_date = trim($_POST["document_date"] ?? "");
-  $subject = trim($_POST["subject"] ?? "");
-  $content_type = trim($_POST["content_type"] ?? "");
-  $comm_type = trim($_POST["comm_type"] ?? "internal");
+// ✅ Only Records (receiver) and Admin can add new docs
+$role = $_SESSION["role"] ?? "viewer";
+if (!in_array($role, ["admin", "receiver"], true)) {
+  http_response_code(403);
+  $error = "Forbidden. Only Records/Admin can add documents.";
+}
 
-  if ($requester === "" || $document_date === "" || $subject === "" || $content_type === "") {
-    $error = "Please fill in all required fields.";
+// ✅ Must have a section_id for routing
+$fromSectionId = (int)($_SESSION["section_id"] ?? 0);
+
+// ✅ Load sections for dropdown (exclude your own section if you want)
+$sections = $conn->query("
+  SELECT id, name
+  FROM sections
+  ORDER BY name ASC
+")->fetch_all(MYSQLI_ASSOC);
+
+if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
+  $tracking_no   = "TRK-" . time(); // simple unique
+  $requester     = trim($_POST["requester"] ?? "");
+  $document_date = trim($_POST["document_date"] ?? "");
+  $subject       = trim($_POST["subject"] ?? "");
+  $content_type  = trim($_POST["content_type"] ?? "");
+  $comm_type     = trim($_POST["comm_type"] ?? "internal");
+  $toSectionId   = (int)($_POST["to_section_id"] ?? 0);
+
+  if ($requester === "" || $document_date === "" || $subject === "" || $content_type === "" || $toSectionId <= 0) {
+    $error = "Please fill in all required fields (including Forward To).";
+  } elseif ($fromSectionId <= 0) {
+    $error = "Your account has no section assigned. Ask admin to set your section_id.";
   } else {
     // Insert into documents
     $stmt = $conn->prepare("
@@ -27,18 +47,18 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $stmt->bind_param("ssssss", $tracking_no, $requester, $document_date, $subject, $content_type, $comm_type);
     $stmt->execute();
 
-    $docId = $conn->insert_id; // ✅ mysqli insert id
+    $docId = (int)$conn->insert_id;
 
-    // Insert history = RECEIVED
+    // Insert initial history (received at records + routed to first section)
     $stmt = $conn->prepare("
-      INSERT INTO doc_history (document_id, action, remarks, acted_by)
-      VALUES (?, 'received', 'Document received at Records', ?)
+      INSERT INTO doc_history (document_id, from_section_id, to_section_id, action, remarks, acted_by)
+      VALUES (?, ?, ?, 'received', 'Document received at Records', ?)
     ");
     $userId = (int)($_SESSION["user_id"] ?? 0);
-    $stmt->bind_param("ii", $docId, $userId);
+    $stmt->bind_param("iiii", $docId, $fromSectionId, $toSectionId, $userId);
     $stmt->execute();
 
-    redirect(PUBLIC_PATH . "/documents.php"); // ✅ cleaned
+    redirect(PUBLIC_PATH . "/documents.php");
   }
 }
 
@@ -56,21 +76,34 @@ require __DIR__ . "/../includes/layout.php";
 <div class="card" style="max-width:720px;margin-top:14px;">
   <form method="POST">
     <label>Requester *</label>
-    <input type="text" name="requester" required>
+    <input type="text" name="requester" required value="<?= htmlspecialchars($_POST["requester"] ?? "") ?>">
 
     <label>Document Date *</label>
-    <input type="date" name="document_date" required>
+    <input type="date" name="document_date" required value="<?= htmlspecialchars($_POST["document_date"] ?? "") ?>">
 
     <label>Subject *</label>
-    <input type="text" name="subject" required>
+    <input type="text" name="subject" required value="<?= htmlspecialchars($_POST["subject"] ?? "") ?>">
 
     <label>Content Type *</label>
-    <input type="text" name="content_type" placeholder="Memorandum, Proposal, Letter..." required>
+    <input type="text" name="content_type" placeholder="Memorandum, Proposal, Letter..." required value="<?= htmlspecialchars($_POST["content_type"] ?? "") ?>">
 
     <label>Communication Type *</label>
     <select name="comm_type" class="select">
-      <option value="internal">Internal</option>
-      <option value="external">External</option>
+      <option value="internal" <?= (($_POST["comm_type"] ?? "internal") === "internal") ? "selected" : "" ?>>Internal</option>
+      <option value="external" <?= (($_POST["comm_type"] ?? "") === "external") ? "selected" : "" ?>>External</option>
+    </select>
+
+    <label>Forward To (Initial Section) *</label>
+    <select name="to_section_id" class="select" required>
+      <option value="">-- Select --</option>
+      <?php foreach ($sections as $s): ?>
+        <option
+          value="<?= (int)$s["id"] ?>"
+          <?= ((string)($s["id"]) === (string)($_POST["to_section_id"] ?? "")) ? "selected" : "" ?>
+        >
+          <?= htmlspecialchars($s["name"]) ?>
+        </option>
+      <?php endforeach; ?>
     </select>
 
     <div style="margin-top:16px;">

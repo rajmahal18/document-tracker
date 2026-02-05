@@ -6,20 +6,52 @@ require_login();
 
 $pageTitle = "Documents - Document Tracker";
 require __DIR__ . "/../includes/layout.php";
+?>
 
+<script>
+  window.__CSRF__ = "<?= htmlspecialchars(csrf_token(), ENT_QUOTES, "UTF-8") ?>";
+</script>
+
+<?php
 $search = trim($_GET["q"] ?? "");
 $status = trim($_GET["status"] ?? "");
 $date_from = trim($_GET["from"] ?? "");
 $date_to = trim($_GET["to"] ?? "");
 
+$role = $_SESSION["role"] ?? "viewer";
+$mySectionId = (int)($_SESSION["section_id"] ?? 0);
+
 $where = [];
 $params = [];
 $types = "";
 
+/**
+ * ✅ SECTION VISIBILITY RULE
+ * Records (receiver) and admin see ALL.
+ * Others see only documents where their section is involved.
+ */
+$isPrivileged = in_array($role, ["admin","receiver"], true);
+
+if (!$isPrivileged) {
+  if ($mySectionId <= 0) {
+    $where[] = "1=0";
+  } else {
+    $where[] = "EXISTS (
+      SELECT 1
+      FROM doc_history h
+      WHERE h.document_id = documents.id
+        AND (h.from_section_id = ? OR h.to_section_id = ?)
+    )";
+    $params[] = $mySectionId;
+    $params[] = $mySectionId;
+    $types .= "ii";
+  }
+}
+
 if ($search !== "") {
   $where[] = "(tracking_no LIKE ? OR requester LIKE ? OR subject LIKE ? OR content_type LIKE ?)";
   $like = "%" . $search . "%";
-  $params[] = $like; $params[] = $like; $params[] = $like; $params[] = $like;
+  array_push($params, $like, $like, $like, $like);
   $types .= "ssss";
 }
 
@@ -57,14 +89,43 @@ if ($params) $stmt->bind_param($types, ...$params);
 $stmt->execute();
 $docs = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
-$statRows = $conn->query("
+/**
+ * ✅ Stats should respect the same visibility rule
+ */
+$statWhere = [];
+$statParams = [];
+$statTypes = "";
+
+if (!$isPrivileged) {
+  if ($mySectionId <= 0) {
+    $statWhere[] = "1=0";
+  } else {
+    $statWhere[] = "EXISTS (
+      SELECT 1
+      FROM doc_history h
+      WHERE h.document_id = documents.id
+        AND (h.from_section_id = ? OR h.to_section_id = ?)
+    )";
+    $statParams[] = $mySectionId;
+    $statParams[] = $mySectionId;
+    $statTypes .= "ii";
+  }
+}
+
+$statSql = "
   SELECT
     SUM(current_status='incoming') AS incoming,
     SUM(current_status='under_action') AS under_action,
     SUM(current_status='released' AND DATE(updated_at)=CURDATE()) AS released_today,
     SUM(current_status IN ('incoming','under_action') AND TIMESTAMPDIFF(DAY, status_updated_at, NOW()) >= 7) AS overdue
   FROM documents
-")->fetch_assoc();
+";
+if ($statWhere) $statSql .= " WHERE " . implode(" AND ", $statWhere);
+
+$statStmt = $conn->prepare($statSql);
+if ($statParams) $statStmt->bind_param($statTypes, ...$statParams);
+$statStmt->execute();
+$statRows = $statStmt->get_result()->fetch_assoc();
 
 $stats = [
   "incoming" => (int)($statRows["incoming"] ?? 0),
@@ -73,6 +134,7 @@ $stats = [
   "released_today" => (int)($statRows["released_today"] ?? 0),
 ];
 ?>
+
 
 <div style="display:flex;justify-content:space-between;align-items:center;">
   <h1>Document List</h1>
@@ -236,11 +298,21 @@ $stats = [
     </div>
   </div>
 
+
   <div class="drawerActions">
-    <button id="btnUnderAction" class="btnGhost" type="button">Mark Under Action</button>
-    <button id="btnRelease" class="btnGhost" type="button">Release</button>
-    <button id="btnArchive" class="btnPrimary" type="button">Archive</button>
+    <?php if (in_array($role, ["admin","receiver","encoder"], true)): ?>
+      <button id="btnUnderAction" class="btnGhost" type="button">Mark Under Action</button>
+    <?php endif; ?>
+
+    <?php if (in_array($role, ["admin","releaser"], true)): ?>
+      <button id="btnRelease" class="btnGhost" type="button">Release</button>
+    <?php endif; ?>
+
+    <?php if ($role === "admin"): ?>
+      <button id="btnArchive" class="btnPrimary" type="button">Archive</button>
+    <?php endif; ?>
   </div>
+
 </aside>
 
 <?php require __DIR__ . "/../includes/footer.php"; ?>

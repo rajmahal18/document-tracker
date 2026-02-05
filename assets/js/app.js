@@ -32,14 +32,17 @@
   }
 
   function prettyAction(a) {
-    return ({
-      received: "Received",
-      forwarded: "Forwarded",
-      released: "Released",
-      archived: "Archived",
-      updated: "Updated"
-    }[a] || a);
-  }
+  const key = (a ?? "").toString().trim();
+  const map = {
+    received: "Received",
+    forwarded: "Forwarded",
+    released: "Released",
+    archived: "Archived",
+    updated: "Updated"
+  };
+  return map[key] || (key ? key : "Updated");
+}
+
 
   function openDrawer(payload) {
     if (elId) elId.value = payload.id || "";
@@ -95,29 +98,53 @@
       }
 
       const items = data.history || [];
+      console.log("HISTORY ITEMS:", items);
       if (items.length === 0) {
         elTimeline.textContent = "No history yet.";
         return;
       }
 
+      function fmt(dt) {
+        const d = new Date((dt || "").toString().replace(" ", "T"));
+        if (isNaN(d.getTime())) return dt || "";
+        return d.toLocaleString("en-GB", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        }).replace(",", "");
+      }
+
       elTimeline.innerHTML = `
         <div class="timeline">
-          ${items.map(i => `
-            <div class="tItem action-${esc(i.action)}">
-              <div class="tIcon"></div>
+          ${items.map((i, idx) => {
+            const actionKey = (i.action ?? "updated").toString().trim() || "updated";
+            return `
+              <div class="tItem action-${esc(actionKey)} ${idx === 0 ? "isCurrent" : ""}">
+                <div class="tIcon"></div>
 
-              <div class="tContent">
-                <div class="tRow">
-                  <div class="tAction">${esc(prettyAction(i.action))}</div>
-                  <div class="tMeta">${esc(i.acted_at)} • ${esc(i.actor || "")}</div>
+                <div class="tContent">
+                  <div class="tRow">
+                    <div class="tMeta tMetaLeft">
+                      ${esc(fmt(i.acted_at))}<br>
+                      ${esc(i.actor || "System")}
+                    </div>
+
+                    <div class="tAction">
+                      ${esc((prettyAction(actionKey) || "Updated").toString().toUpperCase())}
+                    </div>
+                  </div>
+
+                  ${i.remarks ? `<div class="tRemark">${esc(i.remarks)}</div>` : ""}
                 </div>
-
-                ${i.remarks ? `<div class="tRemark">${esc(i.remarks)}</div>` : ""}
               </div>
-            </div>
-          `).join("")}
+            `;
+          }).join("")}
         </div>
       `;
+
+
     } catch (e) {
       elTimeline.textContent = "Failed to load timeline.";
     }
@@ -131,6 +158,7 @@
     form.append("document_id", docId);
     form.append("new_status", newStatus);
     form.append("remarks", elRemarks ? elRemarks.value : "");
+    form.append("csrf_token", window.__CSRF__ || "");
 
     try {
       const res = await fetch(`${API}/update_status.php`, {
@@ -139,12 +167,16 @@
         headers: { "Accept": "application/json" }
       });
 
-      if (!res.ok) {
-        alert(`Failed to update status. (${res.status})`);
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.ok) {
+        console.log("Update status response:", data);
+        alert(data?.error || `Failed to update status. (${res.status})`);
         return;
       }
 
       location.reload();
+
     } catch {
       alert("Failed to update status (network error).");
     }
@@ -155,7 +187,9 @@
 
   document.querySelectorAll("[data-doc]").forEach((row) => {
     row.addEventListener("click", () => {
-      const payload = JSON.parse(row.getAttribute("data-doc"));
+      const raw = row.getAttribute("data-doc") || "{}";
+      let payload;
+      try { payload = JSON.parse(raw); } catch { payload = {}; }
       openDrawer(payload);
     });
   });

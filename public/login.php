@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-require __DIR__ . "/../includes/bootstrap.php"; // session + db + constants + helpers
+require __DIR__ . "/../includes/bootstrap.php";
 
 // If already logged in, go to documents
 if (is_logged_in()) {
@@ -18,8 +18,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
   if ($username === "" || $password === "") {
     $error = "Please enter your username/email and password.";
   } else {
-    // login by email for now
-    $stmt = $conn->prepare("SELECT id, full_name, email, password_hash, role FROM users WHERE email = ? LIMIT 1");
+
+    // ✅ include section_id
+    $stmt = $conn->prepare("
+      SELECT id, full_name, email, password_hash, role, section_id
+      FROM users
+      WHERE email = ?
+      LIMIT 1
+    ");
     $stmt->bind_param("s", $username);
     $stmt->execute();
     $user = $stmt->get_result()->fetch_assoc();
@@ -27,9 +33,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     if (!$user || !password_verify($password, $user["password_hash"])) {
       $error = "Invalid login credentials.";
     } else {
-      $_SESSION["user_id"]   = (int)$user["id"];
-      $_SESSION["full_name"] = $user["full_name"];
-      $_SESSION["role"]      = $user["role"];
+      // ✅ store everything needed in session
+      $_SESSION["user_id"]    = (int)$user["id"];
+      $_SESSION["full_name"]  = $user["full_name"];
+      $_SESSION["role"]       = $user["role"];
+      $_SESSION["section_id"] = isset($user["section_id"]) ? (int)$user["section_id"] : null;
 
       redirect(PUBLIC_PATH . "/documents.php");
     }

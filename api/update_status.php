@@ -12,6 +12,8 @@ if ($_SERVER["REQUEST_METHOD"] !== "POST") {
   exit;
 }
 
+require_csrf(); // ✅ ADD THIS LINE (CSRF protection)
+
 $docId = (int)($_POST["document_id"] ?? 0);
 $newStatus = trim($_POST["new_status"] ?? "");
 $remarks = trim($_POST["remarks"] ?? "");
@@ -29,7 +31,7 @@ if ($docId <= 0 || !in_array($newStatus, $allowed, true)) {
 $role = $_SESSION["role"] ?? "viewer";
 
 $can = match($newStatus) {
-  "under_action" => in_array($role, ["admin","tracker","action"], true),
+  "under_action" => in_array($role, ["admin","receiver","encoder"], true),
   "released"     => in_array($role, ["admin","releaser"], true),
   "archived"     => in_array($role, ["admin"], true),
   "incoming"     => in_array($role, ["admin","receiver","encoder"], true),
@@ -56,7 +58,8 @@ if (!$doc) {
 
 $oldStatus = $doc["current_status"];
 
-// Optional cleanup: prevent duplicate history spam if same status
+
+// prevent duplicate history spam if same status
 if ($newStatus === $oldStatus) {
   echo json_encode(["ok" => true, "document_id" => $docId, "old_status" => $oldStatus, "new_status" => $newStatus]);
   exit;
@@ -64,7 +67,7 @@ if ($newStatus === $oldStatus) {
 
 // Decide action label for history
 $action = match($newStatus) {
-  "under_action" => "forwarded",
+  "under_action" => "under_action",
   "released"     => "released",
   "archived"     => "archived",
   default        => "updated"
