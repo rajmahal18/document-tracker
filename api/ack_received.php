@@ -15,7 +15,7 @@ if ($_SERVER["REQUEST_METHOD"] !== "POST") {
 require_csrf();
 
 $docId   = (int)($_POST["document_id"] ?? 0);
-$remarks = trim($_POST["remarks"] ?? "");
+$remarks = trim((string)($_POST["remarks"] ?? ""));
 
 if ($docId <= 0) {
   http_response_code(400);
@@ -23,75 +23,126 @@ if ($docId <= 0) {
   exit;
 }
 
-$role = $_SESSION["role"] ?? "viewer";
-$canReceive = in_array($role, ["admin","receiver","encoder"], true);
-
-if (!$canReceive) {
-  http_response_code(403);
-  echo json_encode(["ok" => false, "error" => "Forbidden"]);
-  exit;
-}
-
+$role = $_SESSION["role"] ?? "division";
 $mySectionId = (int)($_SESSION["section_id"] ?? 0);
-if ($role !== "admin" && $mySectionId <= 0) {
-  http_response_code(400);
-  echo json_encode(["ok" => false, "error" => "Missing section assignment"]);
-  exit;
-}
-
 $userId = (int)($_SESSION["user_id"] ?? 0);
 
-// Fetch doc
-$stmt = $conn->prepare("
-  SELECT id, current_status, current_section_id
-  FROM documents
-  WHERE id = ?
-  LIMIT 1
-");
-$stmt->bind_param("i", $docId);
-$stmt->execute();
-$doc = $stmt->get_result()->fetch_assoc();
-
-if (!$doc) {
-  http_response_code(404);
-  echo json_encode(["ok" => false, "error" => "Document not found"]);
+// Admin override allowed ONLY if admin has a section assigned (for now).
+// This keeps the "no acting without holding" principle sane.
+if ($mySectionId <= 0) {
+  http_response_code(400);
+  echo json_encode(["ok" => false, "error" => "Missing section assignment (cannot receive)"]);
   exit;
 }
 
-$oldSectionId = (int)($doc["current_section_id"] ?? 0);
-$newSectionId = $mySectionId;
+try {
+  $conn->begin_transaction();
 
-// If already in your section, don't spam history
-if ($role !== "admin" && $oldSectionId === $newSectionId) {
+  // 1) Fetch the OPEN route for this document
+  $stmt = $conn->prepare("
+    SELECT
+      r.id AS route_id,
+      r.from_section_id,
+      r.to_section_id,
+      r.is_open,
+      d.current_holder_section_id,
+      d.current_status
+    FROM routes r
+    JOIN documents d ON d.id = r.document_id
+    WHERE r.document_id = ?
+      AND r.is_open = 1
+    LIMIT 1
+  ");
+  $stmt->bind_param("i", $docId);
+  $stmt->execute();
+  $row = $stmt->get_result()->fetch_assoc();
+
+  if (!$row) {
+    $conn->rollback();
+    http_response_code(400);
+    echo json_encode(["ok" => false, "error" => "No pending route to receive."]);
+    exit;
+  }
+
+  $routeId = (int)$row["route_id"];
+  $fromSectionId = (int)$row["from_section_id"];
+  $toSectionId = (int)$row["to_section_id"];
+  $currentHolder = (int)$row["current_holder_section_id"];
+
+  // 2) Permission: only pending recipient can receive (admin still needs section)
+  if ($role !== "admin" && $toSectionId !== $mySectionId) {
+    $conn->rollback();
+    http_response_code(403);
+    echo json_encode(["ok" => false, "error" => "Forbidden: not the pending recipient section."]);
+    exit;
+  }
+
+  // Optional sanity check: holder should still be sender while in-transit
+  // If it's inconsistent, we still allow receive but it's worth noting later.
+  // (We won't block here to avoid deadlocks during migration.)
+  // if ($currentHolder !== $fromSectionId) { ... }
+
+  // 3) Close the route (mark received)
+  $stmt = $conn->prepare("
+    UPDATE routes
+    SET received_by_user_id = ?, received_at = NOW()
+    WHERE id = ? AND is_open = 1
+  ");
+  $stmt->bind_param("ii", $userId, $routeId);
+  $stmt->execute();
+
+  if ($stmt->affected_rows <= 0) {
+    $conn->rollback();
+    http_response_code(409);
+    echo json_encode(["ok" => false, "error" => "Route already closed."]);
+    exit;
+  }
+
+  // 4) Update holder -> receiver section (ONLY on receive)
+  $stmt = $conn->prepare("
+    UPDATE documents
+    SET current_holder_section_id = ?
+    WHERE id = ?
+  ");
+  $stmt->bind_param("ii", $toSectionId, $docId);
+  $stmt->execute();
+
+  // 5) Ensure receiver is participant (visibility forever)
+  $stmt = $conn->prepare("
+    INSERT IGNORE INTO document_participants
+      (document_id, section_id, added_via, added_by_user_id)
+    VALUES (?, ?, 'movement', ?)
+  ");
+  $stmt->bind_param("iii", $docId, $toSectionId, $userId);
+  $stmt->execute();
+
+  // 6) Insert event (audit)
+  $payload = json_encode([
+    "remarks" => $remarks
+  ], JSON_UNESCAPED_UNICODE);
+
+  $stmt = $conn->prepare("
+    INSERT INTO document_events
+      (document_id, event_type, actor_user_id, actor_section_id, from_section_id, to_section_id, payload_json)
+    VALUES (?, 'received', ?, ?, ?, ?, ?)
+  ");
+  $stmt->bind_param("iiiiis", $docId, $userId, $mySectionId, $fromSectionId, $toSectionId, $payload);
+  $stmt->execute();
+
+  $conn->commit();
+
   echo json_encode([
     "ok" => true,
     "document_id" => $docId,
-    "message" => "Already received by your section."
+    "route_id" => $routeId,
+    "from_section_id" => $fromSectionId,
+    "to_section_id" => $toSectionId
   ]);
   exit;
+
+} catch (Throwable $e) {
+  $conn->rollback();
+  http_response_code(500);
+  echo json_encode(["ok" => false, "error" => "Server error"]);
+  exit;
 }
-
-// ✅ On receive: set location + reset status to incoming queue
-$stmt = $conn->prepare("
-  UPDATE documents
-  SET current_section_id = ?, current_status = 'incoming', status_updated_at = NOW()
-  WHERE id = ?
-");
-$stmt->bind_param("ii", $newSectionId, $docId);
-$stmt->execute();
-
-// ✅ Insert history as RECEIVED
-$action = "received";
-$stmt = $conn->prepare("
-  INSERT INTO doc_history (document_id, action, remarks, acted_by)
-  VALUES (?, ?, ?, ?)
-");
-$stmt->bind_param("issi", $docId, $action, $remarks, $userId);
-$stmt->execute();
-
-echo json_encode([
-  "ok" => true,
-  "document_id" => $docId,
-  "old_section_id" => $oldSectionId,
-  "new_section_id" => $newSectionId
-]);

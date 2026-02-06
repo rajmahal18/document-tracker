@@ -6,7 +6,7 @@
     <span class="muted">All activities may be monitored.</span>
   </footer>
 
-  <script src="<?= ASSETS_PATH ?>/js/app.js?v=3"></script>
+  <script src="/document-tracker/assets/js/app.js?v=<?= time() ?>"></script>
 
 </body>
 </html>

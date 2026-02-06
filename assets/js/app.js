@@ -10,7 +10,12 @@
   const elSubject = document.getElementById("d_subject");
   const elType = document.getElementById("d_type");
   const elDays = document.getElementById("d_days");
-  const elStatus = document.getElementById("d_status");
+
+  // Drawer fields
+  const elStatus = document.getElementById("d_status"); // chip: Current Holder / IN TRANSIT
+  const elDestination = document.getElementById("d_destination");
+  const elLastHolder = document.getElementById("d_last_holder");
+
   const elRemarks = document.getElementById("d_remarks");
   const elTimeline = document.getElementById("d_timeline");
 
@@ -19,7 +24,7 @@
   const btnRelease = document.getElementById("btnRelease");
   const btnArchive = document.getElementById("btnArchive");
 
-  // ✅ Base paths from PHP (fallback to old value if missing)
+  // Base paths from PHP
   const APP = window.__APP__ || {};
   const API = APP.api || "/document-tracker/api";
 
@@ -33,40 +38,98 @@
   }
 
   function prettyAction(a) {
-  const key = (a ?? "").toString().trim();
-  const map = {
-    created: "Created",
-    received: "Received",
-    forwarded: "Forwarded",
-    released: "Released",
-    archived: "Archived",
-    updated: "Updated"
-  };
-  return map[key] || (key ? key : "Updated");
-}
-
+    const key = (a ?? "").toString().trim().toLowerCase();
+    const map = {
+      created: "Created",
+      sent: "Sent",
+      received: "Received",
+      forwarded: "Forwarded",
+      released: "Released",
+      archived: "Archived",
+      cancelled: "Cancelled",
+      under_action: "Under Action",
+      updated: "Updated",
+      status_changed: "Status Changed",
+    };
+    return map[key] || (key ? key : "Updated");
+  }
 
   function openDrawer(payload) {
+    // Basic fields
     if (elId) elId.value = payload.id || "";
     if (elTracking) elTracking.textContent = payload.tracking_no || "";
-    if (elRequester) elRequester.textContent = payload.requester || "";
-    if (elDate) elDate.textContent = payload.document_date || "";
-    if (elSubject) elSubject.textContent = payload.subject || "";
-    if (elType) elType.textContent = payload.content_type || "";
+
+    if (elRequester) elRequester.textContent = payload.requester || "—";
+    if (elDate) elDate.textContent = payload.document_date || "—";
+    if (elSubject) elSubject.textContent = payload.subject || "—";
+    if (elType) elType.textContent = payload.content_type || "—";
     if (elDays) elDays.textContent = payload.days_stuck ?? "0";
 
+    const inTransit = !!payload.in_transit;
+
+    // Current holder chip
     if (elStatus) {
-      elStatus.textContent = payload.status_label || "Unknown";
-      elStatus.className = "chip " + (payload.status_class || "archived");
+      if (inTransit) {
+        elStatus.textContent = "IN TRANSIT";
+        elStatus.className = "chip action";
+      } else {
+        elStatus.textContent = payload.current_holder_text || "—";
+        elStatus.className = "chip incoming";
+      }
     }
+
+    // Destination + Last holder
+    if (elDestination) elDestination.textContent = payload.movement_text || "—";
+    if (elLastHolder) elLastHolder.textContent = payload.last_holder_text || "—";
 
     if (elRemarks) elRemarks.value = "";
 
     if (elTimeline) elTimeline.textContent = "Loading timeline…";
     if (payload.id) loadTimeline(payload.id);
 
+    // ✅ IMPORTANT: open drawer FIRST so returns won’t prevent UI opening
     backdrop?.classList.add("open");
     drawer?.classList.add("open");
+
+    // =========================
+    // ✅ Button visibility logic
+    // =========================
+    const ctx = window.__CTX__ || {};
+    const myRole = (ctx.myRole || "division").toString().toLowerCase();
+    const mySectionId = Number(ctx.mySectionId || 0);
+
+    const openToSectionId = Number(payload.open_to_section_id || 0);
+    const holderSectionId = Number(payload.current_holder_section_id || 0);
+
+    // Hide all by default
+    if (btnAckReceived) btnAckReceived.style.display = "none";
+    if (btnRelease) btnRelease.style.display = "none";
+    if (btnArchive) btnArchive.style.display = "none";
+    if (btnUnderAction) btnUnderAction.style.display = "none";
+
+    // Records/Admin: show all main controls (your current policy)
+    if (myRole === "admin" || myRole === "records") {
+      if (btnAckReceived) btnAckReceived.style.display = "";
+      if (btnRelease) btnRelease.style.display = "";
+      if (btnArchive) btnArchive.style.display = "";
+      // if (btnUnderAction) btnUnderAction.style.display = "";
+      return;
+    }
+
+    // Non-records rules
+    if (inTransit) {
+      // Only pending recipient can "Receive"
+      if (openToSectionId > 0 && mySectionId > 0 && openToSectionId === mySectionId) {
+        if (btnAckReceived) btnAckReceived.style.display = "";
+      }
+      // No release/archive while in transit for non-records
+      return;
+    }
+
+    // Not in transit: only current holder can Release (archive stays records/admin only)
+    if (holderSectionId > 0 && mySectionId > 0 && holderSectionId === mySectionId) {
+      if (btnRelease) btnRelease.style.display = "";
+    }
   }
 
   function closeDrawer() {
@@ -100,7 +163,6 @@
       }
 
       const items = data.history || [];
-      console.log("HISTORY ITEMS:", items);
       if (items.length === 0) {
         elTimeline.textContent = "No history yet.";
         return;
@@ -121,7 +183,8 @@
       elTimeline.innerHTML = `
         <div class="timeline">
           ${items.map((i, idx) => {
-            const actionKey = (i.action ?? "updated").toString().trim() || "updated";
+            // get_history.php returns: action, remarks, acted_at, actor
+            const actionKey = (i.action ?? "updated").toString().trim().toLowerCase() || "updated";
             return `
               <div class="tItem action-${esc(actionKey)} ${idx === 0 ? "isCurrent" : ""}">
                 <div class="tIcon"></div>
@@ -134,7 +197,7 @@
                     </div>
 
                     <div class="tAction">
-                      ${esc((prettyAction(actionKey) || "Updated").toString().toUpperCase())}
+                      ${esc(prettyAction(actionKey).toUpperCase())}
                     </div>
                   </div>
 
@@ -145,8 +208,6 @@
           }).join("")}
         </div>
       `;
-
-
     } catch (e) {
       elTimeline.textContent = "Failed to load timeline.";
     }
@@ -178,7 +239,6 @@
       }
 
       location.reload();
-
     } catch {
       alert("Failed to update status (network error).");
     }
@@ -214,7 +274,7 @@
     }
   }
 
-
+  // Events
   closeBtn?.addEventListener("click", closeDrawer);
   backdrop?.addEventListener("click", closeDrawer);
 
@@ -228,7 +288,10 @@
   });
 
   btnAckReceived?.addEventListener("click", ackReceived);
-  btnUnderAction?.addEventListener("click", () => updateStatus("under_action"));
-  btnRelease?.addEventListener("click", () => updateStatus("released"));
-  btnArchive?.addEventListener("click", () => updateStatus("archived"));
+
+  // Optional: repurpose UnderAction button to ACTIVE (if you keep it in UI)
+  btnUnderAction?.addEventListener("click", () => updateStatus("ACTIVE"));
+
+  btnRelease?.addEventListener("click", () => updateStatus("RELEASED"));
+  btnArchive?.addEventListener("click", () => updateStatus("ARCHIVED"));
 })();
