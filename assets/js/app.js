@@ -65,7 +65,13 @@
     if (elType) elType.textContent = payload.content_type || "—";
     if (elDays) elDays.textContent = payload.days_stuck ?? "0";
 
-    const inTransit = !!payload.in_transit;
+    const inTransit = (
+      payload.in_transit === 1 ||
+      payload.in_transit === "1" ||
+      payload.in_transit === true
+    );
+    
+
 
     // Current holder chip
     if (elStatus) {
@@ -98,14 +104,25 @@
     const myRole = (ctx.myRole || "division").toString().toLowerCase();
     const mySectionId = Number(ctx.mySectionId || 0);
 
-    const openToSectionId = Number(payload.open_to_section_id || 0);
-    const holderSectionId = Number(payload.current_holder_section_id || 0);
+    const openToSectionId = Number.parseInt(payload.open_to_section_id, 10) || 0;
+    const holderSectionId = Number.parseInt(payload.current_holder_section_id, 10) || 0;
 
     // Hide all by default
     if (btnAckReceived) btnAckReceived.style.display = "none";
     if (btnRelease) btnRelease.style.display = "none";
     if (btnArchive) btnArchive.style.display = "none";
     if (btnUnderAction) btnUnderAction.style.display = "none";
+
+    console.log("[BTN-CTX]", {
+      myRole,
+      mySectionId,
+      inTransit,
+      openToSectionId,
+      holderSectionId,
+      payload_in_transit_raw: payload.in_transit,
+      payload_open_to_raw: payload.open_to_section_id,
+      payload_holder_raw: payload.current_holder_section_id,
+    });
 
     // Records/Admin: show all main controls (your current policy)
     if (myRole === "admin" || myRole === "records") {

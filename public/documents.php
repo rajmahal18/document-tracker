@@ -437,12 +437,12 @@ $stats = [
   </div>
 
   <div class="drawerActions">
-    <?php if (in_array($role, ["admin","records"], true)): ?>
-      <button id="btnAckReceived" class="btnGhost" type="button">Received</button>
-      <button id="btnRelease" class="btnGhost" type="button">Release</button>
-      <button id="btnArchive" class="btnPrimary" type="button">Archive</button>
-    <?php endif; ?>
+    <!-- Render buttons for all roles; JS will decide visibility -->
+    <button id="btnAckReceived" class="btnGhost" type="button" style="display:none;">Received</button>
+    <button id="btnRelease" class="btnGhost" type="button" style="display:none;">Release</button>
+    <button id="btnArchive" class="btnPrimary" type="button" style="display:none;">Archive</button>
   </div>
+
 </aside>
 
 <?php require __DIR__ . "/../includes/footer.php"; ?>
