@@ -43,14 +43,94 @@ try {
       if (is_array($decoded)) $payload = $decoded;
     }
 
+    $eventType = (string)($r["event_type"] ?? "updated");
+    $eventKey  = strtolower(trim($eventType));
+    if ($eventKey === "") $eventKey = "updated";
+
+    $actor = (string)($r["actor"] ?? "—");
+    $from  = (string)($r["from_section"] ?? "");
+    $to    = (string)($r["to_section"] ?? "");
+
+    // 🔥 Derive FORWARDED from movement when event_type is generic
+    if ($eventKey === "updated" && $from !== "" && $to !== "") {
+      $eventKey = "forwarded";
+    }
+
+
+    $actor = (string)($r["actor"] ?? "—");
+    $from  = (string)($r["from_section"] ?? "");
+    $to    = (string)($r["to_section"] ?? "");
+
+    $title = "";
+    $meta  = "";
+
+    // Human-readable sentence per event
+    switch ($eventKey) {
+      case "created":
+        $title = "{$actor} created the document";
+        break;
+
+      case "sent":
+        // initial forward on creation usually lands here
+        $title = "{$actor} sent the document";
+        break;
+
+      case "forwarded":
+        $title = "{$actor} forwarded the document";
+        break;
+
+      case "received":
+        $title = "{$actor} received the document";
+        break;
+
+      case "released":
+        $title = "{$actor} released the document";
+        break;
+
+      case "archived":
+        $title = "{$actor} archived the document";
+        break;
+
+      case "cancelled":
+        $title = "{$actor} cancelled the route";
+        break;
+
+      case "status_changed":
+        $title = "{$actor} changed the status";
+        break;
+
+      default:
+        $title = "{$actor} updated the document";
+        break;
+    }
+
+    // Movement meta line (only if may from/to)
+    if ($from !== "" || $to !== "") {
+      if ($from !== "" && $to !== "") {
+        $meta = "{$from} → {$to}";
+      } elseif ($to !== "") {
+        $meta = "To: {$to}";
+      } else {
+        $meta = "From: {$from}";
+      }
+    }
+
+
     $history[] = [
-      "event_type" => $r["event_type"],
+      "action" => $eventKey,
+      "event_type" => $eventType,
+
+      // ✅ new fields for UI text
+      "title" => $title,
+      "meta" => $meta,
+
       "remarks" => (string)($payload["remarks"] ?? ""),
       "acted_at" => $r["created_at"],
-      "actor" => (string)($r["actor"] ?? "—"),
-      "from_section" => (string)($r["from_section"] ?? ""),
-      "to_section" => (string)($r["to_section"] ?? ""),
+      "actor" => $actor,
+      "from_section" => $from,
+      "to_section" => $to,
     ];
+
   }
 
   echo json_encode(["ok" => true, "history" => $history]);

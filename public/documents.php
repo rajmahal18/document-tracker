@@ -4,6 +4,13 @@ declare(strict_types=1);
 require __DIR__ . "/../includes/bootstrap.php";
 require_login();
 
+$sections = $conn->query("
+  SELECT id, name
+  FROM sections
+  ORDER BY name ASC
+")->fetch_all(MYSQLI_ASSOC);
+
+
 $pageTitle = "Documents - Document Tracker";
 require __DIR__ . "/../includes/layout.php";
 ?>
@@ -16,6 +23,7 @@ require __DIR__ . "/../includes/layout.php";
     mySectionId: <?= (int)($_SESSION["section_id"] ?? 0) ?>,
     myRole: "<?= htmlspecialchars($_SESSION["role"] ?? "division") ?>"
   };
+  window.__SECTIONS__ = <?= json_encode($sections, JSON_UNESCAPED_UNICODE) ?>;
 </script>
 
 
@@ -213,7 +221,9 @@ $stats = [
   "overdue" => (int)($statRows["overdue"] ?? 0),
   "released_today" => (int)($statRows["released_today"] ?? 0),
 ];
+
 ?>
+
 
 <div style="display:flex;justify-content:space-between;align-items:center;">
   <h1>Document List</h1>
@@ -438,6 +448,18 @@ $stats = [
 
   <div class="drawerActions">
     <!-- Render buttons for all roles; JS will decide visibility -->
+
+    <div id="forwardBox" style="display:none; margin: 10px 0 14px;">
+      <label style="font-size:12px; font-weight:900;">Forward To</label>
+      <select id="f_to_section" class="select" style="min-width:100%;">
+        <option value="">-- Select section --</option>
+      </select>
+
+      <button id="btnForward" type="button" class="btnPrimary" style="margin-top:10px; display:none;">
+        Forward
+      </button>
+    </div>
+
     <button id="btnAckReceived" class="btnGhost" type="button" style="display:none;">Received</button>
     <button id="btnRelease" class="btnGhost" type="button" style="display:none;">Release</button>
     <button id="btnArchive" class="btnPrimary" type="button" style="display:none;">Archive</button>

@@ -24,9 +24,24 @@
   const btnRelease = document.getElementById("btnRelease");
   const btnArchive = document.getElementById("btnArchive");
 
+  const forwardBox = document.getElementById("forwardBox");
+  const selForwardTo = document.getElementById("f_to_section");
+  const btnForward = document.getElementById("btnForward");
+
+
   // Base paths from PHP
   const APP = window.__APP__ || {};
   const API = APP.api || "/document-tracker/api";
+
+  function loadSectionsOptions() {
+    if (!selForwardTo) return;
+    const list = window.__SECTIONS__ || [];
+    selForwardTo.innerHTML =
+      `<option value="">-- Select section --</option>` +
+      list.map(s => `<option value="${Number(s.id)}">${esc(s.name)}</option>`).join("");
+  }
+  loadSectionsOptions();
+
 
   function esc(s) {
     return (s ?? "").toString()
@@ -64,6 +79,11 @@
     if (elSubject) elSubject.textContent = payload.subject || "—";
     if (elType) elType.textContent = payload.content_type || "—";
     if (elDays) elDays.textContent = payload.days_stuck ?? "0";
+
+    if (forwardBox) forwardBox.style.display = "none";
+    if (btnForward) btnForward.style.display = "none";
+    if (selForwardTo) selForwardTo.value = "";
+
 
     const inTransit = (
       payload.in_transit === 1 ||
@@ -146,6 +166,8 @@
     // Not in transit: only current holder can Release (archive stays records/admin only)
     if (holderSectionId > 0 && mySectionId > 0 && holderSectionId === mySectionId) {
       if (btnRelease) btnRelease.style.display = "";
+      if (forwardBox) forwardBox.style.display = "";
+      if (btnForward) btnForward.style.display = "";
     }
   }
 
@@ -218,7 +240,9 @@
                     </div>
                   </div>
 
-                  ${i.remarks ? `<div class="tRemark">${esc(i.remarks)}</div>` : ""}
+                  ${i.title ? `<div class="tRemark">${esc(i.title)}</div>` : ""}
+                  ${i.meta ? `<div class="tMeta" style="margin-top:6px;">${esc(i.meta)}</div>` : ""}
+                  ${i.remarks ? `<div class="tMeta" style="margin-top:6px;">${esc(i.remarks)}</div>` : ""}
                 </div>
               </div>
             `;
@@ -291,6 +315,43 @@
     }
   }
 
+async function forwardDoc() {
+  const docId = elId?.value;
+  if (!docId) return;
+
+  const toSectionId = Number.parseInt(selForwardTo?.value || "0", 10) || 0;
+  if (toSectionId <= 0) {
+    alert("Please select a destination section.");
+    return;
+  }
+
+  const form = new FormData();
+  form.append("document_id", docId);
+  form.append("to_section_id", String(toSectionId));
+  form.append("remarks", elRemarks ? elRemarks.value : "");
+  form.append("csrf_token", window.__CSRF__ || "");
+
+  try {
+    const res = await fetch(`${API}/forward.php`, {
+      method: "POST",
+      body: form,
+      headers: { "Accept": "application/json" }
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok || !data?.ok) {
+      console.log("Forward response:", data);
+      alert(data?.error || `Failed to forward. (${res.status})`);
+      return;
+    }
+
+    location.reload();
+  } catch {
+    alert("Failed to forward (network error).");
+  }
+}
+
   // Events
   closeBtn?.addEventListener("click", closeDrawer);
   backdrop?.addEventListener("click", closeDrawer);
@@ -311,4 +372,6 @@
 
   btnRelease?.addEventListener("click", () => updateStatus("RELEASED"));
   btnArchive?.addEventListener("click", () => updateStatus("ARCHIVED"));
+  btnForward?.addEventListener("click", forwardDoc);
+
 })();

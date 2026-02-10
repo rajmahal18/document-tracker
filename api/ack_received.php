@@ -51,6 +51,7 @@ try {
     JOIN documents d ON d.id = r.document_id
     WHERE r.document_id = ?
       AND r.is_open = 1
+      ORDER BY r.id DESC
     LIMIT 1
   ");
   $stmt->bind_param("i", $docId);
@@ -85,9 +86,12 @@ try {
   // 3) Close the route (mark received)
   $stmt = $conn->prepare("
     UPDATE routes
-    SET received_by_user_id = ?, received_at = NOW()
+    SET is_open = 0,
+        received_by_user_id = ?,
+        received_at = NOW()
     WHERE id = ? AND is_open = 1
   ");
+
   $stmt->bind_param("ii", $userId, $routeId);
   $stmt->execute();
 
@@ -143,6 +147,11 @@ try {
 } catch (Throwable $e) {
   $conn->rollback();
   http_response_code(500);
-  echo json_encode(["ok" => false, "error" => "Server error"]);
+  echo json_encode([
+    "ok" => false,
+    "error" => "Server error",
+    "debug" => $e->getMessage()
+  ]);
   exit;
 }
+

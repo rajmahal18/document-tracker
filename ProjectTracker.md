@@ -37,3 +37,18 @@ Planned refactor for tomorrow:
     Normalize all history inserts to include from_section_id and to_section_id
     Clean up timeline semantics: Created ≠ Received
     Align system behavior with actual paper flow in MPW offices
+
+Day 4 — Feb 10, 2026 (CURRENT STATE)
+
+Major refactor completed
+Database (finalized model)
+    documents
+        lifecycle status (ACTIVE | RELEASED | ARCHIVED)
+        current_holder_section_id
+routes
+    models movement
+    only one open route per document
+document_participants
+    permanent visibility list
+document_events
+    normalized audit trail (created, forwarded, received, released, archived)
