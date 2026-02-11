@@ -104,7 +104,7 @@ body {
 
 .content {
   width: 100%;
-  max-width: 1200px;   /* controls how wide content is */
+  max-width: 1440px;   /* controls how wide content is */
   padding: 32px 24px;
 }
 
@@ -771,4 +771,41 @@ button:hover {
 .tItem.isCurrent .tContent {
   transform: translateY(-1px);
 }
+
+/* =========================
+   MPW subtle background (safe)
+   ========================= */
+
+/* Keep only ONE body block in your file.
+   We'll just extend your existing body styling. */
+body {
+  position: relative;
+}
+
+/* Watermark layer */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image: url("../mpw.png");
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center;
+  filter: grayscale(10%) blur(3px);
+  opacity: 0.12;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Put the actual page content above the watermark
+   (your real wrappers are .topbar and .page) */
+.topbar,
+.page {
+  position: relative;
+  z-index: 1;
+}
+
+/* IMPORTANT:
+   Do NOT touch .drawerBackdrop / .drawer z-index here.
+   They already have their own high z-index and must stay above everything. */
 
