@@ -26,9 +26,9 @@ if ($docId <= 0 || !in_array($newStatus, $allowed, true)) {
   exit;
 }
 
-$role = $_SESSION["role"] ?? "division";
+$role        = $_SESSION["role"] ?? "division";
 $mySectionId = (int)($_SESSION["section_id"] ?? 0);
-$userId = (int)($_SESSION["user_id"] ?? 0);
+$userId      = (int)($_SESSION["user_id"] ?? 0);
 
 if ($mySectionId <= 0) {
   http_response_code(400);
@@ -36,17 +36,9 @@ if ($mySectionId <= 0) {
   exit;
 }
 
-// Optional guard: only admin/records can archive
-if ($newStatus === "ARCHIVED" && !in_array($role, ["admin", "records"], true)) {
-  http_response_code(403);
-  echo json_encode(["ok" => false, "error" => "Forbidden"]);
-  exit;
-}
-
 try {
   $conn->begin_transaction();
 
-  // Fetch current doc + ensure holder
   $stmt = $conn->prepare("
     SELECT
       d.current_status,
@@ -70,11 +62,11 @@ try {
     exit;
   }
 
-  $oldStatus = (string)$doc["current_status"];
+  $oldStatus       = strtoupper((string)$doc["current_status"]);
   $holderSectionId = (int)$doc["current_holder_section_id"];
-  $hasOpenRoute = (int)$doc["has_open_route"] === 1;
+  $hasOpenRoute    = (int)$doc["has_open_route"] === 1;
 
-  // North Star: only holder can act (admin override allowed but still has section)
+  // Only holder can act (admin override allowed)
   if ($role !== "admin" && $holderSectionId !== $mySectionId) {
     $conn->rollback();
     http_response_code(403);
@@ -82,12 +74,33 @@ try {
     exit;
   }
 
-  // Prevent status changes while in-transit? (optional but sensible)
-  // Holder still physically holds it, but to avoid confusion, we block non-ACTIVE changes if there is an open route.
-  if ($hasOpenRoute && $newStatus !== "ACTIVE") {
+  // Block any status change while in transit
+  if ($hasOpenRoute) {
     $conn->rollback();
     http_response_code(409);
     echo json_encode(["ok" => false, "error" => "Cannot change status while document has a pending route."]);
+    exit;
+  }
+
+  // Allowed transitions (supports undo)
+  $allowedTransitions = [
+    "ACTIVE"   => ["RELEASED", "ARCHIVED"],
+    "RELEASED" => ["ACTIVE", "ARCHIVED"],   // ACTIVE = Undo Release
+    "ARCHIVED" => ["RELEASED"],             // RELEASED = Undo Archive
+  ];
+
+  if (!isset($allowedTransitions[$oldStatus]) || !in_array($newStatus, $allowedTransitions[$oldStatus], true)) {
+    $conn->rollback();
+    http_response_code(409);
+    echo json_encode(["ok" => false, "error" => "Invalid status transition."]);
+    exit;
+  }
+
+  // Only admin/records can archive
+  if ($newStatus === "ARCHIVED" && !in_array($role, ["admin", "records"], true)) {
+    $conn->rollback();
+    http_response_code(403);
+    echo json_encode(["ok" => false, "error" => "Forbidden"]);
     exit;
   }
 
@@ -102,7 +115,7 @@ try {
     exit;
   }
 
-  // Update documents status
+  // Update status
   $stmt = $conn->prepare("
     UPDATE documents
     SET current_status = ?
@@ -111,7 +124,14 @@ try {
   $stmt->bind_param("si", $newStatus, $docId);
   $stmt->execute();
 
-  // Log event
+  // ✅ Enum-safe event type:
+  // Use only values that likely exist in your ENUM: released / archived
+  $eventType = "updated";
+  if ($oldStatus === "ACTIVE" && $newStatus === "RELEASED") $eventType = "released";
+  if ($oldStatus === "RELEASED" && $newStatus === "ACTIVE") $eventType = "released";   // undo release (derive later)
+  if (($oldStatus === "ACTIVE" || $oldStatus === "RELEASED") && $newStatus === "ARCHIVED") $eventType = "archived";
+  if ($oldStatus === "ARCHIVED" && $newStatus === "RELEASED") $eventType = "archived"; // undo archive (derive later)
+
   $payload = json_encode([
     "old_status" => $oldStatus,
     "new_status" => $newStatus,
@@ -121,9 +141,9 @@ try {
   $stmt = $conn->prepare("
     INSERT INTO document_events
       (document_id, event_type, actor_user_id, actor_section_id, payload_json)
-    VALUES (?, 'status_changed', ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?)
   ");
-  $stmt->bind_param("iiis", $docId, $userId, $mySectionId, $payload);
+  $stmt->bind_param("isiis", $docId, $eventType, $userId, $mySectionId, $payload);
   $stmt->execute();
 
   $conn->commit();
@@ -131,6 +151,7 @@ try {
   echo json_encode([
     "ok" => true,
     "document_id" => $docId,
+    "event_type" => $eventType,
     "old_status" => $oldStatus,
     "new_status" => $newStatus
   ]);

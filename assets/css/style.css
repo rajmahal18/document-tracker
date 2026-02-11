@@ -688,3 +688,87 @@ button:hover {
 .action-cancelled .tIcon { background: #b42318; }
 .action-status_changed .tIcon { background: #7f56d9; }
 .action-updated .tIcon   { background: #7f56d9; }
+
+/* ===== Timeline: extra hierarchy ===== */
+
+.tIcon {
+  display: grid;
+  place-items: center;
+}
+
+.tGlyph {
+  font-size: 11px;
+  font-weight: 900;
+  color: #fff;
+  line-height: 1;
+}
+
+/* right side header stack (badge + action label) */
+.tRight {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.tBadge {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.8px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(2, 132, 199, 0.12);
+  color: #0284c7;
+  border: 1px solid rgba(2, 132, 199, 0.25);
+}
+
+/* Movement chips row */
+.tMove {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tChip {
+  font-size: 12px;
+  font-weight: 800;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.tChip.muted {
+  color: #94a3b8;
+  background: #fff;
+}
+
+.tArrow {
+  font-weight: 900;
+  color: #64748b;
+}
+
+/* Remarks as a "note" (so it reads like an annotation) */
+.tNote {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f9fafb;
+  border: 1px dashed #e5e7eb;
+  color: #334155;
+  font-weight: 700;
+  font-size: 12.5px;
+}
+
+/* Make the latest item pop more */
+.tItem.isCurrent .tContent::before {
+  opacity: 1;
+}
+
+.tItem.isCurrent .tContent {
+  transform: translateY(-1px);
+}
+

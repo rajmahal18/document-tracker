@@ -28,20 +28,9 @@
   const selForwardTo = document.getElementById("f_to_section");
   const btnForward = document.getElementById("btnForward");
 
-
   // Base paths from PHP
   const APP = window.__APP__ || {};
   const API = APP.api || "/document-tracker/api";
-
-  function loadSectionsOptions() {
-    if (!selForwardTo) return;
-    const list = window.__SECTIONS__ || [];
-    selForwardTo.innerHTML =
-      `<option value="">-- Select section --</option>` +
-      list.map(s => `<option value="${Number(s.id)}">${esc(s.name)}</option>`).join("");
-  }
-  loadSectionsOptions();
-
 
   function esc(s) {
     return (s ?? "").toString()
@@ -52,6 +41,15 @@
       .replaceAll("'", "&#039;");
   }
 
+  function loadSectionsOptions() {
+    if (!selForwardTo) return;
+    const list = window.__SECTIONS__ || [];
+    selForwardTo.innerHTML =
+      `<option value="">-- Select section --</option>` +
+      list.map(s => `<option value="${Number(s.id)}">${esc(s.name)}</option>`).join("");
+  }
+  loadSectionsOptions();
+
   function prettyAction(a) {
     const key = (a ?? "").toString().trim().toLowerCase();
     const map = {
@@ -60,11 +58,13 @@
       received: "Received",
       forwarded: "Forwarded",
       released: "Released",
+      release_undone: "Undo Release",
       archived: "Archived",
+      archive_undone: "Undo Archive",
       cancelled: "Cancelled",
       under_action: "Under Action",
       updated: "Updated",
-      status_changed: "Status Changed",
+      status_changed: "Status Changed", // kept for old rows, but new rows should stop using this
     };
     return map[key] || (key ? key : "Updated");
   }
@@ -84,14 +84,14 @@
     if (btnForward) btnForward.style.display = "none";
     if (selForwardTo) selForwardTo.value = "";
 
-
     const inTransit = (
       payload.in_transit === 1 ||
       payload.in_transit === "1" ||
       payload.in_transit === true
     );
-    
 
+    // IMPORTANT: make sure documents.php includes this in data-doc
+    const docStatus = (payload.current_status || "ACTIVE").toString().toUpperCase();
 
     // Current holder chip
     if (elStatus) {
@@ -133,39 +133,79 @@
     if (btnArchive) btnArchive.style.display = "none";
     if (btnUnderAction) btnUnderAction.style.display = "none";
 
-    console.log("[BTN-CTX]", {
-      myRole,
-      mySectionId,
-      inTransit,
-      openToSectionId,
-      holderSectionId,
-      payload_in_transit_raw: payload.in_transit,
-      payload_open_to_raw: payload.open_to_section_id,
-      payload_holder_raw: payload.current_holder_section_id,
-    });
+    // Reset defaults
+    if (btnRelease) {
+      btnRelease.textContent = "Release";
+      btnRelease.dataset.nextStatus = "RELEASED";
+    }
+    if (btnArchive) {
+      btnArchive.textContent = "Archive";
+      btnArchive.dataset.nextStatus = "ARCHIVED";
+    }
 
-    // Records/Admin: show all main controls (your current policy)
-    if (myRole === "admin" || myRole === "records") {
-      if (btnAckReceived) btnAckReceived.style.display = "";
-      if (btnRelease) btnRelease.style.display = "";
-      if (btnArchive) btnArchive.style.display = "";
-      // if (btnUnderAction) btnUnderAction.style.display = "";
+    // ---- Status-based hard rules FIRST ----
+    // ARCHIVED: only Undo Archive (admin/records), nothing else should appear
+    if (docStatus === "ARCHIVED") {
+      if (myRole === "admin" || myRole === "records") {
+        if (btnArchive) {
+          btnArchive.textContent = "Undo Archive";
+          btnArchive.dataset.nextStatus = "RELEASED";
+          btnArchive.style.display = "";
+        }
+      }
       return;
     }
 
-    // Non-records rules
+    // RELEASED: hide Receive always. Release becomes Undo Release.
+    if (docStatus === "RELEASED") {
+      // release button becomes undo (holder/admin/records only)
+      if (btnRelease) {
+        btnRelease.textContent = "Undo Release";
+        btnRelease.dataset.nextStatus = "ACTIVE";
+      }
+      // NOTE: keep going to apply role gating + archive availability
+      // but NEVER show Received in RELEASED state.
+    }
+
+    // ---- Role gating ----
+    // Admin/Records: can see Release/UndoRelease (depending on status) + Archive (or UndoArchive earlier handled)
+    if (myRole === "admin" || myRole === "records") {
+      if (docStatus === "ACTIVE") {
+        // In ACTIVE, show Received only when appropriate, not always
+        if (inTransit && openToSectionId > 0 && mySectionId > 0 && openToSectionId === mySectionId) {
+          if (btnAckReceived) btnAckReceived.style.display = "";
+        }
+      }
+      // Release or Undo Release visible for admin/records (you chose this policy)
+      if (btnRelease) btnRelease.style.display = "";
+
+      // Archive visible for admin/records.
+      if (btnArchive) btnArchive.style.display = "";
+      return;
+    }
+
+    // ---- Non-records (division) ----
+    // RELEASED: no receive, no forward. Only Undo Release for holder.
+    if (docStatus === "RELEASED") {
+      if (holderSectionId > 0 && mySectionId > 0 && holderSectionId === mySectionId) {
+        if (btnRelease) btnRelease.style.display = ""; // Undo Release -> ACTIVE
+      }
+      return;
+    }
+
+    // ACTIVE flow for non-records
     if (inTransit) {
       // Only pending recipient can "Receive"
       if (openToSectionId > 0 && mySectionId > 0 && openToSectionId === mySectionId) {
         if (btnAckReceived) btnAckReceived.style.display = "";
       }
-      // No release/archive while in transit for non-records
+      // No release while in transit for non-records
       return;
     }
 
-    // Not in transit: only current holder can Release (archive stays records/admin only)
+    // Not in transit: only current holder can Release + Forward
     if (holderSectionId > 0 && mySectionId > 0 && holderSectionId === mySectionId) {
-      if (btnRelease) btnRelease.style.display = "";
+      if (btnRelease) btnRelease.style.display = ""; // Release -> RELEASED
       if (forwardBox) forwardBox.style.display = "";
       if (btnForward) btnForward.style.display = "";
     }
@@ -219,14 +259,48 @@
         }).replace(",", "");
       }
 
+      const actionIcon = (k) => {
+        const key = (k || "updated").toString().trim().toLowerCase();
+        const map = {
+          created: "＋",
+          sent: "↗",
+          forwarded: "➜",
+          received: "✓",
+          released: "⤴",
+          release_undone: "↩",
+          archived: "⧉",
+          archive_undone: "↩",
+          cancelled: "×",
+          status_changed: "⚑",
+          updated: "•",
+        };
+        return map[key] || "•";
+      };
+
       elTimeline.innerHTML = `
         <div class="timeline">
           ${items.map((i, idx) => {
-            // get_history.php returns: action, remarks, acted_at, actor
             const actionKey = (i.action ?? "updated").toString().trim().toLowerCase() || "updated";
+            const isCurrent = idx === 0;
+
+            const from = (i.from_section || "").toString().trim();
+            const to = (i.to_section || "").toString().trim();
+
+            const moveHtml = (from || to)
+              ? `
+                <div class="tMove">
+                  ${from ? `<span class="tChip">${esc(from)}</span>` : `<span class="tChip muted">—</span>`}
+                  <span class="tArrow">→</span>
+                  ${to ? `<span class="tChip">${esc(to)}</span>` : `<span class="tChip muted">—</span>`}
+                </div>
+              `
+              : "";
+
             return `
-              <div class="tItem action-${esc(actionKey)} ${idx === 0 ? "isCurrent" : ""}">
-                <div class="tIcon"></div>
+              <div class="tItem action-${esc(actionKey)} ${isCurrent ? "isCurrent" : ""}">
+                <div class="tIcon" aria-hidden="true">
+                  <span class="tGlyph">${esc(actionIcon(actionKey))}</span>
+                </div>
 
                 <div class="tContent">
                   <div class="tRow">
@@ -235,14 +309,17 @@
                       ${esc(i.actor || "System")}
                     </div>
 
-                    <div class="tAction">
-                      ${esc(prettyAction(actionKey).toUpperCase())}
+                    <div class="tRight">
+                      ${isCurrent ? `<span class="tBadge">LATEST</span>` : ``}
+                      <div class="tAction">${esc(prettyAction(actionKey).toUpperCase())}</div>
                     </div>
                   </div>
 
                   ${i.title ? `<div class="tRemark">${esc(i.title)}</div>` : ""}
-                  ${i.meta ? `<div class="tMeta" style="margin-top:6px;">${esc(i.meta)}</div>` : ""}
-                  ${i.remarks ? `<div class="tMeta" style="margin-top:6px;">${esc(i.remarks)}</div>` : ""}
+
+                  ${moveHtml}
+
+                  ${i.remarks ? `<div class="tNote">${esc(i.remarks)}</div>` : ""}
                 </div>
               </div>
             `;
@@ -315,42 +392,42 @@
     }
   }
 
-async function forwardDoc() {
-  const docId = elId?.value;
-  if (!docId) return;
+  async function forwardDoc() {
+    const docId = elId?.value;
+    if (!docId) return;
 
-  const toSectionId = Number.parseInt(selForwardTo?.value || "0", 10) || 0;
-  if (toSectionId <= 0) {
-    alert("Please select a destination section.");
-    return;
-  }
-
-  const form = new FormData();
-  form.append("document_id", docId);
-  form.append("to_section_id", String(toSectionId));
-  form.append("remarks", elRemarks ? elRemarks.value : "");
-  form.append("csrf_token", window.__CSRF__ || "");
-
-  try {
-    const res = await fetch(`${API}/forward.php`, {
-      method: "POST",
-      body: form,
-      headers: { "Accept": "application/json" }
-    });
-
-    const data = await res.json().catch(() => null);
-
-    if (!res.ok || !data?.ok) {
-      console.log("Forward response:", data);
-      alert(data?.error || `Failed to forward. (${res.status})`);
+    const toSectionId = Number.parseInt(selForwardTo?.value || "0", 10) || 0;
+    if (toSectionId <= 0) {
+      alert("Please select a destination section.");
       return;
     }
 
-    location.reload();
-  } catch {
-    alert("Failed to forward (network error).");
+    const form = new FormData();
+    form.append("document_id", docId);
+    form.append("to_section_id", String(toSectionId));
+    form.append("remarks", elRemarks ? elRemarks.value : "");
+    form.append("csrf_token", window.__CSRF__ || "");
+
+    try {
+      const res = await fetch(`${API}/forward.php`, {
+        method: "POST",
+        body: form,
+        headers: { "Accept": "application/json" }
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.ok) {
+        console.log("Forward response:", data);
+        alert(data?.error || `Failed to forward. (${res.status})`);
+        return;
+      }
+
+      location.reload();
+    } catch {
+      alert("Failed to forward (network error).");
+    }
   }
-}
 
   // Events
   closeBtn?.addEventListener("click", closeDrawer);
@@ -370,8 +447,17 @@ async function forwardDoc() {
   // Optional: repurpose UnderAction button to ACTIVE (if you keep it in UI)
   btnUnderAction?.addEventListener("click", () => updateStatus("ACTIVE"));
 
-  btnRelease?.addEventListener("click", () => updateStatus("RELEASED"));
-  btnArchive?.addEventListener("click", () => updateStatus("ARCHIVED"));
+  // IMPORTANT: use dataset.nextStatus (Release can become Undo Release, Archive can become Undo Archive)
+  btnRelease?.addEventListener("click", () => {
+    const next = (btnRelease.dataset.nextStatus || "RELEASED").toUpperCase();
+    updateStatus(next);
+  });
+
+  btnArchive?.addEventListener("click", () => {
+    const next = (btnArchive.dataset.nextStatus || "ARCHIVED").toUpperCase();
+    updateStatus(next);
+  });
+
   btnForward?.addEventListener("click", forwardDoc);
 
 })();

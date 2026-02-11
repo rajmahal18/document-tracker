@@ -38,17 +38,27 @@ Planned refactor for tomorrow:
     Clean up timeline semantics: Created ≠ Received
     Align system behavior with actual paper flow in MPW offices
 
-Day 4 — Feb 10, 2026 (CURRENT STATE)
+Day 4 — Feb 10, 2026
 
-Major refactor completed
-Database (finalized model)
-    documents
-        lifecycle status (ACTIVE | RELEASED | ARCHIVED)
-        current_holder_section_id
-routes
-    models movement
-    only one open route per document
-document_participants
-    permanent visibility list
-document_events
-    normalized audit trail (created, forwarded, received, released, archived)
+Major refactor of document movement and visibility
+Finalized separation of lifecycle status vs movement (routes)
+
+Implemented forwarding flow
+    Added Forward UI for current holder
+    Created forward.php
+    Enforced one open route per document
+    Auto-added destination section to document_participants
+Fixed receive-after-forward issue
+    Corrected open route handling
+    Ensured destination section can receive forwarded documents
+    Stabilized ack_received.php logic
+Visibility behavior finalized
+    Any section ever involved retains visibility via document_participants
+    Visibility no longer depends on document_events
+Database cleanup
+    Fixed routes unique/index constraints to prevent duplicate open routes
+    Normalized movement data consistency
+Timeline refactor started
+    Switched timeline source fully to document_events
+    Added human-readable titles and movement meta (from → to)
+    Began UI redesign after schema change (visual polish pending)

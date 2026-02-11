@@ -157,7 +157,45 @@ $sql = "
 ";
 
 if ($where) $sql .= " WHERE " . implode(" AND ", $where);
-$sql .= " ORDER BY d.document_date DESC, d.id DESC LIMIT 200";
+$mySid = (int)$mySectionId;
+
+$sql .= "
+  ORDER BY
+    -- 1) ACTIVE docs HELD by my section (not in transit) first = Needs Action
+    CASE
+      WHEN d.current_status='ACTIVE'
+       AND (r_open.id IS NULL)
+       AND d.current_holder_section_id = {$mySid}
+      THEN 0
+
+      -- 2) ACTIVE docs IN TRANSIT to my section next = Incoming
+      WHEN d.current_status='ACTIVE'
+       AND (r_open.id IS NOT NULL)
+       AND r_open.to_section_id = {$mySid}
+      THEN 1
+
+      -- 3) Other ACTIVE in transit
+      WHEN d.current_status='ACTIVE'
+       AND (r_open.id IS NOT NULL)
+      THEN 2
+
+      -- 4) Other ACTIVE (reference)
+      WHEN d.current_status='ACTIVE' THEN 3
+
+      -- 5) RELEASED then ARCHIVED
+      WHEN d.current_status='RELEASED' THEN 4
+      WHEN d.current_status='ARCHIVED' THEN 5
+
+      ELSE 9
+    END ASC,
+
+    -- Inside bucket: stuck first, then newest
+    TIMESTAMPDIFF(DAY, d.updated_at, NOW()) DESC,
+    d.document_date DESC,
+    d.id DESC
+  LIMIT 200
+";
+
 
 $stmt = $conn->prepare($sql);
 if ($params) $stmt->bind_param($types, ...$params);
@@ -301,21 +339,22 @@ $stats = [
   <table class="docTable">
     <thead>
       <tr>
+        <th>Status</th>
         <th>Tracking No.</th>
+        <th>Subject</th>
+        <th>Destination</th>
+        <th>Current Holder</th>
+        <th>Days</th>
         <th>Requester</th>
         <th>Document Date</th>
-        <th>Subject</th>
         <th>Type</th>
-        <th>Movement</th>
-        <th>Current Holder</th>
         <th>Last Holder</th>
-        <th>Days</th>
       </tr>
     </thead>
     <tbody>
       <?php if (!$docs): ?>
         <tr>
-          <td colspan="9" class="mini" style="padding:18px;">No documents found.</td>
+          <td colspan="10" class="mini" style="padding:18px;">No documents found.</td>
         </tr>
       <?php endif; ?>
 
@@ -327,13 +366,38 @@ $stats = [
 
           $inTransit = !empty($d["open_to_section_id"]);
 
+          $currentStatus = strtoupper((string)($d["current_status"] ?? "ACTIVE"));
+
+          $statusLabel = "—";
+          $statusChipClass = "chip incoming"; // default
+
+          if ($currentStatus === "ARCHIVED") {
+            $statusLabel = "ARCHIVED";
+            $statusChipClass = "chip archived";
+          } elseif ($currentStatus === "RELEASED") {
+            $statusLabel = "RELEASED";
+            $statusChipClass = "chip released";
+          } else {
+            // ACTIVE
+            if ($inTransit) {
+              $isIncomingToMe = ((int)($d["open_to_section_id"] ?? 0) === $mySectionId);
+              $statusLabel = $isIncomingToMe ? "IN TRANSIT (TO YOU)" : "IN TRANSIT";
+              $statusChipClass = "chip action";
+            } else {
+              $isMine = ((int)($d["current_holder_section_id"] ?? 0) === $mySectionId);
+              $statusLabel = $isMine ? "NEEDS ACTION" : "ACTIVE";
+              $statusChipClass = $isMine ? "chip overdue" : "chip incoming";
+            }
+          }
+
+
           // Movement = destination
           $movementText = $inTransit
             ? (string)($d["open_to_section_name"] ?? "—")
             : "—";
 
           // Current Holder = IN TRANSIT or section
-          $currentHolderText = (string)($d["current_holder_name"] ?? "—");
+          $currentHolderText = $inTransit ? "—" : (string)($d["current_holder_name"] ?? "—");
 
 
           // Last Holder logic stays correct
@@ -364,33 +428,35 @@ $stats = [
 
 
             "current_holder_section_id" => (int)($d["current_holder_section_id"] ?? 0),
+            "current_status" => (string)($d["current_status"] ?? "ACTIVE"),
             "days_stuck" => $days,
           ]), ENT_QUOTES, "UTF-8") ?>'
         >
+          <td>
+            <span class="<?= htmlspecialchars($statusChipClass) ?>">
+              <?= htmlspecialchars($statusLabel) ?>
+            </span>
+          </td>
+
           <td><b><?= htmlspecialchars((string)$d["tracking_no"]) ?></b></td>
-          <td><?= htmlspecialchars((string)$d["requester"]) ?></td>
-          <td class="mini"><?= htmlspecialchars((string)$d["document_date"]) ?></td>
+
           <td><?= htmlspecialchars((string)$d["subject"]) ?></td>
-          <td class="mini"><?= htmlspecialchars((string)$d["content_type"]) ?></td>
 
-          <td>
-            <?= htmlspecialchars($movementText) ?>
-          </td>
+          <td><?= htmlspecialchars($movementText) ?></td>
 
-          <td>
-            <?php if ($inTransit): ?>
-              <span class="chip action">IN TRANSIT</span>
-            <?php else: ?>
-              <?= htmlspecialchars($currentHolderText) ?>
-            <?php endif; ?>
-          </td>
-
-          <td><?= htmlspecialchars($lastHolderText) ?></td>
-
+          <td><?= htmlspecialchars($currentHolderText) ?></td>
 
           <td>
             <span class="daysPill <?= $danger ?: $warn ?>"><?= $days ?></span>
           </td>
+
+          <td><?= htmlspecialchars((string)$d["requester"]) ?></td>
+
+          <td class="mini"><?= htmlspecialchars((string)$d["document_date"]) ?></td>
+
+          <td class="mini"><?= htmlspecialchars((string)$d["content_type"]) ?></td>
+
+          <td><?= htmlspecialchars($lastHolderText) ?></td>
         </tr>
       <?php endforeach; ?>
     </tbody>
@@ -441,7 +507,10 @@ $stats = [
     <div class="kv"><div class="k">Days stuck</div><div class="v" id="d_days"></div></div>
 
     <div style="margin-top:14px;">
-      <div class="k" style="margin-bottom:8px;">Timeline</div>
+      <div class="k" style="margin-bottom:8px; display:flex; align-items:center; gap:8px;">
+        <span>Timeline</span>
+        <span class="mini" style="opacity:.7;">(latest on top)</span>
+      </div>
       <div id="d_timeline" class="mini">Select a document…</div>
     </div>
   </div>

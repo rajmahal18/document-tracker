@@ -84,11 +84,27 @@ try {
         break;
 
       case "released":
-        $title = "{$actor} released the document";
+        $old = strtoupper((string)($payload["old_status"] ?? ""));
+        $new = strtoupper((string)($payload["new_status"] ?? ""));
+
+        if ($old === "RELEASED" && $new === "ACTIVE") {
+          $eventKey = "release_undone";
+          $title = "{$actor} undid the release";
+        } else {
+          $title = "{$actor} released the document";
+        }
         break;
 
       case "archived":
-        $title = "{$actor} archived the document";
+        $old = strtoupper((string)($payload["old_status"] ?? ""));
+        $new = strtoupper((string)($payload["new_status"] ?? ""));
+
+        if ($old === "ARCHIVED" && $new === "RELEASED") {
+          $eventKey = "archive_undone";
+          $title = "{$actor} undid the archive";
+        } else {
+          $title = "{$actor} archived the document";
+        }
         break;
 
       case "cancelled":
@@ -97,6 +113,14 @@ try {
 
       case "status_changed":
         $title = "{$actor} changed the status";
+        break;
+
+      case "release_undone":
+        $title = "{$actor} undid the release";
+        break;
+
+      case "archive_undone":
+        $title = "{$actor} undid the archive";
         break;
 
       default:
