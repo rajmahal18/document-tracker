@@ -62,3 +62,30 @@ Timeline refactor started
     Switched timeline source fully to document_events
     Added human-readable titles and movement meta (from → to)
     Began UI redesign after schema change (visual polish pending)
+
+Day 5 — Feb 11, 2026
+
+UI + UX structural improvements
+    Replaced “Movement” column with Destination
+    Moved IN TRANSIT state into Status logic
+    Simplified Current Holder display
+    Clarified table semantics (less ambiguity)
+Visual refinement
+    Added MPW building watermark (low opacity, blurred)
+    Implemented glass-style content container
+    Improved table width and layout spacing
+    Enhanced drawer visual hierarchy
+Timeline overhaul
+    Added toggle: Events | By Section
+    Implemented grouped timeline (one box per division)
+    Section box begins at first Received event (except origin)
+    Separated lifecycle vs movement semantics in UI
+Chronology fixes
+    Fixed sender/receiver order conflict (same timestamp issue)
+    Introduced action ranking for deterministic sorting
+    Corrected section box ordering based on latest activity
+    Ensured chronological integrity in grouped mode
+Stability improvements
+    Timeline fully driven by document_events
+    Normalized action labels (release_undone, archive_undone, etc.)
+    Improved client-side rendering logic for consistency

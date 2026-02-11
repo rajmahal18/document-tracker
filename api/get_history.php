@@ -19,13 +19,20 @@ try {
       e.event_type,
       e.created_at,
       e.payload_json,
+
+      e.actor_section_id,
+      s_actor.name AS actor_section_name,
+
       u.full_name AS actor,
       s_from.name AS from_section,
       s_to.name AS to_section
     FROM document_events e
     LEFT JOIN users u ON u.id = e.actor_user_id
+
+    LEFT JOIN sections s_actor ON s_actor.id = e.actor_section_id
     LEFT JOIN sections s_from ON s_from.id = e.from_section_id
     LEFT JOIN sections s_to   ON s_to.id = e.to_section_id
+
     WHERE e.document_id = ?
     ORDER BY e.created_at DESC
     LIMIT 50
@@ -147,6 +154,10 @@ try {
       // ✅ new fields for UI text
       "title" => $title,
       "meta" => $meta,
+
+      "actor_section_id" => (int)($r["actor_section_id"] ?? 0),
+      "actor_section" => (string)($r["actor_section_name"] ?? ""),
+
 
       "remarks" => (string)($payload["remarks"] ?? ""),
       "acted_at" => $r["created_at"],

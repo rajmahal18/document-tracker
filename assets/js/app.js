@@ -228,16 +228,9 @@
         return;
       }
 
-      let data;
-      try {
-        data = await res.json();
-      } catch {
-        elTimeline.textContent = "Failed to load timeline (invalid JSON response).";
-        return;
-      }
-
-      if (!data.ok) {
-        elTimeline.textContent = data.error || "No timeline.";
+      const data = await res.json().catch(() => null);
+      if (!data?.ok) {
+        elTimeline.textContent = data?.error || "No timeline.";
         return;
       }
 
@@ -247,6 +240,7 @@
         return;
       }
 
+      // ---------- helpers ----------
       function fmt(dt) {
         const d = new Date((dt || "").toString().replace(" ", "T"));
         if (isNaN(d.getTime())) return dt || "";
@@ -277,59 +271,286 @@
         return map[key] || "•";
       };
 
-      elTimeline.innerHTML = `
-        <div class="timeline">
-          ${items.map((i, idx) => {
-            const actionKey = (i.action ?? "updated").toString().trim().toLowerCase() || "updated";
-            const isCurrent = idx === 0;
+      const getKey = (i) => (i.action ?? "updated").toString().trim().toLowerCase() || "updated";
 
-            const from = (i.from_section || "").toString().trim();
-            const to = (i.to_section || "").toString().trim();
+      function renderEventsView(itemsNewestFirst) {
+        return `
+          <div class="timeline">
+            ${itemsNewestFirst.map((i, idx) => {
+              const actionKey = getKey(i);
+              const isCurrent = idx === 0;
 
-            const moveHtml = (from || to)
-              ? `
-                <div class="tMove">
-                  ${from ? `<span class="tChip">${esc(from)}</span>` : `<span class="tChip muted">—</span>`}
-                  <span class="tArrow">→</span>
-                  ${to ? `<span class="tChip">${esc(to)}</span>` : `<span class="tChip muted">—</span>`}
-                </div>
-              `
-              : "";
+              const from = (i.from_section || "").toString().trim();
+              const to = (i.to_section || "").toString().trim();
 
-            return `
-              <div class="tItem action-${esc(actionKey)} ${isCurrent ? "isCurrent" : ""}">
-                <div class="tIcon" aria-hidden="true">
-                  <span class="tGlyph">${esc(actionIcon(actionKey))}</span>
-                </div>
+              const moveHtml = (from || to)
+                ? `
+                  <div class="tMove">
+                    ${from ? `<span class="tChip">${esc(from)}</span>` : `<span class="tChip muted">—</span>`}
+                    <span class="tArrow">→</span>
+                    ${to ? `<span class="tChip">${esc(to)}</span>` : `<span class="tChip muted">—</span>`}
+                  </div>
+                `
+                : "";
 
-                <div class="tContent">
-                  <div class="tRow">
-                    <div class="tMeta tMetaLeft">
-                      ${esc(fmt(i.acted_at))}<br>
-                      ${esc(i.actor || "System")}
-                    </div>
-
-                    <div class="tRight">
-                      ${isCurrent ? `<span class="tBadge">LATEST</span>` : ``}
-                      <div class="tAction">${esc(prettyAction(actionKey).toUpperCase())}</div>
-                    </div>
+              return `
+                <div class="tItem action-${esc(actionKey)} ${isCurrent ? "isCurrent" : ""}">
+                  <div class="tIcon" aria-hidden="true">
+                    <span class="tGlyph">${esc(actionIcon(actionKey))}</span>
                   </div>
 
-                  ${i.title ? `<div class="tRemark">${esc(i.title)}</div>` : ""}
+                  <div class="tContent">
+                    <div class="tRow">
+                      <div class="tMeta tMetaLeft">
+                        ${esc(fmt(i.acted_at))}<br>
+                        ${esc(i.actor || "System")}
+                      </div>
 
-                  ${moveHtml}
+                      <div class="tRight">
+                        ${isCurrent ? `<span class="tBadge">LATEST</span>` : ``}
+                        <div class="tAction">${esc(prettyAction(actionKey).toUpperCase())}</div>
+                      </div>
+                    </div>
 
-                  ${i.remarks ? `<div class="tNote">${esc(i.remarks)}</div>` : ""}
+                    ${i.title ? `<div class="tRemark">${esc(i.title)}</div>` : ""}
+
+                    ${moveHtml}
+
+                    ${i.remarks ? `<div class="tNote">${esc(i.remarks)}</div>` : ""}
+                  </div>
                 </div>
+              `;
+            }).join("")}
+          </div>
+        `;
+      }
+
+      function renderGroupedView(itemsNewestFirst) {
+        // ---------- helpers ----------
+        const actionRank = (key) => {
+          const k = (key || "updated").toString().trim().toLowerCase();
+          // Lower = earlier (older)
+          const rank = {
+            created: 10,
+            sent: 20,
+            received: 30,
+            forwarded: 40,
+            released: 50,
+            release_undone: 55,
+            archived: 60,
+            archive_undone: 65,
+            cancelled: 70,
+            status_changed: 80,
+            updated: 90,
+          };
+          return rank[k] ?? 999;
+        };
+
+        // Higher = later (newer) for tie-breaker when sorting section boxes by "latest activity"
+        const actionRankNewerWins = (key) => {
+          const k = (key || "updated").toString().trim().toLowerCase();
+          const rank = {
+            updated: 10,
+            status_changed: 20,
+            cancelled: 30,
+            archive_undone: 40,
+            archived: 50,
+            release_undone: 60,
+            released: 70,
+            forwarded: 80,
+            received: 90,
+            sent: 100,
+            created: 110,
+          };
+          return rank[k] ?? 0;
+        };
+
+        const ts = (dt) => {
+          const t = new Date((dt || "").toString().replace(" ", "T")).getTime();
+          return isNaN(t) ? 0 : t;
+        };
+
+        // Expect getKey(), fmt(), esc(), prettyAction() to exist in your outer scope (as in your file)
+        // getKey(i) = (i.action ?? "updated").toString().trim().toLowerCase() || "updated";
+
+        // 1) Convert newest-first -> true chronological (oldest -> newest)
+        //    Tie-break: SENT before RECEIVED when same timestamp, etc.
+        const itemsChrono = [...itemsNewestFirst].sort((a, b) => {
+          const da = ts(a.acted_at);
+          const db = ts(b.acted_at);
+          if (da !== db) return da - db;
+
+          const ra = actionRank(getKey(a));
+          const rb = actionRank(getKey(b));
+          if (ra !== rb) return ra - rb;
+
+          // stable-ish tiebreak: event_id if present
+          const ida = Number(a.event_id || 0);
+          const idb = Number(b.event_id || 0);
+          if (ida !== idb) return ida - idb;
+
+          return 0;
+        });
+
+        // 2) Group by actor_section_id (fallback: SYS)
+        const groups = new Map(); // key -> { sectionName, items: [] } where items are chronological
+        const keys = [];          // list of group keys (unique)
+
+        for (const ev of itemsChrono) {
+          const sid = Number(ev.actor_section_id || 0);
+          const key = sid > 0 ? `S:${sid}` : "SYS";
+          const secName =
+            (ev.actor_section || "").toString().trim() ||
+            (sid > 0 ? `Section #${sid}` : "System");
+
+          if (!groups.has(key)) {
+            groups.set(key, { sectionName: secName, items: [] });
+            keys.push(key);
+          }
+          groups.get(key).items.push(ev);
+        }
+
+        // 3) Sort section boxes by latest activity (newest first)
+        //    Tie-breaker: if same timestamp, RECEIVER box should win (received > sent)
+        keys.sort((ka, kb) => {
+          const a = groups.get(ka)?.items || [];
+          const b = groups.get(kb)?.items || [];
+
+          const aLast = a.length ? ts(a[a.length - 1].acted_at) : 0; // items chronological
+          const bLast = b.length ? ts(b[b.length - 1].acted_at) : 0;
+
+          if (aLast !== bLast) return bLast - aLast;
+
+          const aKey = a.length ? getKey(a[a.length - 1]) : "updated";
+          const bKey = b.length ? getKey(b[b.length - 1]) : "updated";
+
+          const aR = actionRankNewerWins(aKey);
+          const bR = actionRankNewerWins(bKey);
+
+          if (aR !== bR) return bR - aR; // higher rank wins (receiver > sender)
+
+          // final stable tie-breaker: keep consistent order
+          return ka.localeCompare(kb);
+        });
+
+        // 4) Render groups (each group newest on top, but logic stays chronological internally)
+        const rendered = keys.map((key) => {
+          const g = groups.get(key);
+          if (!g) return "";
+
+          const list = g.items; // chronological (oldest -> newest)
+
+          // Apply your rule: for non-origin sections, start at first RECEIVED
+          // (Creation is only exception: origin section may include CREATED before RECEIVED)
+          const firstReceivedIdx = list.findIndex((x) => getKey(x) === "received");
+          const firstCreatedIdx  = list.findIndex((x) => getKey(x) === "created");
+
+          let displayList = list;
+
+          if (key !== "SYS") {
+            if (firstReceivedIdx >= 0) {
+              if (firstCreatedIdx >= 0 && firstCreatedIdx < firstReceivedIdx) {
+                displayList = list.slice(firstCreatedIdx);
+              } else {
+                displayList = list.slice(firstReceivedIdx);
+              }
+            }
+          }
+
+          const headerMeta = (() => {
+            const first = displayList[0]?.acted_at ? fmt(displayList[0].acted_at) : "";
+            const last  = displayList[displayList.length - 1]?.acted_at
+              ? fmt(displayList[displayList.length - 1].acted_at)
+              : "";
+            const count = displayList.length;
+
+            if (!first) return `${count} action${count === 1 ? "" : "s"}`;
+            return `${count} action${count === 1 ? "" : "s"} • ${first}${last && last !== first ? ` → ${last}` : ""}`;
+          })();
+
+          // UI wants newest on top inside the box
+          const newestFirst = [...displayList].reverse();
+
+          return `
+            <div class="tGroup">
+              <div class="tGroupHead">
+                <div class="tGroupTitle">${esc(g.sectionName)}</div>
+                <div class="tGroupSub">${esc(headerMeta)}</div>
               </div>
-            `;
-          }).join("")}
+
+              <div class="tGroupBody">
+                ${newestFirst.map((i) => {
+                  const actionKey = getKey(i);
+
+                  const from = (i.from_section || "").toString().trim();
+                  const to   = (i.to_section || "").toString().trim();
+
+                  const moveText = (from || to) ? `${from || "—"} → ${to || "—"}` : "";
+
+                  return `
+                    <div class="tLine action-${esc(actionKey)}">
+                      <div class="tLineLeft">
+                        <span class="tLineTime">${esc(fmt(i.acted_at))}</span>
+                        <span class="tLineTag">${esc(prettyAction(actionKey).toUpperCase())}</span>
+                      </div>
+
+                      <div class="tLineMain">
+                        <div class="tLineTitle">${esc(i.title || `${(i.actor || "System")} updated the document`)}</div>
+                        ${moveText ? `<div class="tLineMove">${esc(moveText)}</div>` : ``}
+                        ${i.remarks ? `<div class="tLineNote">${esc(i.remarks)}</div>` : ``}
+                      </div>
+                    </div>
+                  `;
+                }).join("")}
+              </div>
+            </div>
+          `;
+        }).join("");
+
+        return `<div class="tGrouped">${rendered}</div>`;
+      }
+
+
+      // ---------- UI toggle ----------
+      const LS_KEY = "dt_timeline_view";
+      const saved = (localStorage.getItem(LS_KEY) || "events").toLowerCase();
+      let view = (saved === "grouped") ? "grouped" : "events";
+
+      elTimeline.innerHTML = `
+        <div class="tToolbar">
+          <button type="button" class="tToggle ${view === "events" ? "isOn" : ""}" data-view="events">Events</button>
+          <button type="button" class="tToggle ${view === "grouped" ? "isOn" : ""}" data-view="grouped">By Section</button>
         </div>
+        <div id="timelineBody"></div>
       `;
+
+      const body = elTimeline.querySelector("#timelineBody");
+      const buttons = elTimeline.querySelectorAll(".tToggle");
+
+      function paint() {
+        if (!body) return;
+        body.innerHTML = (view === "grouped")
+          ? renderGroupedView(items)
+          : renderEventsView(items);
+
+        buttons.forEach(b => b.classList.toggle("isOn", b.dataset.view === view));
+        localStorage.setItem(LS_KEY, view);
+      }
+
+      buttons.forEach(b => {
+        b.addEventListener("click", () => {
+          view = (b.dataset.view === "grouped") ? "grouped" : "events";
+          paint();
+        });
+      });
+
+      paint();
+
     } catch (e) {
       elTimeline.textContent = "Failed to load timeline.";
     }
   }
+
 
   async function updateStatus(newStatus) {
     const docId = elId?.value;

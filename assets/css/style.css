@@ -809,3 +809,141 @@ body::before {
    Do NOT touch .drawerBackdrop / .drawer z-index here.
    They already have their own high z-index and must stay above everything. */
 
+/* =========================
+   Timeline Toggle
+   ========================= */
+
+.tToolbar {
+  display: flex;
+  gap: 8px;
+  margin: 6px 0 12px;
+}
+
+.tToggle {
+  background: #fff;
+  border: 1px solid #cfd6dd;
+  color: #0b3a66;
+  font-weight: 900;
+  padding: 8px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.tToggle.isOn {
+  background: rgba(11, 58, 102, 0.10);
+  border-color: rgba(11, 58, 102, 0.25);
+}
+
+/* =========================
+   Grouped Timeline (By Section)
+   ========================= */
+
+.tGrouped {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tGroup {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  box-shadow: 0 6px 14px rgba(16, 24, 40, 0.06);
+  overflow: hidden;
+}
+
+.tGroupHead {
+  padding: 12px 14px;
+  border-bottom: 1px solid #eef0f2;
+  background: rgba(11, 58, 102, 0.04);
+}
+
+.tGroupTitle {
+  font-weight: 900;
+  color: #0b3a66;
+}
+
+.tGroupSub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #667085;
+  font-weight: 700;
+}
+
+.tGroupBody {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tLine {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 10px;
+  padding: 10px 10px;
+  border: 1px solid #eef0f2;
+  border-radius: 12px;
+  background: #fff;
+  position: relative;
+  overflow: hidden;
+}
+
+/* left accent bar uses currentColor via action-xxx */
+.tLine::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 4px;
+  border-radius: 6px;
+  background: currentColor;
+  opacity: 0.8;
+}
+
+.tLineLeft {
+  font-size: 12px;
+  color: #475467;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.tLineTime {
+  display: block;
+}
+
+.tLineTag {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.6px;
+}
+
+.tLineTitle {
+  font-weight: 800;
+  color: #101828;
+  font-size: 13px;
+}
+
+.tLineMove {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #667085;
+  font-weight: 700;
+}
+
+.tLineNote {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #f9fafb;
+  border: 1px dashed #e5e7eb;
+  color: #334155;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+

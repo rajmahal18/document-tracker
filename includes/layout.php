@@ -10,7 +10,7 @@ $pageTitle = $pageTitle ?? "Document Tracker";
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title><?= htmlspecialchars($pageTitle) ?></title>
 
-  <link rel="stylesheet" href="<?= ASSETS_PATH ?>/css/style.css?v=6">
+  <link rel="stylesheet" href="<?= ASSETS_PATH ?>/css/style.css?v=7">
 
 <script>
   window.__APP__ = {
