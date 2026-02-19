@@ -7,25 +7,23 @@ require_login();
 $pageTitle = "Add Document";
 $error = "";
 
-// ✅ Only Records and Admin can add new docs
+// ✅ Anyone can add docs now (no records role). Must be logged in only.
 $role = $_SESSION["role"] ?? "division";
-if (!in_array($role, ["admin", "records"], true)) {
-  http_response_code(403);
-  $error = "Forbidden. Only Records/Admin can add documents.";
-}
 
 // ✅ Must have a section_id for routing
 $fromSectionId = (int)($_SESSION["section_id"] ?? 0);
 
-// ✅ Load sections for dropdown (exclude your own section if you want)
+// ✅ Load sections for dropdown (division-aware)
 $sections = $conn->query("
-  SELECT id, name
-  FROM sections
-  ORDER BY name ASC
+  SELECT s.id, s.name, d.name AS division_name
+  FROM sections s
+  JOIN divisions d ON d.id = s.division_id
+  WHERE s.is_active = 1 AND d.is_active = 1
+  ORDER BY d.name ASC, s.name ASC
 ")->fetch_all(MYSQLI_ASSOC);
 
 if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
-  $tracking_no   = "TRK-" . time(); // simple unique
+  $tracking_no   = "TRK-" . time(); // simple unique (ok for now)
   $requester     = trim($_POST["requester"] ?? "");
   $document_date = trim($_POST["document_date"] ?? "");
   $subject       = trim($_POST["subject"] ?? "");
@@ -47,7 +45,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
       try {
         $conn->begin_transaction();
 
-        // 1) documents: origin + current holder = Records (from section)
+        // 1) documents: origin + current holder = from section
         $stmt = $conn->prepare("
           INSERT INTO documents (
             tracking_no, requester, document_date, subject, content_type, comm_type,
@@ -57,13 +55,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           )
           VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?)
         ");
-
         $stmt->bind_param(
           "ssssssiii",
           $tracking_no, $requester, $document_date, $subject, $content_type, $comm_type,
           $fromSectionId, $fromSectionId, $userId
         );
-
         $stmt->execute();
         $docId = (int)$conn->insert_id;
 
@@ -121,6 +117,104 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         $stmt->bind_param("iiiiis", $docId, $userId, $fromSectionId, $fromSectionId, $toSectionId, $payloadSent);
         $stmt->execute();
 
+        // 6) optional: attach initial file (PDF/JPG/PNG ONLY)
+        if (
+          isset($_FILES["attach_file"]) &&
+          is_array($_FILES["attach_file"]) &&
+          ($_FILES["attach_file"]["error"] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK
+        ) {
+          $f = $_FILES["attach_file"];
+
+          $maxBytes = 10 * 1024 * 1024; // 10MB
+          $allowedExt = ["pdf", "jpg", "jpeg", "png"];
+
+          $orig = basename((string)($f["name"] ?? "file"));
+          $orig = preg_replace('/[^a-zA-Z0-9._\-\s]/', "_", $orig) ?? $orig;
+
+          $size = (int)($f["size"] ?? 0);
+          if ($size <= 0 || $size > $maxBytes) {
+            throw new RuntimeException("Attachment too large (max 10MB)");
+          }
+
+          $ext = strtolower(pathinfo($orig, PATHINFO_EXTENSION));
+          if ($ext === "" || !in_array($ext, $allowedExt, true)) {
+            throw new RuntimeException("Unsupported attachment type (PDF/JPG/PNG only)");
+          }
+
+          $tmp = (string)($f["tmp_name"] ?? "");
+          if ($tmp === "" || !is_uploaded_file($tmp)) {
+            throw new RuntimeException("Invalid upload");
+          }
+
+          // ✅ Real MIME check (server-side, reliable)
+          $finfo = new finfo(FILEINFO_MIME_TYPE);
+          $realMime = (string)$finfo->file($tmp);
+
+          $allowedRealMime = ["application/pdf", "image/jpeg", "image/png"];
+          if (!in_array($realMime, $allowedRealMime, true)) {
+            throw new RuntimeException("Unsupported attachment type (PDF/JPG/PNG only)");
+          }
+
+          $baseDir = realpath(__DIR__ . "/../storage/attachments");
+          if ($baseDir === false) {
+            $baseDir = __DIR__ . "/../storage/attachments";
+            if (!is_dir($baseDir)) {
+              mkdir($baseDir, 0775, true);
+            }
+          }
+
+          $docDir = rtrim((string)$baseDir, "/\\") . "/doc_" . $docId;
+          if (!is_dir($docDir)) {
+            mkdir($docDir, 0775, true);
+          }
+
+          $stamp = date("Ymd_His");
+          $rand = bin2hex(random_bytes(6));
+          $storedName = $stamp . "_u" . $userId . "_" . $rand . "." . $ext;
+          $abs = $docDir . "/" . $storedName;
+
+          if (!move_uploaded_file($tmp, $abs)) {
+            throw new RuntimeException("Failed to store attachment");
+          }
+
+          $rel = "storage/attachments/doc_" . $docId . "/" . $storedName;
+          $note = trim((string)($_POST["attach_note"] ?? ""));
+
+          // Use real mime for DB
+          $mime = $realMime;
+
+          $stmt = $conn->prepare("
+            INSERT INTO document_attachments
+              (document_id, original_name, stored_name, stored_path, mime, size_bytes, note, is_append, uploaded_by_user_id, uploaded_by_section_id)
+            VALUES
+              (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+          ");
+          $stmt->bind_param(
+            "issssisii",
+            $docId, $orig, $storedName, $rel, $mime, $size, $note, $userId, $fromSectionId
+          );
+          $stmt->execute();
+          $attachId = (int)$conn->insert_id;
+
+          // audit
+          $payloadAttach = json_encode([
+            "kind" => "attachment_added",
+            "attachment_id" => $attachId,
+            "file" => $orig,
+            "is_append" => 0,
+            "note" => $note,
+          ], JSON_UNESCAPED_UNICODE);
+
+          $stmt = $conn->prepare("
+            INSERT INTO document_events
+              (document_id, event_type, actor_user_id, actor_section_id, payload_json)
+            VALUES
+              (?, 'updated', ?, ?, ?)
+          ");
+          $stmt->bind_param("iiis", $docId, $userId, $fromSectionId, $payloadAttach);
+          $stmt->execute();
+        }
+
         $conn->commit();
         redirect(PUBLIC_PATH . "/documents.php");
 
@@ -128,7 +222,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         $conn->rollback();
         $error = "Failed to add document: " . $e->getMessage();
       }
-}
+    }
   }
 }
 
@@ -144,7 +238,7 @@ require __DIR__ . "/../includes/layout.php";
 <?php endif; ?>
 
 <div class="card" style="max-width:720px;margin-top:14px;">
-  <form method="POST">
+  <form method="POST" enctype="multipart/form-data">
     <label>Requester *</label>
     <input type="text" name="requester" required value="<?= htmlspecialchars($_POST["requester"] ?? "") ?>">
 
@@ -171,10 +265,14 @@ require __DIR__ . "/../includes/layout.php";
           value="<?= (int)$s["id"] ?>"
           <?= ((string)($s["id"]) === (string)($_POST["to_section_id"] ?? "")) ? "selected" : "" ?>
         >
-          <?= htmlspecialchars($s["name"]) ?>
+          <?= htmlspecialchars($s["division_name"] . " — " . $s["name"]) ?>
         </option>
       <?php endforeach; ?>
     </select>
+
+    <label style="margin-top:14px;">Attach File (optional)</label>
+    <input type="file" name="attach_file" accept=".pdf,.jpg,.jpeg,.png">
+    <input type="text" name="attach_note" placeholder="Note (optional)" value="<?= htmlspecialchars($_POST["attach_note"] ?? "") ?>">
 
     <div style="margin-top:16px;">
       <button type="submit" class="btnPrimary">Save Document</button>

@@ -4,12 +4,14 @@ declare(strict_types=1);
 require __DIR__ . "/../includes/bootstrap.php";
 require_login();
 
+/* ✅ Division-aware sections */
 $sections = $conn->query("
-  SELECT id, name
-  FROM sections
-  ORDER BY name ASC
+  SELECT s.id, s.name, d.name AS division_name
+  FROM sections s
+  JOIN divisions d ON d.id = s.division_id
+  WHERE s.is_active = 1 AND d.is_active = 1
+  ORDER BY d.name ASC, s.name ASC
 ")->fetch_all(MYSQLI_ASSOC);
-
 
 $pageTitle = "Documents - Document Tracker";
 require __DIR__ . "/../includes/layout.php";
@@ -18,13 +20,14 @@ require __DIR__ . "/../includes/layout.php";
 <script>
   window.__CSRF__ = "<?= htmlspecialchars(csrf_token(), ENT_QUOTES, "UTF-8") ?>";
 
-  // ✅ JS context for button visibility logic
   window.__CTX__ = {
     mySectionId: <?= (int)($_SESSION["section_id"] ?? 0) ?>,
     myRole: "<?= htmlspecialchars($_SESSION["role"] ?? "division") ?>"
   };
+
   window.__SECTIONS__ = <?= json_encode($sections, JSON_UNESCAPED_UNICODE) ?>;
 </script>
+
 
 
 <?php
@@ -270,8 +273,6 @@ $stats = [
   </a>
 </div>
 
-<p class="mini">Signed in as <b><?= htmlspecialchars($_SESSION["full_name"] ?? "User") ?></b> (<?= htmlspecialchars($role) ?>)</p>
-
 <div class="stats">
   <div class="statCard">
     <div class="statTop">
@@ -307,7 +308,7 @@ $stats = [
 </div>
 
 <form class="toolbar" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
-  <div class="filters">
+  <div class="toolbarLeft">
     <div class="control">
       <label>Status</label>
       <select class="select" name="status">
@@ -329,9 +330,9 @@ $stats = [
     </div>
   </div>
 
-  <div class="filters">
+  <div class="toolbarRight">
     <input class="search" type="text" name="q" placeholder="Search tracking no, requester, subject, holder..." value="<?= htmlspecialchars($search) ?>">
-    <button type="submit">Apply</button>
+    <button type="submit" class="btnPrimary">Apply</button>
   </div>
 </form>
 
@@ -417,6 +418,10 @@ $stats = [
             "content_type" => $d["content_type"],
             "comm_type" => $d["comm_type"],
 
+            // For drawer: keep status label/class consistent with table
+            "status_label" => $statusLabel,
+            "status_chip_class" => $statusChipClass,
+
             "in_transit" => !empty($d["open_to_section_id"]) ? 1 : 0,
 
             "open_to_section_id" => (int)($d["open_to_section_id"] ?? 0),
@@ -484,9 +489,16 @@ $stats = [
     </div>
 
     <div class="kv">
+      <div class="k">Status</div>
+      <div class="v">
+        <span id="d_status" class="chip incoming">—</span>
+      </div>
+    </div>
+
+    <div class="kv">
       <div class="k">Current Holder</div>
       <div class="v">
-        <span id="d_status" class="chip archived">—</span>
+        <span id="d_holder" class="chip incoming">—</span>
       </div>
     </div>
 
@@ -506,6 +518,50 @@ $stats = [
     <div class="kv"><div class="k">Type</div><div class="v" id="d_type"></div></div>
     <div class="kv"><div class="k">Days stuck</div><div class="v" id="d_days"></div></div>
 
+    <!-- Attachments -->
+    <div style="margin-top:14px;">
+	      <div class="k" style="margin-bottom:8px; display:flex; align-items:center; gap:8px; justify-content:space-between;">
+	        <div style="display:flex; align-items:center; gap:8px;">
+	          <span>Attachments</span>
+            <button type="button" class="btnPrimary" id="btnViewDocument">View document</button>
+	          <span class="mini" style="opacity:.7;">(downloadable)</span>
+	        </div>
+	      </div>
+
+      <div class="drawerSectionActions">
+        <button type="button" class="btnGhost" id="btnToggleAttachments">
+          View all
+        </button>
+
+        <button type="button" class="btnGhost" id="btnToggleUpload">
+          Add attachment
+        </button>
+      </div>
+
+      <div id="d_attachments" class="attachList mini collapsed"></div>
+
+      <form id="attachForm" class="attachForm collapsed" enctype="multipart/form-data">
+        <input
+          type="file"
+          id="attachFile"
+          name="file"
+          required
+          accept=".pdf,.jpg,.jpeg,.png"
+        />
+
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <input type="hidden" id="attachType" value="1" />
+          <input id="attachNote" type="text" class="search" style="flex:1;" placeholder="Note (optional)" />
+        </div>
+
+        <button id="btnAttachUpload" type="button" class="btnPrimary" style="margin-top:10px;">
+          Upload
+        </button>
+
+        <div id="attachMsg" class="mini" style="margin-top:6px;"></div>
+      </form>
+    </div>
+
     <div style="margin-top:14px;">
       <div class="k" style="margin-bottom:8px; display:flex; align-items:center; gap:8px;">
         <span>Timeline</span>
@@ -518,22 +574,51 @@ $stats = [
   <div class="drawerActions">
     <!-- Render buttons for all roles; JS will decide visibility -->
 
-    <div id="forwardBox" style="display:none; margin: 10px 0 14px;">
-      <label style="font-size:12px; font-weight:900;">Forward To</label>
-      <select id="f_to_section" class="select" style="min-width:100%;">
-        <option value="">-- Select section --</option>
-      </select>
-
-      <button id="btnForward" type="button" class="btnPrimary" style="margin-top:10px; display:none;">
-        Forward
-      </button>
-    </div>
+    <button type="button" class="btnGhost" id="btnToggleForward">
+      Forward
+    </button>
 
     <button id="btnAckReceived" class="btnGhost" type="button" style="display:none;">Received</button>
     <button id="btnRelease" class="btnGhost" type="button" style="display:none;">Release</button>
     <button id="btnArchive" class="btnPrimary" type="button" style="display:none;">Archive</button>
   </div>
 
+  <!-- ✅ Put forwardBox OUTSIDE drawerActions so it doesn't mess button layout -->
+  <div id="forwardBox" class="collapsed" style="margin-top:10px;">
+    <label style="font-size:12px; font-weight:900;">Forward To</label>
+
+    <select id="f_to_section" class="select" style="min-width:100%;">
+      <option value="">-- Select section --</option>
+    </select>
+
+    <button id="btnForward" type="button" class="btnPrimary" style="margin-top:10px; display:none;">
+      Forward
+    </button>
+  </div>
+
 </aside>
 
+<!-- Attachment Preview Modal -->
+      <div id="attModal" class="attModal" aria-hidden="true">
+        <div id="attModalBackdrop" class="attBackdrop"></div>
+
+        <div class="attDialog" id="attDialog">
+          <div class="attTopbar">
+            <div>
+              <div id="attTitle" class="attTitle">Attachment Preview</div>
+              <div id="attSub" class="attSub mini"></div>
+            </div>
+            <button id="attClose" class="attClose" type="button">✕</button>
+          </div>
+
+          <div id="attBody" class="attBody">
+            <!-- injected preview -->
+          </div>
+
+          <div class="attFooter">
+            <a id="attDownload" class="btnGhost" href="#" target="_blank" rel="noopener">Download</a>
+          </div>
+        </div>
+      </div>
+      
 <?php require __DIR__ . "/../includes/footer.php"; ?>

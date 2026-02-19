@@ -10,7 +10,7 @@ $pageTitle = $pageTitle ?? "Document Tracker";
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title><?= htmlspecialchars($pageTitle) ?></title>
 
-  <link rel="stylesheet" href="<?= ASSETS_PATH ?>/css/style.css?v=7">
+  <link rel="stylesheet" href="<?= ASSETS_PATH ?>/css/style.css?v=10">
 
 <script>
   window.__APP__ = {
@@ -51,3 +51,28 @@ $pageTitle = $pageTitle ?? "Document Tracker";
 
 <main class="page">
   <div class="content">
+
+    <?php if (isset($_SESSION["user_id"])): ?>
+      <?php
+        $fullName = (string)($_SESSION["full_name"] ?? "User");
+        $division = trim((string)($_SESSION["division_name"] ?? ""));
+        $section  = trim((string)($_SESSION["section_name"] ?? ""));
+        $role     = trim((string)($_SESSION["role"] ?? "user"));
+
+        // Build "Division — Section" line
+        $orgLine = "";
+        if ($division !== "" && $section !== "") $orgLine = $division . " — " . $section;
+        elseif ($division !== "") $orgLine = $division;
+        elseif ($section !== "") $orgLine = $section;
+      ?>
+
+      <div class="mini" style="margin: 0 0 12px; opacity: .85;">
+        Signed in as <b><?= htmlspecialchars($fullName) ?></b>
+        <?php if ($orgLine !== ""): ?>
+          <br>
+          <span style="opacity:.75;">
+            <?= htmlspecialchars($orgLine) ?>
+          </span>
+        <?php endif; ?>
+      </div>
+    <?php endif; ?>

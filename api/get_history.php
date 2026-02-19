@@ -54,6 +54,11 @@ try {
     $eventKey  = strtolower(trim($eventType));
     if ($eventKey === "") $eventKey = "updated";
 
+    // ✅ Attachment events are stored as event_type='updated' with payload kind
+    if ($eventKey === "updated" && (($payload["kind"] ?? "") === "attachment_added")) {
+      $eventKey = "attachment_added";
+    }
+
     $actor = (string)($r["actor"] ?? "—");
     $from  = (string)($r["from_section"] ?? "");
     $to    = (string)($r["to_section"] ?? "");
@@ -128,6 +133,14 @@ try {
 
       case "archive_undone":
         $title = "{$actor} undid the archive";
+        break;
+
+      case "attachment_added":
+        $file = (string)($payload["file"] ?? "file");
+        $isAppend = ((int)($payload["is_append"] ?? 0) === 1);
+        $what = $isAppend ? "an appended file" : "a file";
+        $title = "{$actor} attached {$what}";
+        $meta = $file;
         break;
 
       default:

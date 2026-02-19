@@ -66,15 +66,15 @@ try {
   $holderSectionId = (int)$doc["current_holder_section_id"];
   $hasOpenRoute    = (int)$doc["has_open_route"] === 1;
 
-  // Only holder can act (admin override allowed)
-  if ($role !== "admin" && $holderSectionId !== $mySectionId) {
+  // ✅ Only holder can act (physical holder rule; no bypass)
+  if ($holderSectionId !== $mySectionId) {
     $conn->rollback();
     http_response_code(403);
     echo json_encode(["ok" => false, "error" => "Forbidden: your section does not hold this document"]);
     exit;
   }
 
-  // Block any status change while in transit
+  // ✅ Block any status change while in transit
   if ($hasOpenRoute) {
     $conn->rollback();
     http_response_code(409);
@@ -82,7 +82,7 @@ try {
     exit;
   }
 
-  // Allowed transitions (supports undo)
+  // ✅ Allowed transitions (supports undo)
   $allowedTransitions = [
     "ACTIVE"   => ["RELEASED", "ARCHIVED"],
     "RELEASED" => ["ACTIVE", "ARCHIVED"],   // ACTIVE = Undo Release
@@ -93,14 +93,6 @@ try {
     $conn->rollback();
     http_response_code(409);
     echo json_encode(["ok" => false, "error" => "Invalid status transition."]);
-    exit;
-  }
-
-  // Only admin/records can archive
-  if ($newStatus === "ARCHIVED" && !in_array($role, ["admin", "records"], true)) {
-    $conn->rollback();
-    http_response_code(403);
-    echo json_encode(["ok" => false, "error" => "Forbidden"]);
     exit;
   }
 
@@ -115,7 +107,7 @@ try {
     exit;
   }
 
-  // Update status
+  // ✅ Update status
   $stmt = $conn->prepare("
     UPDATE documents
     SET current_status = ?
@@ -125,12 +117,11 @@ try {
   $stmt->execute();
 
   // ✅ Enum-safe event type:
-  // Use only values that likely exist in your ENUM: released / archived
   $eventType = "updated";
   if ($oldStatus === "ACTIVE" && $newStatus === "RELEASED") $eventType = "released";
-  if ($oldStatus === "RELEASED" && $newStatus === "ACTIVE") $eventType = "released";   // undo release (derive later)
+  if ($oldStatus === "RELEASED" && $newStatus === "ACTIVE") $eventType = "released";   // undo release
   if (($oldStatus === "ACTIVE" || $oldStatus === "RELEASED") && $newStatus === "ARCHIVED") $eventType = "archived";
-  if ($oldStatus === "ARCHIVED" && $newStatus === "RELEASED") $eventType = "archived"; // undo archive (derive later)
+  if ($oldStatus === "ARCHIVED" && $newStatus === "RELEASED") $eventType = "archived"; // undo archive
 
   $payload = json_encode([
     "old_status" => $oldStatus,

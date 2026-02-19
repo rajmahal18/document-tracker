@@ -19,25 +19,38 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $error = "Please enter your username/email and password.";
   } else {
 
-    // ✅ include section_id
+    // ✅ Pull user + section + division for session UI
     $stmt = $conn->prepare("
-      SELECT id, full_name, email, password_hash, role, section_id
-      FROM users
-      WHERE email = ?
+      SELECT
+        u.id,
+        u.full_name,
+        u.email,
+        u.password_hash,
+        u.role,
+        u.section_id,
+        s.name AS section_name,
+        d.name AS division_name
+      FROM users u
+      LEFT JOIN sections s ON s.id = u.section_id
+      LEFT JOIN divisions d ON d.id = s.division_id
+      WHERE u.email = ?
       LIMIT 1
     ");
     $stmt->bind_param("s", $username);
     $stmt->execute();
     $user = $stmt->get_result()->fetch_assoc();
 
-    if (!$user || !password_verify($password, $user["password_hash"])) {
+    if (!$user || !password_verify($password, (string)$user["password_hash"])) {
       $error = "Invalid login credentials.";
     } else {
       // ✅ store everything needed in session
-      $_SESSION["user_id"]    = (int)$user["id"];
-      $_SESSION["full_name"]  = $user["full_name"];
-      $_SESSION["role"]       = $user["role"];
-      $_SESSION["section_id"] = isset($user["section_id"]) ? (int)$user["section_id"] : null;
+      $_SESSION["user_id"]       = (int)$user["id"];
+      $_SESSION["full_name"]     = (string)$user["full_name"];
+      $_SESSION["role"]          = (string)($user["role"] ?? "user");
+
+      $_SESSION["section_id"]    = isset($user["section_id"]) ? (int)$user["section_id"] : null;
+      $_SESSION["section_name"]  = (string)($user["section_name"] ?? "");
+      $_SESSION["division_name"] = (string)($user["division_name"] ?? "");
 
       redirect(PUBLIC_PATH . "/documents.php");
     }
