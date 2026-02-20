@@ -268,7 +268,7 @@ $stats = [
 
 <div style="display:flex;justify-content:space-between;align-items:center;">
   <h1>Document List</h1>
-  <a href="<?= PUBLIC_PATH ?>/add_document.php" class="btnPrimary" style="text-decoration:none;">
+  <a href="<?= PUBLIC_PATH ?>/add_document.php" class="btnComp" style="text-decoration:none;">
     + Add Document
   </a>
 </div>
@@ -307,8 +307,12 @@ $stats = [
   </div>
 </div>
 
-<form class="toolbar" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
-  <div class="toolbarLeft">
+<div class="toolbarWrap">
+  <!-- Filters -->
+  <form class="toolbar toolbarFilters" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
+    <!-- Keep the search value when applying filters -->
+    <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
+
     <div class="control">
       <label>Status</label>
       <select class="select" name="status">
@@ -328,23 +332,37 @@ $stats = [
       <label>Date to</label>
       <input class="date" type="date" name="to" value="<?= htmlspecialchars($date_to) ?>">
     </div>
-  </div>
 
-  <div class="toolbarRight">
-    <input class="search" type="text" name="q" placeholder="Search tracking no, requester, subject, holder..." value="<?= htmlspecialchars($search) ?>">
-    <button type="submit" class="btnPrimary">Apply</button>
-  </div>
-</form>
+    <button type="submit" class="btnSecondary">Apply</button>
+  </form>
+
+  <!-- Search -->
+  <form class="toolbar toolbarSearch" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
+    <!-- Keep filter values when searching -->
+    <input type="hidden" name="status" value="<?= htmlspecialchars($status) ?>">
+    <input type="hidden" name="from" value="<?= htmlspecialchars($date_from) ?>">
+    <input type="hidden" name="to" value="<?= htmlspecialchars($date_to) ?>">
+
+    <div class="control">
+      <label>Search Documents</label>
+      <input class="search" type="text" style="margin-bottom:0px" name="q"
+             placeholder="Search tracking no, requester, subject, holder..."
+             value="<?= htmlspecialchars($search) ?>">
+    </div>
+
+    <button type="submit" class="btnSecondary">Search</button>
+  </form>
+</div>
 
 <div class="tableWrap">
   <table class="docTable">
     <thead>
       <tr>
         <th>Status</th>
+        <th>Current Holder</th>
         <th>Tracking No.</th>
         <th>Subject</th>
         <th>Destination</th>
-        <th>Current Holder</th>
         <th>Days</th>
         <th>Requester</th>
         <th>Document Date</th>
@@ -443,13 +461,14 @@ $stats = [
             </span>
           </td>
 
-          <td><b><?= htmlspecialchars((string)$d["tracking_no"]) ?></b></td>
+          <td><b><?= htmlspecialchars($currentHolderText) ?></b></td>
 
-          <td><?= htmlspecialchars((string)$d["subject"]) ?></td>
+          <td class="mini"><?= htmlspecialchars((string)$d["tracking_no"]) ?></td>
+
+          <td class="mini"><?= htmlspecialchars((string)$d["subject"]) ?></td>
 
           <td><?= htmlspecialchars($movementText) ?></td>
 
-          <td><?= htmlspecialchars($currentHolderText) ?></td>
 
           <td>
             <span class="daysPill <?= $danger ?: $warn ?>"><?= $days ?></span>
@@ -517,23 +536,23 @@ $stats = [
     <div class="kv"><div class="k">Subject</div><div class="v" id="d_subject"></div></div>
     <div class="kv"><div class="k">Type</div><div class="v" id="d_type"></div></div>
     <div class="kv"><div class="k">Days stuck</div><div class="v" id="d_days"></div></div>
+    <div class="kv"><div class="k">Full Document</div><div class="v"><button type="button" class="btnComp" id="btnViewDocument">View document</button></div></div>
 
     <!-- Attachments -->
     <div style="margin-top:14px;">
 	      <div class="k" style="margin-bottom:8px; display:flex; align-items:center; gap:8px; justify-content:space-between;">
 	        <div style="display:flex; align-items:center; gap:8px;">
 	          <span>Attachments</span>
-            <button type="button" class="btnPrimary" id="btnViewDocument">View document</button>
-	          <span class="mini" style="opacity:.7;">(downloadable)</span>
+            
 	        </div>
 	      </div>
 
       <div class="drawerSectionActions">
-        <button type="button" class="btnGhost" id="btnToggleAttachments">
+        <button type="button" class="btnSecondary" id="btnToggleAttachments">
           View all
         </button>
 
-        <button type="button" class="btnGhost" id="btnToggleUpload">
+        <button type="button" class="btnSecondary" id="btnToggleUpload">
           Add attachment
         </button>
       </div>
@@ -574,13 +593,13 @@ $stats = [
   <div class="drawerActions">
     <!-- Render buttons for all roles; JS will decide visibility -->
 
-    <button type="button" class="btnGhost" id="btnToggleForward">
+    <button type="button" class="btnSecondary" id="btnToggleForward">
       Forward
     </button>
 
-    <button id="btnAckReceived" class="btnGhost" type="button" style="display:none;">Received</button>
-    <button id="btnRelease" class="btnGhost" type="button" style="display:none;">Release</button>
-    <button id="btnArchive" class="btnPrimary" type="button" style="display:none;">Archive</button>
+    <button id="btnAckReceived" class="btnComp" type="button" style="display:none;">Received</button>
+    <button id="btnRelease" class="btnComp" type="button" style="display:none;">Release</button>
+    <button id="btnArchive" class="btnComp" type="button" style="display:none;">Archive</button>
   </div>
 
   <!-- ✅ Put forwardBox OUTSIDE drawerActions so it doesn't mess button layout -->
@@ -591,7 +610,7 @@ $stats = [
       <option value="">-- Select section --</option>
     </select>
 
-    <button id="btnForward" type="button" class="btnPrimary" style="margin-top:10px; display:none;">
+    <button id="btnForward" type="button" class="btnSecondary" style="margin-top:10px; margin-bottom:10px; margin-left:10px; display:none;">
       Forward
     </button>
   </div>
@@ -616,7 +635,7 @@ $stats = [
           </div>
 
           <div class="attFooter">
-            <a id="attDownload" class="btnGhost" href="#" target="_blank" rel="noopener">Download</a>
+            <a id="attDownload" class="btnSecondary" href="#" target="_blank" rel="noopener">Download</a>
           </div>
         </div>
       </div>
