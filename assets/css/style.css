@@ -468,7 +468,6 @@ button:hover {
 .docTable th, .docTable td {
   padding: 12px 14px;
   border-bottom: 1px solid #eef0f2;
-  text-align: left;
   vertical-align: top;
 }
 
@@ -477,6 +476,7 @@ button:hover {
   color: #fff;
   position: sticky;
   top: 0;
+  text-align: center;
 }
 
 .rowHover:hover {
@@ -1217,3 +1217,41 @@ body::before {
   gap: 8px;
   margin-top: 6px;
 }
+
+.pager{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-top:12px;
+}
+
+.pagerBtns{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+
+.pagerBtn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  height:36px;
+  padding:0 12px;
+  border-radius:999px;
+  border:1px solid rgba(0,0,0,0.12);
+  background:#fff;
+  color:#0b3a66;
+  text-decoration:none;
+  font-weight:700;
+  font-size:13px;
+}
+
+.pagerBtn.isActive{
+  background:#0b3a66;
+  color:#fff;
+  border-color:#0b3a66;
+}
+
+.pagerBtn.isDisabled{
+  opacity:.45;
+  pointer-events:none;
+}
+
+.pagerDots{ opacity:.6; padding:0 4px; }

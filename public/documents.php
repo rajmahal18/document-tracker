@@ -28,13 +28,22 @@ require __DIR__ . "/../includes/layout.php";
   window.__SECTIONS__ = <?= json_encode($sections, JSON_UNESCAPED_UNICODE) ?>;
 </script>
 
-
-
 <?php
+// -------------------------
+// Filters (GET)
+// -------------------------
 $search    = trim($_GET["q"] ?? "");
 $status    = trim($_GET["status"] ?? "");
 $date_from = trim($_GET["from"] ?? "");
 $date_to   = trim($_GET["to"] ?? "");
+
+// Pagination
+$page = (int)($_GET["page"] ?? 1);
+if ($page < 1) $page = 1;
+
+$perPage = 15;   // ✅ fixed, unchangeable
+
+$offset = ($page - 1) * $perPage;
 
 $role        = $_SESSION["role"] ?? "division";
 $mySectionId = (int)($_SESSION["section_id"] ?? 0);
@@ -88,10 +97,6 @@ if ($search !== "") {
   $types .= "sssss";
 }
 
-/**
- * Status filter: based on lifecycle status (ACTIVE/RELEASED/ARCHIVED)
- * Movement filter (IN TRANSIT) is not added here for simplicity.
- */
 if ($status !== "") {
   $where[] = "d.current_status = ?";
   $params[] = strtoupper($status);
@@ -110,13 +115,33 @@ if ($date_to !== "") {
   $types .= "s";
 }
 
-/**
- * Main list query (NEW SCHEMA)
- * Adds:
- * - current holder name
- * - open route (in transit)
- * - last holder (previous sender of last received route)
- */
+// -------------------------
+// COUNT query for pagination
+// (Use same WHERE + joins needed by filters)
+// -------------------------
+$countSql = "
+  SELECT COUNT(DISTINCT d.id) AS total
+  FROM documents d
+  LEFT JOIN sections sh ON sh.id = d.current_holder_section_id
+";
+if ($where) $countSql .= " WHERE " . implode(" AND ", $where);
+
+$countStmt = $conn->prepare($countSql);
+if ($params) $countStmt->bind_param($types, ...$params);
+$countStmt->execute();
+$total = (int)($countStmt->get_result()->fetch_assoc()["total"] ?? 0);
+
+$totalPages = max(1, (int)ceil($total / $perPage));
+if ($page > $totalPages) {
+  $page = $totalPages;
+  $offset = ($page - 1) * $perPage;
+}
+
+// -------------------------
+// Main list query (NEW SCHEMA)
+// -------------------------
+$mySid = (int)$mySectionId;
+
 $sql = "
   SELECT
     d.id,
@@ -160,57 +185,48 @@ $sql = "
 ";
 
 if ($where) $sql .= " WHERE " . implode(" AND ", $where);
-$mySid = (int)$mySectionId;
 
 $sql .= "
   ORDER BY
-    -- 1) ACTIVE docs HELD by my section (not in transit) first = Needs Action
     CASE
       WHEN d.current_status='ACTIVE'
        AND (r_open.id IS NULL)
        AND d.current_holder_section_id = {$mySid}
       THEN 0
 
-      -- 2) ACTIVE docs IN TRANSIT to my section next = Incoming
       WHEN d.current_status='ACTIVE'
        AND (r_open.id IS NOT NULL)
        AND r_open.to_section_id = {$mySid}
       THEN 1
 
-      -- 3) Other ACTIVE in transit
       WHEN d.current_status='ACTIVE'
        AND (r_open.id IS NOT NULL)
       THEN 2
 
-      -- 4) Other ACTIVE (reference)
       WHEN d.current_status='ACTIVE' THEN 3
-
-      -- 5) RELEASED then ARCHIVED
       WHEN d.current_status='RELEASED' THEN 4
       WHEN d.current_status='ARCHIVED' THEN 5
-
       ELSE 9
     END ASC,
 
-    -- Inside bucket: stuck first, then newest
     TIMESTAMPDIFF(DAY, d.updated_at, NOW()) DESC,
     d.document_date DESC,
     d.id DESC
-  LIMIT 200
+  LIMIT ? OFFSET ?
 ";
 
+$params2 = $params;
+$types2  = $types . "ii";
+$params2[] = $perPage;
+$params2[] = $offset;
 
 $stmt = $conn->prepare($sql);
-if ($params) $stmt->bind_param($types, ...$params);
+if ($params2) $stmt->bind_param($types2, ...$params2);
 $stmt->execute();
 $docs = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
 /**
  * Stats (NEW SCHEMA)
- * - active: ACTIVE
- * - archived: ARCHIVED
- * - released_today: RELEASED today
- * - overdue: ACTIVE but untouched >= 7 days (using updated_at)
  */
 $statWhere  = [];
 $statParams = [];
@@ -263,8 +279,13 @@ $stats = [
   "released_today" => (int)($statRows["released_today"] ?? 0),
 ];
 
+// Helper for pagination URLs (preserve current filters)
+function pageUrl(int $p): string {
+  $q = $_GET;
+  $q["page"] = $p;
+  return PUBLIC_PATH . "/documents.php?" . http_build_query($q);
+}
 ?>
-
 
 <div style="display:flex;justify-content:space-between;align-items:center;">
   <h1>Document List</h1>
@@ -307,10 +328,10 @@ $stats = [
   </div>
 </div>
 
+<!-- ✅ Split toolbar into 2 forms (predictable + modern) -->
 <div class="toolbarWrap">
   <!-- Filters -->
   <form class="toolbar toolbarFilters" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
-    <!-- Keep the search value when applying filters -->
     <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
 
     <div class="control">
@@ -338,14 +359,13 @@ $stats = [
 
   <!-- Search -->
   <form class="toolbar toolbarSearch" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
-    <!-- Keep filter values when searching -->
     <input type="hidden" name="status" value="<?= htmlspecialchars($status) ?>">
     <input type="hidden" name="from" value="<?= htmlspecialchars($date_from) ?>">
     <input type="hidden" name="to" value="<?= htmlspecialchars($date_to) ?>">
 
     <div class="control">
       <label>Search Documents</label>
-      <input class="search" type="text" style="margin-bottom:0px" name="q"
+      <input class="search" type="text" name="q" style="margin-bottom:0px"
              placeholder="Search tracking no, requester, subject, holder..."
              value="<?= htmlspecialchars($search) ?>">
     </div>
@@ -384,11 +404,10 @@ $stats = [
           $danger = ($days >= 7) ? "danger" : "";
 
           $inTransit = !empty($d["open_to_section_id"]);
-
           $currentStatus = strtoupper((string)($d["current_status"] ?? "ACTIVE"));
 
           $statusLabel = "—";
-          $statusChipClass = "chip incoming"; // default
+          $statusChipClass = "chip incoming";
 
           if ($currentStatus === "ARCHIVED") {
             $statusLabel = "ARCHIVED";
@@ -397,7 +416,6 @@ $stats = [
             $statusLabel = "RELEASED";
             $statusChipClass = "chip released";
           } else {
-            // ACTIVE
             if ($inTransit) {
               $isIncomingToMe = ((int)($d["open_to_section_id"] ?? 0) === $mySectionId);
               $statusLabel = $isIncomingToMe ? "IN TRANSIT (TO YOU)" : "IN TRANSIT";
@@ -409,51 +427,46 @@ $stats = [
             }
           }
 
-
-          // Movement = destination
           $movementText = $inTransit
             ? (string)($d["open_to_section_name"] ?? "—")
             : "—";
 
-          // Current Holder = IN TRANSIT or section
           $currentHolderText = $inTransit ? "—" : (string)($d["current_holder_name"] ?? "—");
 
-
-          // Last Holder logic stays correct
           $lastHolderText = $inTransit
             ? (string)($d["open_from_section_name"] ?? "—")
             : (string)($d["last_holder_name"] ?? "—");
-
         ?>
         <tr
           class="rowHover"
-          data-doc='<?= htmlspecialchars(json_encode([
-            "id" => (int)$d["id"],
-            "tracking_no" => $d["tracking_no"],
-            "requester" => $d["requester"],
-            "document_date" => $d["document_date"],
-            "subject" => $d["subject"],
-            "content_type" => $d["content_type"],
-            "comm_type" => $d["comm_type"],
+          data-doc='<?= htmlspecialchars(
+            json_encode([
+              "id" => (int)$d["id"],
+              "tracking_no" => $d["tracking_no"],
+              "requester" => $d["requester"],
+              "document_date" => $d["document_date"],
+              "subject" => $d["subject"],
+              "content_type" => $d["content_type"],
+              "comm_type" => $d["comm_type"],
 
-            // For drawer: keep status label/class consistent with table
-            "status_label" => $statusLabel,
-            "status_chip_class" => $statusChipClass,
+              "status_label" => $statusLabel,
+              "status_chip_class" => $statusChipClass,
 
-            "in_transit" => !empty($d["open_to_section_id"]) ? 1 : 0,
+              "in_transit" => !empty($d["open_to_section_id"]) ? 1 : 0,
+              "open_to_section_id" => (int)($d["open_to_section_id"] ?? 0),
+              "open_from_section_id" => (int)($d["open_from_section_id"] ?? 0),
 
-            "open_to_section_id" => (int)($d["open_to_section_id"] ?? 0),
-            "open_from_section_id" => (int)($d["open_from_section_id"] ?? 0),
+              "movement_text" => $movementText,
+              "current_holder_text" => $currentHolderText,
+              "last_holder_text" => $lastHolderText,
 
-            "movement_text" => $movementText,              // destination
-            "current_holder_text" => $currentHolderText,   // IN TRANSIT or section
-            "last_holder_text" => $lastHolderText,
-
-
-            "current_holder_section_id" => (int)($d["current_holder_section_id"] ?? 0),
-            "current_status" => (string)($d["current_status"] ?? "ACTIVE"),
-            "days_stuck" => $days,
-          ]), ENT_QUOTES, "UTF-8") ?>'
+              "current_holder_section_id" => (int)($d["current_holder_section_id"] ?? 0),
+              "current_status" => (string)($d["current_status"] ?? "ACTIVE"),
+              "days_stuck" => $days,
+            ], JSON_UNESCAPED_UNICODE),
+            ENT_QUOTES,
+            "UTF-8"
+          ) ?>'
         >
           <td>
             <span class="<?= htmlspecialchars($statusChipClass) ?>">
@@ -462,29 +475,69 @@ $stats = [
           </td>
 
           <td><b><?= htmlspecialchars($currentHolderText) ?></b></td>
-
           <td class="mini"><?= htmlspecialchars((string)$d["tracking_no"]) ?></td>
-
           <td class="mini"><?= htmlspecialchars((string)$d["subject"]) ?></td>
-
-          <td><?= htmlspecialchars($movementText) ?></td>
-
+          <td class="mini"><?= htmlspecialchars($movementText) ?></td>
 
           <td>
             <span class="daysPill <?= $danger ?: $warn ?>"><?= $days ?></span>
           </td>
 
-          <td><?= htmlspecialchars((string)$d["requester"]) ?></td>
-
+          <td class="mini"><?= htmlspecialchars((string)$d["requester"]) ?></td>
           <td class="mini"><?= htmlspecialchars((string)$d["document_date"]) ?></td>
-
           <td class="mini"><?= htmlspecialchars((string)$d["content_type"]) ?></td>
-
-          <td><?= htmlspecialchars($lastHolderText) ?></td>
+          <td class="mini"><?= htmlspecialchars($lastHolderText) ?></td>
         </tr>
       <?php endforeach; ?>
     </tbody>
   </table>
+</div>
+
+<?php
+// Pagination UI
+$fromRow = $total ? ($offset + 1) : 0;
+$toRow   = min($offset + $perPage, $total);
+
+$start = max(1, $page - 2);
+$end   = min($totalPages, $page + 2);
+?>
+
+<div class="pager">
+  <div class="pagerInfo mini">
+    Showing <b><?= (int)$fromRow ?></b>–<b><?= (int)$toRow ?></b> of <b><?= (int)$total ?></b>
+  </div>
+
+  <div class="pagerBtns">
+    <?php if ($page > 1): ?>
+      <a class="pagerBtn" href="<?= htmlspecialchars(pageUrl($page - 1)) ?>">Prev</a>
+    <?php else: ?>
+      <span class="pagerBtn isDisabled">Prev</span>
+    <?php endif; ?>
+
+    <?php if ($start > 1): ?>
+      <a class="pagerBtn" href="<?= htmlspecialchars(pageUrl(1)) ?>">1</a>
+      <?php if ($start > 2): ?><span class="pagerDots">…</span><?php endif; ?>
+    <?php endif; ?>
+
+    <?php for ($i = $start; $i <= $end; $i++): ?>
+      <?php if ($i === $page): ?>
+        <span class="pagerBtn isActive"><?= $i ?></span>
+      <?php else: ?>
+        <a class="pagerBtn" href="<?= htmlspecialchars(pageUrl($i)) ?>"><?= $i ?></a>
+      <?php endif; ?>
+    <?php endfor; ?>
+
+    <?php if ($end < $totalPages): ?>
+      <?php if ($end < $totalPages - 1): ?><span class="pagerDots">…</span><?php endif; ?>
+      <a class="pagerBtn" href="<?= htmlspecialchars(pageUrl($totalPages)) ?>"><?= $totalPages ?></a>
+    <?php endif; ?>
+
+    <?php if ($page < $totalPages): ?>
+      <a class="pagerBtn" href="<?= htmlspecialchars(pageUrl($page + 1)) ?>">Next</a>
+    <?php else: ?>
+      <span class="pagerBtn isDisabled">Next</span>
+    <?php endif; ?>
+  </div>
 </div>
 
 <!-- Drawer + Backdrop -->
@@ -540,43 +593,27 @@ $stats = [
 
     <!-- Attachments -->
     <div style="margin-top:14px;">
-	      <div class="k" style="margin-bottom:8px; display:flex; align-items:center; gap:8px; justify-content:space-between;">
-	        <div style="display:flex; align-items:center; gap:8px;">
-	          <span>Attachments</span>
-            
-	        </div>
-	      </div>
+      <div class="k" style="margin-bottom:8px; display:flex; align-items:center; gap:8px; justify-content:space-between;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span>Attachments</span>
+        </div>
+      </div>
 
       <div class="drawerSectionActions">
-        <button type="button" class="btnSecondary" id="btnToggleAttachments">
-          View all
-        </button>
-
-        <button type="button" class="btnSecondary" id="btnToggleUpload">
-          Add attachment
-        </button>
+        <button type="button" class="btnSecondary" id="btnToggleAttachments">View all</button>
+        <button type="button" class="btnSecondary" id="btnToggleUpload">Add attachment</button>
       </div>
 
       <div id="d_attachments" class="attachList mini collapsed"></div>
 
       <form id="attachForm" class="attachForm collapsed" enctype="multipart/form-data">
-        <input
-          type="file"
-          id="attachFile"
-          name="file"
-          required
-          accept=".pdf,.jpg,.jpeg,.png"
-        />
-
+        <input type="file" id="attachFile" name="file" required accept=".pdf,.jpg,.jpeg,.png" />
         <div style="display:flex; gap:8px; margin-top:8px;">
           <input type="hidden" id="attachType" value="1" />
           <input id="attachNote" type="text" class="search" style="flex:1;" placeholder="Note (optional)" />
         </div>
 
-        <button id="btnAttachUpload" type="button" class="btnPrimary" style="margin-top:10px;">
-          Upload
-        </button>
-
+        <button id="btnAttachUpload" type="button" class="btnPrimary" style="margin-top:10px;">Upload</button>
         <div id="attachMsg" class="mini" style="margin-top:6px;"></div>
       </form>
     </div>
@@ -591,18 +628,13 @@ $stats = [
   </div>
 
   <div class="drawerActions">
-    <!-- Render buttons for all roles; JS will decide visibility -->
-
-    <button type="button" class="btnSecondary" id="btnToggleForward">
-      Forward
-    </button>
+    <button type="button" class="btnSecondary" id="btnToggleForward">Forward</button>
 
     <button id="btnAckReceived" class="btnComp" type="button" style="display:none;">Received</button>
     <button id="btnRelease" class="btnComp" type="button" style="display:none;">Release</button>
     <button id="btnArchive" class="btnComp" type="button" style="display:none;">Archive</button>
   </div>
 
-  <!-- ✅ Put forwardBox OUTSIDE drawerActions so it doesn't mess button layout -->
   <div id="forwardBox" class="collapsed" style="margin-top:10px;">
     <label style="font-size:12px; font-weight:900;">Forward To</label>
 
@@ -614,30 +646,27 @@ $stats = [
       Forward
     </button>
   </div>
-
 </aside>
 
 <!-- Attachment Preview Modal -->
-      <div id="attModal" class="attModal" aria-hidden="true">
-        <div id="attModalBackdrop" class="attBackdrop"></div>
+<div id="attModal" class="attModal" aria-hidden="true">
+  <div id="attModalBackdrop" class="attBackdrop"></div>
 
-        <div class="attDialog" id="attDialog">
-          <div class="attTopbar">
-            <div>
-              <div id="attTitle" class="attTitle">Attachment Preview</div>
-              <div id="attSub" class="attSub mini"></div>
-            </div>
-            <button id="attClose" class="attClose" type="button">✕</button>
-          </div>
-
-          <div id="attBody" class="attBody">
-            <!-- injected preview -->
-          </div>
-
-          <div class="attFooter">
-            <a id="attDownload" class="btnSecondary" href="#" target="_blank" rel="noopener">Download</a>
-          </div>
-        </div>
+  <div class="attDialog" id="attDialog">
+    <div class="attTopbar">
+      <div>
+        <div id="attTitle" class="attTitle">Attachment Preview</div>
+        <div id="attSub" class="attSub mini"></div>
       </div>
-      
+      <button id="attClose" class="attClose" type="button">✕</button>
+    </div>
+
+    <div id="attBody" class="attBody"></div>
+
+    <div class="attFooter">
+      <a id="attDownload" class="btnSecondary" href="#" target="_blank" rel="noopener">Download</a>
+    </div>
+  </div>
+</div>
+
 <?php require __DIR__ . "/../includes/footer.php"; ?>
