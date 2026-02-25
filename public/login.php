@@ -26,6 +26,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         u.full_name,
         u.email,
         u.password_hash,
+        u.must_change_password,
         u.role,
         u.section_id,
         s.name AS section_name,
@@ -47,10 +48,15 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
       $_SESSION["user_id"]       = (int)$user["id"];
       $_SESSION["full_name"]     = (string)$user["full_name"];
       $_SESSION["role"]          = (string)($user["role"] ?? "user");
+      $_SESSION["must_change_password"] = (int)($user["must_change_password"] ?? 0);
 
       $_SESSION["section_id"]    = isset($user["section_id"]) ? (int)$user["section_id"] : null;
       $_SESSION["section_name"]  = (string)($user["section_name"] ?? "");
       $_SESSION["division_name"] = (string)($user["division_name"] ?? "");
+
+      if ((int)($_SESSION["must_change_password"] ?? 0) === 1) {
+        redirect(PUBLIC_PATH . "/change_password.php");
+      }
 
       redirect(PUBLIC_PATH . "/documents.php");
     }
@@ -118,45 +124,6 @@ require __DIR__ . "/../includes/layout.php";
         <button type="button" class="linkButton" onclick="openAccessModal()">here</button>
       </p>
     </form>
-    <div id="accessModal" class="modalWrap">
-      <div class="modalBackdrop" onclick="closeAccessModal()"></div>
-
-      <div class="modalCard">
-        <div class="modalHeader">
-          <h3>Request System Access</h3>
-          <button class="modalClose" onclick="closeAccessModal()">✕</button>
-        </div>
-
-        <div class="modalBody">
-
-          <div class="authField">
-            <label>Full Name</label>
-            <input type="text" placeholder="Enter your full name">
-          </div>
-
-          <div class="authField">
-            <label>Office / Section</label>
-            <input type="text" placeholder="Enter your office or section">
-          </div>
-
-          <div class="authField">
-            <label>Email</label>
-            <input type="text" placeholder="Enter your official email">
-          </div>
-
-          <div class="authField">
-            <label>Reason for Access</label>
-            <textarea class="modalTextarea" placeholder="Briefly state the reason"></textarea>
-          </div>
-
-        </div>
-
-        <div class="modalFooter">
-          <button class="btnComp" onclick="closeAccessModal()">Cancel</button>
-          <button class="btnSecondary">Submit Request</button>
-        </div>
-      </div>
-    </div>
   </section>
 
   <aside class="aside">
@@ -175,5 +142,47 @@ require __DIR__ . "/../includes/layout.php";
     </div>
   </aside>
 </div>
+
+<div id="accessModal" class="modalWrap" aria-hidden="true">
+      <div class="modalBackdrop" onclick="closeAccessModal()"></div>
+
+      <div class="modalCard" role="dialog" aria-modal="true" aria-labelledby="accessModalTitle">
+        <div class="modalHeader">
+          <h3 id="accessModalTitle">Request System Access</h3>
+          <button type="button" class="modalClose" onclick="closeAccessModal()" aria-label="Close">✕</button>
+        </div>
+
+        <form id="accessForm" class="modalBody" onsubmit="submitAccessRequest(event)">
+          <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token(), ENT_QUOTES, "UTF-8") ?>">
+
+          <div class="authField">
+            <label>Full Name</label>
+            <input name="full_name" type="text" placeholder="Enter your full name" required maxlength="150">
+          </div>
+
+          <div class="authField">
+            <label>Office / Section</label>
+            <input name="office_section" type="text" placeholder="Enter your office or section" required maxlength="150">
+          </div>
+
+          <div class="authField">
+            <label>Email</label>
+            <input name="email" type="text" placeholder="Enter your official email" required maxlength="190">
+          </div>
+
+          <div class="authField">
+            <label>Reason for Access</label>
+            <textarea name="reason" class="modalTextarea" placeholder="Briefly state the reason" required maxlength="500"></textarea>
+          </div>
+
+          <div id="accessMsg" class="modalMsg" style="display:none;"></div>
+        </form>
+
+        <div class="modalFooter">
+          <button type="button" class="btnComp" onclick="closeAccessModal()">Cancel</button>
+          <button type="submit" class="btnSecondary" form="accessForm">Submit Request</button>
+        </div>
+      </div>
+    </div>
 
 <?php require __DIR__ . "/../includes/footer.php"; ?>

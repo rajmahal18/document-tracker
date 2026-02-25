@@ -60,6 +60,15 @@ $pageTitle = $pageTitle ?? "Document Tracker";
     <a href="#" onclick="event.preventDefault()">Online Services</a>
     <a href="#" onclick="event.preventDefault()">About Us</a>
 
+    <?php if (isset($_SESSION["user_id"]) && (string)($_SESSION["role"] ?? "user") === "admin"): ?>
+      <a
+        href="<?= PUBLIC_PATH ?>/access_requests.php"
+        class="<?= $currentPage === 'access_requests.php' ? 'navActive' : '' ?>"
+      >
+        Access Requests
+      </a>
+    <?php endif; ?>
+
     <?php if (isset($_SESSION["user_id"])): ?>
       <a href="<?= PUBLIC_PATH ?>/logout.php" style="margin-left:18px;color:#ffdddd;">
         Logout

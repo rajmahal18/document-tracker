@@ -1,7 +1,0 @@
-RewriteEngine On
-
-# If request is not for an existing file/folder,
-# send it to /public
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^(.*)$ public/$1 [L]

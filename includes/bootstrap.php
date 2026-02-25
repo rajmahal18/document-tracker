@@ -32,6 +32,35 @@ function require_login(): void {
   if (!is_logged_in()) {
     redirect(PUBLIC_PATH . "/login.php");
   }
+
+  // Force first-time / temporary-password users to update password
+  $mustChange = (int)($_SESSION["must_change_password"] ?? 0);
+  if ($mustChange === 1) {
+    $self = basename($_SERVER["PHP_SELF"] ?? "");
+    // Allow the change password page + its API + logout
+    $allowed = ["change_password.php", "logout.php"]; 
+    $isApiChange = str_contains((string)($_SERVER["REQUEST_URI"] ?? ""), "/api/change_password.php");
+
+    if (!in_array($self, $allowed, true) && !$isApiChange) {
+      redirect(PUBLIC_PATH . "/change_password.php");
+    }
+  }
+}
+
+/**
+ * Admin-only guard.
+ *
+ * Roles are currently: admin/user
+ */
+function require_admin(): void {
+  require_login();
+
+  $role = (string)($_SESSION["role"] ?? "user");
+  if ($role !== "admin") {
+    http_response_code(403);
+    echo "Forbidden";
+    exit;
+  }
 }
 
 function csrf_token(): string {

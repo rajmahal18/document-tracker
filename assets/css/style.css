@@ -319,6 +319,7 @@ body {
   padding: 0 14px;
   border: 0;
   white-space: nowrap;
+  
 }
 
 /* Responsive */
@@ -575,6 +576,7 @@ body {
   font-weight: 700;
   padding: 10px 12px;
   cursor: pointer;
+  border: 0;
 }
 
 .btnComp {
@@ -582,6 +584,7 @@ body {
   border-radius: 999px;
   color: #fff;
   font-weight: 600;
+  border: 0;
   padding: 10px 12px;
   cursor: pointer;
 }
@@ -591,6 +594,7 @@ body {
   border-radius: 999px;
   color: #fff;
   font-weight: 600;
+  border: 0;
   padding: 10px 12px;
   cursor: pointer;
 }
@@ -1449,4 +1453,26 @@ body::before {
 
 .linkButton:hover{
   text-decoration: underline;
+}
+
+.modalMsg{
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 800;
+}
+.modalMsg.success{
+  background: rgba(34,197,94,.12);
+  border: 1px solid rgba(34,197,94,.25);
+  color: #166534;
+}
+.modalMsg.error{
+  background: rgba(220,38,38,.10);
+  border: 1px solid rgba(220,38,38,.25);
+  color: #7f1d1d;
+}
+
+body.modalOpen{
+  overflow: hidden;
 }
