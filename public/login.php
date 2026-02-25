@@ -74,35 +74,89 @@ require __DIR__ . "/../includes/layout.php";
       </div>
     <?php endif; ?>
 
-    <form method="POST" action="<?= PUBLIC_PATH ?>/login.php">
-      <label>Username / Email</label>
-      <input
-        type="text"
-        name="username"
-        placeholder="Enter your username"
-        value="<?= htmlspecialchars($_POST["username"] ?? "") ?>"
-      />
+    <form class="authForm" method="POST" action="<?= PUBLIC_PATH ?>/login.php" novalidate>
+      <div class="authField">
+        <label for="username">Username / Email</label>
+        <input
+          id="username"
+          type="text"
+          name="username"
+          placeholder="Enter your username or email"
+          value="<?= htmlspecialchars($_POST["username"] ?? "") ?>"
+          autocomplete="username"
+          required
+        />
+      </div>
 
-      <label>Password</label>
-      <input type="password" name="password" placeholder="Enter your password" />
+      <div class="authField">
+        <label for="password">Password</label>
+        <input
+          id="password"
+          type="password"
+          name="password"
+          placeholder="Enter your password"
+          autocomplete="current-password"
+          required
+        />
+      </div>
 
-      <div class="row">
-        <label class="checkbox">
+      <div class="authRow">
+        <label class="authCheck">
           <input type="checkbox" name="remember" />
           <span>Keep me signed in</span>
         </label>
 
-        <a class="link" href="#" onclick="event.preventDefault()">
+        <a class="authLink" href="#" onclick="event.preventDefault()">
           Forgot password?
         </a>
       </div>
 
-      <button type="submit">Login</button>
+      <button type="submit" class="authBtn">Login</button>
 
-      <p class="help">
-        Having trouble? Contact the System Administrator / ICT Unit.
+      <p class="authHelp">
+        Need access? You can request an account
+        <button type="button" class="linkButton" onclick="openAccessModal()">here</button>
       </p>
     </form>
+    <div id="accessModal" class="modalWrap">
+      <div class="modalBackdrop" onclick="closeAccessModal()"></div>
+
+      <div class="modalCard">
+        <div class="modalHeader">
+          <h3>Request System Access</h3>
+          <button class="modalClose" onclick="closeAccessModal()">✕</button>
+        </div>
+
+        <div class="modalBody">
+
+          <div class="authField">
+            <label>Full Name</label>
+            <input type="text" placeholder="Enter your full name">
+          </div>
+
+          <div class="authField">
+            <label>Office / Section</label>
+            <input type="text" placeholder="Enter your office or section">
+          </div>
+
+          <div class="authField">
+            <label>Email</label>
+            <input type="text" placeholder="Enter your official email">
+          </div>
+
+          <div class="authField">
+            <label>Reason for Access</label>
+            <textarea class="modalTextarea" placeholder="Briefly state the reason"></textarea>
+          </div>
+
+        </div>
+
+        <div class="modalFooter">
+          <button class="btnComp" onclick="closeAccessModal()">Cancel</button>
+          <button class="btnSecondary">Submit Request</button>
+        </div>
+      </div>
+    </div>
   </section>
 
   <aside class="aside">

@@ -33,9 +33,10 @@ require __DIR__ . "/../includes/layout.php";
 // Filters (GET)
 // -------------------------
 $search    = trim($_GET["q"] ?? "");
-$status    = trim($_GET["status"] ?? "");
+$statusGet = trim($_GET["status"] ?? "");
 $date_from = trim($_GET["from"] ?? "");
 $date_to   = trim($_GET["to"] ?? "");
+$quick = strtolower(trim($_GET["quick"] ?? "")); // active | overdue | released_today | archived
 
 // Pagination
 $page = (int)($_GET["page"] ?? 1);
@@ -97,9 +98,9 @@ if ($search !== "") {
   $types .= "sssss";
 }
 
-if ($status !== "") {
+if ($statusGet !== "" && $quick === "") {
   $where[] = "d.current_status = ?";
-  $params[] = strtoupper($status);
+  $params[] = strtoupper($statusGet);
   $types .= "s";
 }
 
@@ -115,6 +116,20 @@ if ($date_to !== "") {
   $types .= "s";
 }
 
+// -------------------------
+// Quick filters (from stat cards)
+// -------------------------
+if ($quick !== "") {
+  if ($quick === "active") {
+    $where[] = "d.current_status = 'ACTIVE'";
+  } elseif ($quick === "archived") {
+    $where[] = "d.current_status = 'ARCHIVED'";
+  } elseif ($quick === "released_today") {
+    $where[] = "d.current_status = 'RELEASED' AND DATE(d.updated_at) = CURDATE()";
+  } elseif ($quick === "overdue") {
+    $where[] = "d.current_status = 'ACTIVE' AND TIMESTAMPDIFF(DAY, d.updated_at, NOW()) >= 7";
+  }
+}
 // -------------------------
 // COUNT query for pagination
 // (Use same WHERE + joins needed by filters)
@@ -285,6 +300,20 @@ function pageUrl(int $p): string {
   $q["page"] = $p;
   return PUBLIC_PATH . "/documents.php?" . http_build_query($q);
 }
+
+function quickUrl(string $target): string {
+  $q = $_GET;
+
+  // ✅ toggle off if the same card is clicked
+  if (strtolower(trim($q["quick"] ?? "")) === $target) {
+    unset($q["quick"]);
+  } else {
+    $q["quick"] = $target;
+  }
+
+  $q["page"] = 1; // reset pagination when filtering/toggling
+  return PUBLIC_PATH . "/documents.php?" . http_build_query($q);
+}
 ?>
 
 <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -295,52 +324,60 @@ function pageUrl(int $p): string {
 </div>
 
 <div class="stats">
-  <div class="statCard">
+  <a class="statCard statCardLink <?= $quick === 'active' ? 'isActive' : '' ?>"
+     href="<?= htmlspecialchars(quickUrl('active')) ?>">
     <div class="statTop">
       <div class="statTitle">Active</div>
       <div class="chip incoming">Ongoing</div>
     </div>
     <div class="statValue"><?= $stats["active"] ?></div>
-  </div>
+  </a>
 
-  <div class="statCard">
+  <a class="statCard statCardLink <?= $quick === 'overdue' ? 'isActive' : '' ?>"
+     href="<?= htmlspecialchars(quickUrl('overdue')) ?>">
     <div class="statTop">
       <div class="statTitle">Overdue</div>
       <div class="chip overdue">Stuck ≥ 7d</div>
     </div>
     <div class="statValue"><?= $stats["overdue"] ?></div>
-  </div>
+  </a>
 
-  <div class="statCard">
+  <a class="statCard statCardLink <?= $quick === 'released_today' ? 'isActive' : '' ?>"
+     href="<?= htmlspecialchars(quickUrl('released_today')) ?>">
     <div class="statTop">
       <div class="statTitle">Released Today</div>
       <div class="chip released">Done</div>
     </div>
     <div class="statValue"><?= $stats["released_today"] ?></div>
-  </div>
+  </a>
 
-  <div class="statCard">
+  <a class="statCard statCardLink <?= $quick === 'archived' ? 'isActive' : '' ?>"
+     href="<?= htmlspecialchars(quickUrl('archived')) ?>">
     <div class="statTop">
       <div class="statTitle">Archived</div>
       <div class="chip archived">Filed</div>
     </div>
     <div class="statValue"><?= $stats["archived"] ?></div>
-  </div>
+  </a>
 </div>
 
 <!-- ✅ Split toolbar into 2 forms (predictable + modern) -->
 <div class="toolbarWrap">
   <!-- Filters -->
   <form class="toolbar toolbarFilters" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
+     <!-- ✅ preserve quick card filter -->
+    <input type="hidden" name="quick" value="<?= htmlspecialchars($quick) ?>">
+
+    <!-- (optional but recommended) preserve search too, if filters form doesn't include it -->
     <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
 
     <div class="control">
       <label>Status</label>
       <select class="select" name="status">
         <option value="">All</option>
-        <option value="ACTIVE" <?= strtoupper($status)==="ACTIVE" ? "selected" : "" ?>>ACTIVE</option>
-        <option value="RELEASED" <?= strtoupper($status)==="RELEASED" ? "selected" : "" ?>>RELEASED</option>
-        <option value="ARCHIVED" <?= strtoupper($status)==="ARCHIVED" ? "selected" : "" ?>>ARCHIVED</option>
+        <option value="ACTIVE" <?= strtoupper($statusGet)==="ACTIVE" ? "selected" : "" ?>>ACTIVE</option>
+        <option value="RELEASED" <?= strtoupper($statusGet)==="RELEASED" ? "selected" : "" ?>>RELEASED</option>
+        <option value="ARCHIVED" <?= strtoupper($statusGet)==="ARCHIVED" ? "selected" : "" ?>>ARCHIVED</option>
       </select>
     </div>
 
@@ -359,7 +396,7 @@ function pageUrl(int $p): string {
 
   <!-- Search -->
   <form class="toolbar toolbarSearch" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
-    <input type="hidden" name="status" value="<?= htmlspecialchars($status) ?>">
+    <input type="hidden" name="status" value="<?= htmlspecialchars($statusGet) ?>">
     <input type="hidden" name="from" value="<?= htmlspecialchars($date_from) ?>">
     <input type="hidden" name="to" value="<?= htmlspecialchars($date_to) ?>">
 
@@ -630,8 +667,8 @@ $end   = min($totalPages, $page + 2);
   <div class="drawerActions">
     <button type="button" class="btnSecondary" id="btnToggleForward">Forward</button>
 
-    <button id="btnAckReceived" class="btnComp" type="button" style="display:none;">Received</button>
-    <button id="btnRelease" class="btnComp" type="button" style="display:none;">Release</button>
+    <button id="btnAckReceived" class="btnGreen" type="button" style="display:none;">Received</button>
+    <button id="btnRelease" class="btnGreen" type="button" style="display:none;">Release</button>
     <button id="btnArchive" class="btnComp" type="button" style="display:none;">Archive</button>
   </div>
 

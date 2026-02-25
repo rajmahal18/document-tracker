@@ -1,15 +1,3 @@
-/* =========================================================
-   Document Tracker - style.css (FULL, CLEAN, NO DUPLICATES)
-   - Keeps your existing layout/theme
-   - Replaces timeline CSS with ONE modern implementation
-   - Works with your JS markup:
-     .timeline > .tItem.action-xxx(.isCurrent)
-       .tIcon + .tContent
-         .tRow ( .tMeta.tMetaLeft + .tAction )
-         .tRemark (optional)
-         .tMeta (optional)
-   ========================================================= */
-
 * {
   box-sizing: border-box;
 }
@@ -36,10 +24,23 @@ body {
   border-bottom: 3px solid rgba(255, 255, 255, 0.08);
 }
 
+.topbar .brand a {
+  text-decoration: none;
+  color: inherit;
+}
+
+.topbar .brand a:visited {
+  color: inherit;
+}
+
 .brand {
   display: flex;
   align-items: center;
   gap: 14px;
+}
+
+.brand:hover {
+  color: #E87722
 }
 
 .logo {
@@ -86,6 +87,7 @@ body {
   white-space: nowrap;
 }
 
+
 .nav a {
   color: rgba(255, 255, 255, 0.92);
   text-decoration: none;
@@ -93,7 +95,7 @@ body {
 }
 
 .nav a:hover {
-  text-decoration: underline;
+  color: #E87722
 }
 
 /* ===== Page Layout (FULL WIDTH, no dead space) ===== */
@@ -130,96 +132,15 @@ body {
   font-weight: 900;
 }
 
-/* notice */
 .notice {
   background: #fff3cd;
   border: 1px solid #ffeeba;
-  padding: 10px 12px;
   font-size: 13px;
   margin: 12px 0 18px;
-}
-
-/* form */
-label {
-  display: block;
-  margin-bottom: 6px;
-  font-weight: 800;
-  font-size: 14px;
-}
-
-input[type="text"],
-input[type="password"] {
-  width: 100%;
-  padding: 12px;
-  margin-bottom: 16px;
-  border: 1px solid #cfd6dd;
-  font-size: 15px;
-  outline: none;
-  background: #fff;
-}
-
-input[type="text"]:focus,
-input[type="password"]:focus,
-select:focus {
-  border-color: #E87722;
-  box-shadow: 0 0 0 3px rgba(232,119,34,0.15);
-}
-
-button {
-  background: #0b3a66;
-  color: white;
-  border: none;
-  padding: 12px 16px;
-  font-size: 15px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-button:hover {
-  opacity: 0.92;
-}
-
-/* row under password */
-.row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 14px;
-}
-
-.row-active {
-  background: #e7701a;
-}
-
-.checkbox {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-weight: 700;
-  font-size: 13px;
-}
-
-.checkbox input {
-  width: 16px;
-  height: 16px;
-}
-
-.link {
-  font-size: 13px;
-  font-weight: 800;
-  color: #0b3a66;
-  text-decoration: none;
-}
-
-.link:hover {
-  text-decoration: underline;
-}
-
-.help {
-  margin: 12px 0 0;
-  font-size: 12.5px;
-  color: #555;
+  line-height: 1.4;
+  max-width: 520px;
+  padding: 10px 14px;
+  border-radius: 999px;  
 }
 
 /* ===== Right Panel ===== */
@@ -246,6 +167,7 @@ button:hover {
   justify-content: space-between;
   align-items: center;
   padding: 10px 4px 0;
+  padding-top: 12px;
 }
 
 .badge {
@@ -256,6 +178,7 @@ button:hover {
   color: #0b3a66;
   font-weight: 900;
   font-size: 12px;
+  border-radius: 999px;
 }
 
 .muted {
@@ -274,6 +197,12 @@ button:hover {
   font-size: 12.5px;
   color: #667085;
   border-top: 1px solid #e3e6ea;
+}
+
+.navActive {
+  background: rgba(0,0,0,1);
+  padding: 6px 12px;
+  border-radius: 80px;
 }
 
 /* responsive */
@@ -303,6 +232,7 @@ button:hover {
     flex-wrap: wrap;
     gap: 12px;
   }
+
 }
 
 /* ===== Modern dashboard bits ===== */
@@ -414,6 +344,28 @@ button:hover {
   border: 1px solid #ffffff;
   padding: 14px 16px;
   box-shadow: 0 6px 18px rgba(16, 24, 40, 0.06);
+}
+
+.statCardLink{
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  border-radius: 12px;
+  transition: transform .08s ease, box-shadow .08s ease, border-color .08s ease;
+  cursor: pointer;
+}
+
+.statCardLink:hover{
+  transform: translateY(-1px);
+  border-color: #cfd8e3;
+  background: #f0ac71;
+  box-shadow: 0 10px 26px rgba(16, 24, 40, 0.10);
+}
+
+.statCardLink.isActive{
+  border-color: #0b3a66;
+  background: #ebeaea;
+  box-shadow: 0 10px 26px rgba(11, 58, 102, 0.18);
 }
 
 .statTop {
@@ -627,6 +579,15 @@ button:hover {
 
 .btnComp {
   background: #e87722;
+  border-radius: 999px;
+  color: #fff;
+  font-weight: 600;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.btnGreen {
+  background: #00db00;
   border-radius: 999px;
   color: #fff;
   font-weight: 600;
@@ -1255,3 +1216,237 @@ body::before {
 }
 
 .pagerDots{ opacity:.6; padding:0 4px; }
+
+/* ===== Login Auth (Scoped, MPW theme) ===== */
+.authForm{
+  width: 100%;
+  max-width: 520px;
+  margin-top: 8px;
+
+  /* remove double-card look since parent .card already has bg/border/shadow */
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.authField{
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.authField label{
+  font-size: 14px;
+  font-weight: 900;
+  color: #101828;
+  letter-spacing: -0.2px;
+}
+
+.authField input[type="text"],
+.authField input[type="password"]{
+  width: 100%;
+  height: 46px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #cfd6dd;
+  background: #fff;
+  color: #101828;
+  outline: none;
+  font-size: 15px;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+  border: 1.5px solid #cfd6dd;
+}
+
+.authField input:hover{
+  border-color: rgba(11, 58, 102, 0.35);
+}
+
+.authField input::placeholder{
+  color: rgba(16, 24, 40, 0.45);
+}
+
+.authField input:focus{
+  border-color: #E87722;
+  box-shadow: 0 0 0 3px rgba(232,119,34,0.15);
+}
+
+.authRow{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 10px 0 16px;
+  align-items: baseline;
+}
+
+.authCheck{
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  user-select: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+  color: rgba(16, 24, 40, 0.82);
+}
+
+.authCheck input{
+  width: 16px;
+  height: 16px;
+}
+
+.authLink{
+  font-size: 13px;
+  font-weight: 900;
+  color: #0b3a66;
+  text-decoration: none;
+}
+
+.authLink:hover{
+  text-decoration: underline;
+}
+
+.authBtn{
+  width: 100%;
+  height: 46px;
+  border: 0;
+  border-radius: 999px; /* match btnSecondary pill vibe */
+  background: #0b3a66;
+  color: #fff;
+  font-weight: 900;
+  font-size: 15px;
+  cursor: pointer;
+  transition: transform 120ms ease, opacity 120ms ease;
+}
+
+.authBtn:hover{
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+
+.authBtn:active{
+  transform: translateY(0);
+  opacity: 0.90;
+}
+
+.authHelp{
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  color: #555;
+  font-weight: 700;
+}
+
+@media (max-width: 520px){
+  .authRow{
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+.card{
+  border-radius: 16px;
+}
+.asideBox{
+  border-radius: 16px;
+}
+
+.card h2 { margin-bottom: 14px; }
+
+/* ===== Modal ===== */
+
+.modalWrap{
+  display: none;
+}
+
+.modalWrap.open{
+  display: block;
+}
+
+.modalBackdrop{
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 9998;
+}
+
+.modalCard{
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(520px, 92vw);
+
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+  z-index: 9999;
+
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modalHeader{
+  padding: 16px 18px;
+  border-bottom: 1px solid #eef0f2;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modalHeader h3{
+  margin: 0;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.modalClose{
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 10px;
+}
+
+.modalClose:hover{
+  background: #f3f5f9;
+}
+
+.modalBody{
+  padding: 16px 18px;
+}
+
+.modalFooter{
+  padding: 12px 18px;
+  border-top: 1px solid #eef0f2;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.modalTextarea{
+  border: 1px solid #cfd6dd;
+  border-radius: 12px;
+  padding: 10px 12px;
+  resize: vertical;
+  min-height: 80px;
+  font-family: inherit;
+}
+
+/* clickable "here" */
+.linkButton{
+  border: none;
+  background: none;
+  color: #0b3a66;
+  font-weight: 900;
+  cursor: pointer;
+  padding: 0;
+  font-size: inherit;
+}
+
+.linkButton:hover{
+  text-decoration: underline;
+}

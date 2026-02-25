@@ -29,20 +29,34 @@ $pageTitle = $pageTitle ?? "Document Tracker";
 
 <body>
 
+<?php
+  $currentPage = basename($_SERVER['PHP_SELF']);
+?>
 <header class="topbar">
   <div class="brand">
-    <div class="logo">
-      <img src="<?= ASSETS_PATH ?>/mpwlogo1.png" alt="MPW Logo" />
-    </div>
 
-    <div class="brandText">
+    <!-- ✅ Clickable Logo -->
+    <a href="https://mpw.bangsamoro.gov.ph/" class="logo">
+      <img src="<?= ASSETS_PATH ?>/mpwlogo1.png" alt="MPW Logo" />
+    </a>
+
+    <!-- ✅ Clickable Brand Text -->
+    <a href="https://mpw.bangsamoro.gov.ph/" class="brandText">
       <h1>Ministry of Public Works</h1>
       <span>Bangsamoro Autonomous Region in Muslim Mindanao</span>
-    </div>
+    </a>
+
   </div>
 
   <nav class="nav">
-    <a href="<?= PUBLIC_PATH ?>/index.php">Home</a>
+    <!-- ✅ Home Highlight Logic -->
+    <a 
+      href="<?= PUBLIC_PATH ?>/index.php"
+      class="<?= $currentPage === 'documents.php' ? 'navActive' : '' ?>"
+    >
+      Home
+    </a>
+
     <a href="#" onclick="event.preventDefault()">Online Services</a>
     <a href="#" onclick="event.preventDefault()">About Us</a>
 
