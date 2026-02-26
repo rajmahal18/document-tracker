@@ -181,6 +181,17 @@ body {
   border-radius: 999px;
 }
 
+.badge.ok{
+  border-color: rgba(2, 122, 72, 0.25);
+  background: rgba(2, 122, 72, 0.10);
+  color: #027a48;
+}
+.badge.warn{
+  border-color: rgba(180, 35, 24, 0.25);
+  background: rgba(180, 35, 24, 0.08);
+  color: #b42318;
+}
+
 .muted {
   color: #667085;
   font-weight: 700;
@@ -563,6 +574,7 @@ body {
 .btnGhost {
   background: #fff;
   border: 1px solid #cfd6dd;
+  border-radius: 999px;
   color: #0b3a66;
   font-weight: 900;
   padding: 10px 12px;
@@ -1475,4 +1487,79 @@ body::before {
 
 body.modalOpen{
   overflow: hidden;
+}
+
+/* =========================
+   Add Document (Modern Form)
+   ========================= */
+
+.docFormCard {
+  border-radius: 18px;
+  padding: 22px;
+}
+
+.docFormHead{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #eef0f2;
+  margin-bottom: 14px;
+}
+
+.docFormGrid{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 16px;
+}
+
+.docFormGrid .span2{
+  grid-column: 1 / -1;
+}
+
+.req{
+  color: #b42318;
+  font-weight: 900;
+}
+
+.docDivider{
+  height: 1px;
+  background: #eef0f2;
+  margin: 2px 0 6px;
+}
+
+.attachRow{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.fileInput{
+  height: 46px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1.5px solid #cfd6dd;
+  background: #fff;
+}
+
+.fileInput:focus{
+  border-color: #E87722;
+  box-shadow: 0 0 0 3px rgba(232,119,34,0.15);
+  outline: none;
+}
+
+.docActions{
+  display:flex;
+  gap: 10px;
+  justify-content:flex-start;
+  align-items:center;
+  padding-top: 6px;
+}
+
+/* Mobile */
+@media (max-width: 860px){
+  .docFormGrid{ grid-template-columns: 1fr; }
+  .attachRow{ grid-template-columns: 1fr; }
+  .docFormHead{ flex-direction: column; align-items:flex-start; }
 }

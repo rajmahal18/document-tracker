@@ -61,7 +61,11 @@ if ($row && !empty($row["tracking_no"])) {
   $tracking = preg_replace('/[^A-Za-z0-9._-]+/', '_', (string)$row["tracking_no"]) ?: "document";
 }
 
-// Fetch attachments (main first, then append) in chronological order
+/**
+ * Attachments order:
+ * - Force Transmittal Memo first (note = AUTO:TRANSMITTAL_MEMO)
+ * - then main/append by time
+ */
 $stmt = $conn->prepare("
   SELECT
     id,
@@ -69,15 +73,29 @@ $stmt = $conn->prepare("
     stored_path,
     mime,
     is_append,
-    uploaded_at
+    uploaded_at,
+    note
   FROM document_attachments
   WHERE document_id = ?
     AND is_deleted = 0
-  ORDER BY is_append ASC, uploaded_at ASC, id ASC
+  ORDER BY
+    CASE WHEN note = 'AUTO:TRANSMITTAL_MEMO' THEN 0 ELSE 1 END ASC,
+    is_append ASC,
+    uploaded_at ASC,
+    id ASC
 ");
 $stmt->bind_param("i", $docId);
 $stmt->execute();
 $atts = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+// Debug: show raw attachment rows
+if (isset($_GET['debugatts']) && $_GET['debugatts'] === '1') {
+  header('Content-Type: text/plain; charset=utf-8');
+  foreach ($atts as $a) {
+    echo "{$a['id']} | {$a['original_name']} | rel={$a['stored_path']} | mime={$a['mime']} | note=" . ($a['note'] ?? '') . "\n";
+  }
+  exit;
+}
 
 if (!$atts || count($atts) === 0) {
   http_response_code(404);
@@ -95,8 +113,8 @@ if ($baseDir === false) {
 $pdfFiles = [];
 foreach ($atts as $a) {
   $mime = strtolower(trim((string)($a["mime"] ?? "")));
-  $rel = (string)($a["stored_path"] ?? "");
-  $abs = realpath(__DIR__ . "/../" . $rel);
+  $rel  = (string)($a["stored_path"] ?? "");
+  $abs  = realpath(__DIR__ . "/../" . $rel);
 
   if ($abs === false || !is_file($abs)) {
     http_response_code(404);
@@ -120,6 +138,27 @@ foreach ($atts as $a) {
   }
 
   $pdfFiles[] = $abs;
+
+  // Debug: show each added file
+  if (isset($_GET['debugpush']) && $_GET['debugpush'] === '1') {
+    header('Content-Type: text/plain; charset=utf-8');
+    echo "ADDED: " . basename($abs) . PHP_EOL;
+  }
+}
+
+// Debug: list final merge order
+if (isset($_GET['debugmerge']) && $_GET['debugmerge'] === '1') {
+  header('Content-Type: text/plain; charset=utf-8');
+  foreach ($pdfFiles as $i => $p) {
+    echo ($i + 1) . ") " . basename($p) . "\n";
+  }
+  exit;
+}
+
+// Debug: show total count after push
+if (isset($_GET['debugpush']) && $_GET['debugpush'] === '1') {
+  echo "TOTAL: " . count($pdfFiles) . PHP_EOL;
+  exit;
 }
 
 if (count($pdfFiles) === 0) {
@@ -146,9 +185,13 @@ function find_gs_binary(): ?string {
 $filename = $tracking . "_merged.pdf";
 
 $gs = find_gs_binary();
+$gs = null; // force FPDI (prevents Ghostscript reorder/caching weirdness)
 if ($gs !== null && function_exists('proc_open')) {
-  $args = implode(' ', array_map('escapeshellarg', $pdfFiles));
-  $cmd = escapeshellcmd($gs) . " -q -dNOPAUSE -dBATCH -sDEVICE=pdfwrite -sOutputFile=- " . $args;
+  // IMPORTANT: Use array command to preserve file order (Windows-safe)
+  $cmd = array_merge(
+    [$gs, "-q", "-dNOPAUSE", "-dBATCH", "-sDEVICE=pdfwrite", "-sOutputFile=-"],
+    $pdfFiles
+  );
 
   $descriptors = [
     1 => ["pipe", "w"], // stdout
@@ -160,9 +203,11 @@ if ($gs !== null && function_exists('proc_open')) {
     header("X-Content-Type-Options: nosniff");
     header("Content-Type: application/pdf");
     header('Content-Disposition: inline; filename="' . addslashes($filename) . '"');
-    header("Cache-Control: private, max-age=3600");
+    header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+    header("Pragma: no-cache");
+    header("X-Merge-Engine: ghostscript");
+    header("X-Merge-Order: " . implode(" | ", array_map("basename", $pdfFiles)));
 
-    // Stream output
     while (!feof($pipes[1])) {
       $chunk = fread($pipes[1], 8192);
       if ($chunk === false) break;
@@ -176,8 +221,6 @@ if ($gs !== null && function_exists('proc_open')) {
 
     $code = proc_close($proc);
     if ($code !== 0) {
-      // If merge failed mid-stream, we can't change headers; just add a minimal hint.
-      // (In practice, this should be rare.)
       error_log("Ghostscript merge failed: code=$code err=$err");
     }
     exit;
@@ -196,8 +239,9 @@ if (is_file($autoload)) {
     foreach ($pdfFiles as $file) {
       $pageCount = $pdf->setSourceFile($file);
       for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
-        $tpl = $pdf->importPage($pageNo);
+        $tpl  = $pdf->importPage($pageNo);
         $size = $pdf->getTemplateSize($tpl);
+
         $pdf->AddPage($size['orientation'], [$size['width'], $size['height']]);
         $pdf->useTemplate($tpl);
       }
@@ -206,9 +250,11 @@ if (is_file($autoload)) {
     header("X-Content-Type-Options: nosniff");
     header("Content-Type: application/pdf");
     header('Content-Disposition: inline; filename="' . addslashes($filename) . '"');
-    header("Cache-Control: private, max-age=3600");
+    header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+    header("Pragma: no-cache");
+    header("X-Merge-Engine: fpdi");
+    header("X-Merge-Order: " . implode(" | ", array_map("basename", $pdfFiles)));
 
-    // Output inline
     $pdf->Output('I', $filename);
     exit;
   }

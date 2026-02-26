@@ -6,8 +6,27 @@ require_admin();
 
 $pageTitle = "Access Requests - Document Tracker";
 
-// Pending requests
-$stmt = $conn->prepare("SELECT id, full_name, office_section, email, reason, status, created_at FROM access_requests WHERE status='PENDING' ORDER BY created_at DESC");
+// Requests to show:
+//  - PENDING (admin action needed)
+//  - APPROVED but user still hasn't changed their temporary password (must_change_password=1)
+$stmt = $conn->prepare("
+  SELECT
+    ar.id,
+    ar.full_name,
+    ar.office_section,
+    ar.email,
+    ar.reason,
+    ar.status,
+    ar.created_at,
+    u.id AS user_id,
+    u.must_change_password
+  FROM access_requests ar
+  LEFT JOIN users u ON u.email = ar.email
+  WHERE
+    ar.status = 'PENDING'
+    OR (ar.status = 'APPROVED' AND COALESCE(u.must_change_password, 0) = 1)
+  ORDER BY ar.created_at DESC
+");
 $stmt->execute();
 $requests = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
@@ -29,7 +48,7 @@ require __DIR__ . "/../includes/layout.php";
 <div class="card" style="margin-bottom:12px;">
   <h2 style="margin:0 0 6px;">Access Requests</h2>
   <div class="mini">
-    Showing <b><?= count($requests) ?></b> pending request(s).
+    Showing <b><?= count($requests) ?></b> request(s) needing action.
   </div>
 </div>
 
@@ -43,6 +62,7 @@ require __DIR__ . "/../includes/layout.php";
         <th style="width:220px;">Email</th>
         <th>Reason</th>
         <th style="width:150px;">Requested</th>
+        <th style="width:140px;">Status</th>
         <th style="width:240px;">Action</th>
       </tr>
     </thead>
@@ -50,8 +70,8 @@ require __DIR__ . "/../includes/layout.php";
     <tbody id="reqBody">
       <?php if (!$requests): ?>
         <tr>
-          <td colspan="7" style="text-align:center;padding:18px;">
-            No pending requests 🎉
+          <td colspan="8" style="text-align:center;padding:18px;">
+            No requests needing action 🎉
           </td>
         </tr>
       <?php endif; ?>
@@ -65,24 +85,43 @@ require __DIR__ . "/../includes/layout.php";
           <td><?= nl2br(htmlspecialchars((string)$r["reason"])) ?></td>
           <td style="text-align:center;"><?= htmlspecialchars((string)$r["created_at"]) ?></td>
           <td style="text-align:center;">
-            <button
-                type="button"
-                class="btn js-approve"
-                data-id="<?= (int)$r['id'] ?>"
-                data-name="<?= htmlspecialchars((string)$r['full_name'], ENT_QUOTES, 'UTF-8') ?>"
-                data-email="<?= htmlspecialchars((string)$r['email'], ENT_QUOTES, 'UTF-8') ?>"
-            >
-            Approve
-            </button>
+            <?php if ((string)$r['status'] === 'PENDING'): ?>
+              <span class="badge warn">PENDING</span>
+            <?php else: ?>
+              <span class="badge ok">APPROVED</span>
+              <div class="mini" style="margin-top:4px;opacity:.8;">Waiting password change</div>
+            <?php endif; ?>
+          </td>
+          <td style="text-align:center;">
+            <?php if ((string)$r['status'] === 'PENDING'): ?>
+              <button
+                  type="button"
+                  class="btnGreen js-approve"
+                  data-id="<?= (int)$r['id'] ?>"
+                  data-name="<?= htmlspecialchars((string)$r['full_name'], ENT_QUOTES, 'UTF-8') ?>"
+                  data-email="<?= htmlspecialchars((string)$r['email'], ENT_QUOTES, 'UTF-8') ?>"
+              >
+              Approve
+              </button>
 
-            <button
-                type="button"
-                class="btn js-reject"
-                data-id="<?= (int)$r['id'] ?>"
-                style="margin-left:8px;background:#b42318;border-color:#b42318;"
-            >
-            Reject
-            </button>
+              <button
+                  type="button"
+                  class="btnComp js-reject"
+                  data-id="<?= (int)$r['id'] ?>"
+                  style="margin-left:8px;background:#b42318;border-color:#b42318;"
+              >
+              Reject
+              </button>
+            <?php else: ?>
+              <button
+                  type="button"
+                  class="btnSecondary js-creds"
+                  data-id="<?= (int)$r['id'] ?>"
+                  data-email="<?= htmlspecialchars((string)$r['email'], ENT_QUOTES, 'UTF-8') ?>"
+              >
+              Credentials
+              </button>
+            <?php endif; ?>
           </td>
         </tr>
       <?php endforeach; ?>
@@ -134,7 +173,7 @@ require __DIR__ . "/../includes/layout.php";
 
         <div class="modalFooter">
           <button type="button" class="btnSecondary" onclick="closeApproveModal()">Cancel</button>
-          <button type="submit" class="btn">Approve</button>
+          <button type="submit" class="btnGhost">Approve</button>
         </div>
       </form>
     </div>
@@ -337,26 +376,32 @@ async function submitApprove(e) {
       return;
     }
 
-    // Remove row
+    // ✅ Keep row, but switch it to APPROVED state until user changes password
     const tr = document.querySelector(`tr[data-id="${currentApproveId}"]`);
-    if (tr) tr.remove();
+    if (tr) {
+      const tds = tr.querySelectorAll('td');
+      // Status cell is index 6 (0-based): ID, Name, Office, Email, Reason, Requested, Status, Action
+      const statusTd = tds[6];
+      const actionTd = tds[7];
 
-    closeApproveModal();
-    openResultModal(data);
-    saveLastApproved(data);
+      if (statusTd) {
+        statusTd.innerHTML = `
+          <span class="badge ok">APPROVED</span>
+          <div class="mini" style="margin-top:4px;opacity:.8;">Waiting password change</div>
+        `;
+      }
 
-    // Empty state
-    const body = document.getElementById('reqBody');
-    if (body && body.querySelectorAll('tr').length === 0) {
-      const empty = document.createElement('tr');
-      empty.innerHTML =
-        '<td colspan="7" style="text-align:center;padding:18px;">' +
-        'No pending requests' +
-        '</td>';
-      body.appendChild(empty);
+      if (actionTd) {
+        const safeEmail = (data.username || '').replaceAll('"','&quot;');
+        actionTd.innerHTML = `
+          <button type="button" class="btnSecondary js-creds" data-id="${currentApproveId}">
+            Credentials
+          </button>
+        `;
+      }
     }
 
-  } catch (err) {
+} catch (err) {
     msg.style.display = 'block';
     msg.textContent = 'Network / server error. (Check console + Network tab).';
   }
@@ -390,8 +435,8 @@ async function rejectReq(id) {
     if (body && body.children.length === 0) {
       const empty = document.createElement('tr');
       empty.innerHTML = `
-        <td colspan="7" style="text-align:center;padding:18px;">
-          No pending requests 🎉
+        <td colspan="8" style="text-align:center;padding:18px;">
+          No requests needing action 🎉
         </td>
       `;
       body.appendChild(empty);
@@ -450,6 +495,38 @@ function fallbackCopy(text) {
   alert('Email draft copied.');
 }
 
+
+async function showCreds(id) {
+  const fd = new FormData();
+  fd.set('csrf_token', window.__CSRF__);
+  fd.set('id', String(id));
+  // Useful for email draft
+  fd.set('login_url', window.location.origin + window.__APP__.public + '/login.php');
+
+  const API = (window.__APP__ && window.__APP__.api) ? window.__APP__.api : '/document-tracker/api';
+
+  try {
+    const res = await fetch(`${API}/reset_access_credentials.php`, {
+      method: 'POST',
+      body: fd,
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' }
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      alert(data.error || `Failed to get credentials (HTTP ${res.status}).`);
+      return;
+    }
+
+    openResultModal(data);
+    saveLastApproved(data);
+  } catch (err) {
+    alert('Network / server error.');
+  }
+}
+
+
 document.addEventListener('click', (e) => {
   const approveBtn = e.target.closest('.js-approve');
   if (approveBtn) {
@@ -464,6 +541,16 @@ document.addEventListener('click', (e) => {
   if (rejectBtn) {
     const id = Number(rejectBtn.dataset.id || 0);
     rejectReq(id);
+    return;
+  }
+
+  const credsBtn = e.target.closest('.js-creds');
+  if (credsBtn) {
+    const id = Number(credsBtn.dataset.id || 0);
+    if (!id) return;
+    const ok = confirm('This will generate a NEW temporary password and force the user to change it on next login. Continue?');
+    if (!ok) return;
+    showCreds(id);
     return;
   }
 });

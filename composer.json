@@ -1,0 +1,18 @@
+{
+  "name": "mpw/document-tracker",
+  "description": "Document Tracker",
+  "type": "project",
+  "require": {
+    "dompdf/dompdf": "^2.0",
+    "setasign/fpdi": "2.6.4",
+    "setasign/fpdf": "1.8.6"
+  },
+  "config": {
+    "platform": {
+      "php": "8.1.0"
+    },
+    "audit": {
+      "block-insecure": false
+    }
+  }
+}
