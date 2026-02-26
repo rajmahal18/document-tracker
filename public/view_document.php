@@ -110,7 +110,124 @@ if ($baseDir === false) {
   exit;
 }
 
-$pdfFiles = [];
+/**
+ * Convert an image file into a single-page A4 PDF (centered, scaled to fit).
+ * Returns absolute path to the temp PDF.
+ */
+function image_to_a4_pdf(string $imageAbs, string $mime, string $tracking): string {
+  $autoload = __DIR__ . "/../vendor/autoload.php";
+  if (!is_file($autoload)) {
+    http_response_code(501);
+    echo "Image-to-PDF preview requires Composer vendor libs (setasign/fpdf).";
+    exit;
+  }
+  require_once $autoload;
+
+  // setasign/fpdf v1.8 exposes global \FPDF (non-namespaced).
+  // Some setups may expose setasign\Fpdf\Fpdf. Support both.
+  $fpdfClass = null;
+
+  if (class_exists('FPDF')) {
+    $fpdfClass = 'FPDF';
+  } elseif (class_exists('setasign\\Fpdf\\Fpdf')) {
+    $fpdfClass = 'setasign\\Fpdf\\Fpdf';
+  }
+
+  if ($fpdfClass === null) {
+    http_response_code(501);
+    echo "Image-to-PDF preview requires setasign/fpdf (FPDF class not found).";
+    exit;
+  }
+
+  $ext = strtolower(pathinfo($imageAbs, PATHINFO_EXTENSION));
+
+  // FPDF supports JPG/JPEG/PNG/GIF (depends), but NOT WebP directly.
+  // If WebP, convert to JPG using GD if available.
+  $imgForFpdf = $imageAbs;
+  $tmpJpg = null;
+
+  if ($ext === "webp") {
+    if (function_exists('imagecreatefromwebp')) {
+      $im = @imagecreatefromwebp($imageAbs);
+      if ($im !== false) {
+        $tmpJpg = tempnam(sys_get_temp_dir(), "dtwebp_") . ".jpg";
+        @imagejpeg($im, $tmpJpg, 92);
+        @imagedestroy($im);
+        $imgForFpdf = $tmpJpg;
+        $ext = "jpg";
+      }
+    }
+    if ($tmpJpg === null) {
+      http_response_code(415);
+      echo "WEBP preview is not supported on this server yet. Please upload JPG/PNG instead, or enable GD webp support.";
+      exit;
+    }
+  }
+
+  // Basic sanity: image dimensions
+  $info = @getimagesize($imgForFpdf);
+  if ($info === false) {
+    http_response_code(415);
+    echo "Unsupported or corrupted image file.";
+    exit;
+  }
+  [$pxW, $pxH] = $info;
+
+  // Create A4 PDF
+  $pdf = new $fpdfClass("P", "mm", "A4");
+  $pdf->SetAutoPageBreak(false);
+  $pdf->AddPage();
+
+  // A4 size in mm: 210 x 297
+  $pageW = 210.0;
+  $pageH = 297.0;
+  $margin = 10.0; // mm
+  $maxW = $pageW - ($margin * 2);
+  $maxH = $pageH - ($margin * 2);
+
+  // Compute image aspect and fit
+  $imgRatio = ($pxH > 0) ? ($pxW / $pxH) : 1.0;
+  $boxRatio = $maxW / $maxH;
+
+  if ($imgRatio >= $boxRatio) {
+    // limited by width
+    $w = $maxW;
+    $h = $w / $imgRatio;
+  } else {
+    // limited by height
+    $h = $maxH;
+    $w = $h * $imgRatio;
+  }
+
+  $x = ($pageW - $w) / 2.0;
+  $y = ($pageH - $h) / 2.0;
+
+  // Place image
+  $pdf->Image($imgForFpdf, $x, $y, $w, $h);
+
+  $tmpPdf = tempnam(sys_get_temp_dir(), "dtimg_") . ".pdf";
+  $pdf->Output("F", $tmpPdf);
+
+  // Cleanup temp jpg if created
+  if ($tmpJpg !== null && is_file($tmpJpg)) {
+    @unlink($tmpJpg);
+  }
+
+  return $tmpPdf;
+}
+
+function find_gs_binary(): ?string {
+  $candidates = ["gs", "gswin64c", "gswin32c"];
+  foreach ($candidates as $bin) {
+    $out = @shell_exec(escapeshellcmd($bin) . " -version 2>&1");
+    if (is_string($out) && trim($out) !== "") return $bin;
+  }
+  return null;
+}
+
+$tmpGenerated = [];
+$mergeFiles = [];
+
 foreach ($atts as $a) {
   $mime = strtolower(trim((string)($a["mime"] ?? "")));
   $rel  = (string)($a["stored_path"] ?? "");
@@ -129,68 +246,68 @@ foreach ($atts as $a) {
     exit;
   }
 
-  $isPdf = ($mime === "application/pdf") || (strtolower(pathinfo($abs, PATHINFO_EXTENSION)) === "pdf");
-  if (!$isPdf) {
+  $ext = strtolower(pathinfo($abs, PATHINFO_EXTENSION));
+  $isPdf = ($mime === "application/pdf") || ($ext === "pdf");
+  $isImage = str_starts_with($mime, "image/") || in_array($ext, ["jpg","jpeg","png","gif","webp"], true);
+
+  if ($isPdf) {
+    $mergeFiles[] = $abs;
+  } elseif ($isImage) {
+    // Convert image to A4 PDF page, so output is uniform even with photos.
+    $tmpPdf = image_to_a4_pdf($abs, $mime, $tracking);
+    $tmpGenerated[] = $tmpPdf;
+    $mergeFiles[] = $tmpPdf;
+  } else {
     http_response_code(415);
-    echo "This 'View document' button currently supports PDF-only attachments. Found a non-PDF file: "
+    echo "This 'View document' button supports PDF and common images (JPG/PNG/etc). Found an unsupported file: "
       . (string)($a["original_name"] ?? "(unknown)");
     exit;
   }
 
-  $pdfFiles[] = $abs;
-
   // Debug: show each added file
   if (isset($_GET['debugpush']) && $_GET['debugpush'] === '1') {
     header('Content-Type: text/plain; charset=utf-8');
-    echo "ADDED: " . basename($abs) . PHP_EOL;
+    echo "ADDED: " . basename(end($mergeFiles)) . PHP_EOL;
+    exit;
   }
 }
+
+register_shutdown_function(function () use ($tmpGenerated) {
+  foreach ($tmpGenerated as $p) {
+    if (is_string($p) && $p !== "" && is_file($p)) {
+      @unlink($p);
+    }
+  }
+});
 
 // Debug: list final merge order
 if (isset($_GET['debugmerge']) && $_GET['debugmerge'] === '1') {
   header('Content-Type: text/plain; charset=utf-8');
-  foreach ($pdfFiles as $i => $p) {
+  foreach ($mergeFiles as $i => $p) {
     echo ($i + 1) . ") " . basename($p) . "\n";
   }
   exit;
 }
 
-// Debug: show total count after push
-if (isset($_GET['debugpush']) && $_GET['debugpush'] === '1') {
-  echo "TOTAL: " . count($pdfFiles) . PHP_EOL;
-  exit;
-}
-
-if (count($pdfFiles) === 0) {
+if (count($mergeFiles) === 0) {
   http_response_code(404);
-  echo "No PDF attachments found.";
+  echo "No previewable attachments found.";
   exit;
-}
-
-// =========================
-// Merge strategy:
-// 1) Try Ghostscript (fast, no PHP libs)
-// 2) Fallback to FPDI if vendor/autoload.php exists
-// =========================
-
-function find_gs_binary(): ?string {
-  $candidates = ["gs", "gswin64c", "gswin32c"];
-  foreach ($candidates as $bin) {
-    $out = @shell_exec(escapeshellcmd($bin) . " -version 2>&1");
-    if (is_string($out) && trim($out) !== "") return $bin;
-  }
-  return null;
 }
 
 $filename = $tracking . "_merged.pdf";
 
+// =========================
+// Merge strategy:
+// 1) Try Ghostscript (fast, no PHP libs)
+// 2) Fallback to FPDI (available in your vendor)
+// =========================
 $gs = find_gs_binary();
-$gs = null; // force FPDI (prevents Ghostscript reorder/caching weirdness)
+$gs = null; // keep your existing behavior (avoid GS ordering/caching weirdness)
 if ($gs !== null && function_exists('proc_open')) {
-  // IMPORTANT: Use array command to preserve file order (Windows-safe)
   $cmd = array_merge(
     [$gs, "-q", "-dNOPAUSE", "-dBATCH", "-sDEVICE=pdfwrite", "-sOutputFile=-"],
-    $pdfFiles
+    $mergeFiles
   );
 
   $descriptors = [
@@ -206,7 +323,7 @@ if ($gs !== null && function_exists('proc_open')) {
     header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
     header("Pragma: no-cache");
     header("X-Merge-Engine: ghostscript");
-    header("X-Merge-Order: " . implode(" | ", array_map("basename", $pdfFiles)));
+    header("X-Merge-Order: " . implode(" | ", array_map("basename", $mergeFiles)));
 
     while (!feof($pipes[1])) {
       $chunk = fread($pipes[1], 8192);
@@ -236,7 +353,7 @@ if (is_file($autoload)) {
     $pdf = new setasign\Fpdi\Fpdi();
     $pdf->SetAutoPageBreak(false);
 
-    foreach ($pdfFiles as $file) {
+    foreach ($mergeFiles as $file) {
       $pageCount = $pdf->setSourceFile($file);
       for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
         $tpl  = $pdf->importPage($pageNo);
@@ -253,7 +370,7 @@ if (is_file($autoload)) {
     header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
     header("Pragma: no-cache");
     header("X-Merge-Engine: fpdi");
-    header("X-Merge-Order: " . implode(" | ", array_map("basename", $pdfFiles)));
+    header("X-Merge-Order: " . implode(" | ", array_map("basename", $mergeFiles)));
 
     $pdf->Output('I', $filename);
     exit;

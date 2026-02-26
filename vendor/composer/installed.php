@@ -3,7 +3,7 @@
         'name' => 'mpw/document-tracker',
         'pretty_version' => 'dev-main',
         'version' => 'dev-main',
-        'reference' => '498955517f64c8ac9e8836af1b99d237651156bc',
+        'reference' => '713f24afe395802cdb4e6465f774ec4dbe92b4dd',
         'type' => 'project',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -31,7 +31,7 @@
         'mpw/document-tracker' => array(
             'pretty_version' => 'dev-main',
             'version' => 'dev-main',
-            'reference' => '498955517f64c8ac9e8836af1b99d237651156bc',
+            'reference' => '713f24afe395802cdb4e6465f774ec4dbe92b4dd',
             'type' => 'project',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),

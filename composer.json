@@ -4,8 +4,8 @@
   "type": "project",
   "require": {
     "dompdf/dompdf": "^2.0",
-    "setasign/fpdi": "2.6.4",
-    "setasign/fpdf": "1.8.6"
+    "setasign/fpdi": "^2.6",
+    "setasign/fpdf": "^1.8"
   },
   "config": {
     "platform": {
