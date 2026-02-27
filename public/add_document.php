@@ -275,13 +275,42 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           $qrUrl = $scheme . "://" . $host . PUBLIC_PATH . "/qr.php?t=" . urlencode($qrToken);
 
           // Generate PDF
+
+          // 7.b) Resolve FROM/TO labels for transmittal memo
+          $stmt = $conn->prepare("
+            SELECT
+              s.id,
+              s.name AS section_name,
+              d.name AS division_name
+            FROM sections s
+            JOIN divisions d ON d.id = s.division_id
+            WHERE s.id IN (?, ?)
+          ");
+          $stmt->bind_param("ii", $fromSectionId, $toSectionId);
+          $stmt->execute();
+          $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+          $fromLabel = "";
+          $toLabel = "";
+
+          foreach ($rows as $r) {
+            $sid = (int)$r["id"];
+            $label = trim((string)$r["division_name"]) . " / " . trim((string)$r["section_name"]);
+
+            if ($sid === $fromSectionId) $fromLabel = $label;
+            if ($sid === $toSectionId)   $toLabel   = $label;
+          }
           TransmittalMemo::generateA4([
             'date' => $document_date,
             'subject' => $subject,
             'qr_url' => $qrUrl,
             'logo_left_abs'  => realpath(__DIR__ . "/../assets/mpwlogo1.png") ?: "",
             'logo_right_abs' => realpath(__DIR__ . "/../assets/ocmlogo.png") ?: "",
+            'from_label' => $fromLabel,
+            'to_label'   => $toLabel,
           ], $abs);
+
+          
 
           $size = (int)@filesize($abs);
           if ($size <= 0) {

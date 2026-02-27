@@ -14,7 +14,15 @@ declare(strict_types=1);
 final class TransmittalMemo
 {
   /**
-  * @param array{date:string, subject:string, qr_url?:string, logo_left_abs?:string, logo_right_abs?:string} $data
+   * @param array{
+   *   date:string,
+   *   subject:string,
+   *   qr_url?:string,
+   *   logo_left_abs?:string,
+   *   logo_right_abs?:string,
+   *   from_label?:string,
+   *   to_label?:string
+   * } $data
    */
   public static function generateA4(array $data, string $absOutPath): void
   {
@@ -30,8 +38,8 @@ final class TransmittalMemo
     }
 
     $pdfClass = class_exists('setasign\\Fpdf\\Fpdf')
-        ? 'setasign\\Fpdf\\Fpdf'
-        : 'FPDF';
+      ? 'setasign\\Fpdf\\Fpdf'
+      : 'FPDF';
 
     $pdf = new $pdfClass('P', 'mm', 'A4');
 
@@ -41,13 +49,12 @@ final class TransmittalMemo
       throw new RuntimeException('Transmittal memo requires date and subject.');
     }
 
-    
     $pdf->SetAutoPageBreak(false);
     $pdf->AddPage();
 
     $pageW = 210.0;
     $pageH = 297.0;
-    $m = 12.0; // estimated margin
+    $m = 12.0; // margin
     $innerX = $m;
     $innerY = $m;
     $innerW = $pageW - ($m * 2);
@@ -68,23 +75,22 @@ final class TransmittalMemo
     $logoRight = trim((string)($data['logo_right_abs'] ?? ''));
     $qrUrl     = trim((string)($data['qr_url'] ?? ''));
 
-    // Sizes (mm) - tweak if needed
-    $logoSize = 16.0;     // square logo inside header band
+    $logoSize = 16.0; // mm
     $pad      = 3.0;
-
-    $logoY = $innerY + $pad; // inside header band
+    $logoY    = $innerY + $pad;
 
     if ($logoLeft !== '' && is_file($logoLeft)) {
       $pdf->Image($logoLeft, $innerX + $pad, $logoY, $logoSize, $logoSize);
     }
-
     if ($logoRight !== '' && is_file($logoRight)) {
       $pdf->Image($logoRight, $innerX + $innerW - $pad - $logoSize, $logoY, $logoSize, $logoSize);
     }
 
     // QR below the right logo
     $tmpQrPath = null;
-    $qrSizeMm  = 26.0; // QR size on paper
+    $qrSizeMm  = 26.0;
+    $qrX = null;
+    $qrY = null;
 
     if ($qrUrl !== '' && class_exists(\Endroid\QrCode\QrCode::class)) {
       $qr = \Endroid\QrCode\QrCode::create($qrUrl)
@@ -97,11 +103,13 @@ final class TransmittalMemo
       $tmpQrPath = sys_get_temp_dir() . '/qr_' . bin2hex(random_bytes(8)) . '.png';
       $result->saveToFile($tmpQrPath);
 
-      $qrX = $innerX + $innerW - $pad - $qrSizeMm; // right aligned
-      $qrY = $innerY + $bandH + 2.5;               // below band
+      $qrX = $innerX + $innerW - $pad - $qrSizeMm;
+      $qrY = $innerY + $bandH + 2.5;
+
       $pdf->Image($tmpQrPath, $qrX, $qrY, $qrSizeMm, $qrSizeMm);
     }
 
+    // Header text
     $pdf->SetFont('Helvetica', '', 10);
     $pdf->SetTextColor(20, 24, 40);
     $pdf->SetXY($innerX, $innerY + 5);
@@ -113,9 +121,8 @@ final class TransmittalMemo
 
     // Date (top right)
     $pdf->SetFont('Helvetica', 'B', 10);
-    $dateX = $innerX + $innerW - 70;
 
-    // if QR was generated, push the date left to avoid overlap
+    $dateX = $innerX + $innerW - 70;
     if (!empty($tmpQrPath)) {
       $dateX = $innerX + $innerW - 70 - ($qrSizeMm + 6.0);
     }
@@ -124,20 +131,19 @@ final class TransmittalMemo
     $pdf->Cell(12, 6, 'Date:', 0, 0, 'L');
     $pdf->SetFont('Helvetica', '', 10);
     $pdf->Cell(58, 6, $date, 0, 1, 'L');
-    $lineY = $innerY + $bandH + 13;
 
+    // Date underline (shortened if QR exists)
+    $lineY = $innerY + $bandH + 13;
     $lineStartX = $innerX + 15;
     $lineEndX   = $innerX + $innerW - 15;
 
-    // If QR exists, shorten the line so it doesn't hit the QR
-    if (!empty($tmpQrPath)) {
+    if (!empty($tmpQrPath) && $qrX !== null) {
       $qrSafeMargin = 6.0;
       $lineEndX = $qrX - $qrSafeMargin;
     }
-
     $pdf->Line($lineStartX, $lineY, $lineEndX, $lineY);
 
-    // Recipients
+    // Recipients (kept as-is)
     $y = $innerY + $bandH + 16;
     $x = $innerX + 10;
 
@@ -151,12 +157,15 @@ final class TransmittalMemo
       $box = 5.5;
       $pdf->SetLineWidth(0.3);
       $pdf->Rect($x, $y + 1.2, $box, $box);
+
       $pdf->SetXY($x + $box + 4, $y);
       $pdf->SetFont('Helvetica', 'B', 10);
       $pdf->Cell(0, 6, $r['name'], 0, 2, 'L');
+
       $pdf->SetFont('Helvetica', '', 9);
       $pdf->SetTextColor(71, 84, 103);
       $pdf->Cell(0, 5, $r['title'], 0, 1, 'L');
+
       $pdf->SetTextColor(20, 24, 40);
       $y += 14;
     }
@@ -166,18 +175,19 @@ final class TransmittalMemo
     $pdf->SetFont('Helvetica', 'B', 10);
     $pdf->SetXY($innerX + 10, $y);
     $pdf->Cell(18, 6, 'Subject:', 0, 0, 'L');
+
     $pdf->SetFont('Helvetica', '', 10);
     $pdf->SetXY($innerX + 28, $y);
     $pdf->MultiCell($innerW - 38, 6, $subject, 0, 'L');
 
     // Subject lines
-    $lineY = $pdf->GetY() + 1;
+    $lineY2 = $pdf->GetY() + 1;
     for ($i = 0; $i < 2; $i++) {
-      $pdf->Line($innerX + 28, $lineY + ($i * 7), $innerX + $innerW - 10, $lineY + ($i * 7));
+      $pdf->Line($innerX + 28, $lineY2 + ($i * 7), $innerX + $innerW - 10, $lineY2 + ($i * 7));
     }
 
     // Action section
-    $y = $lineY + 10;
+    $y = $lineY2 + 10;
     $pdf->SetFont('Helvetica', 'B', 10);
     $pdf->SetXY($innerX + 10, $y);
     $pdf->Cell(0, 6, 'Action or Other Instructions:', 0, 1, 'L');
@@ -208,8 +218,31 @@ final class TransmittalMemo
       $pdf->Cell(80, 6, $actions[$i], 0, 0, 'L');
     }
 
-    // Blank lines area
-    $y = $y + (5 * $rowH) + 10;
+    // ✅ Place First Movement UNDER actions, right before the blank-lines area
+    $afterActionsY = $y + (5 * $rowH) + 8; // below checkbox grid
+
+    $fromLabel = trim((string)($data['from_label'] ?? ''));
+    $toLabel   = trim((string)($data['to_label'] ?? ''));
+
+    if ($fromLabel !== '' || $toLabel !== '') {
+      $moveX = $innerX + 10;
+      $moveY = $afterActionsY;
+
+      $moveW = $innerW - 20; // full usable width
+      $pdf->SetXY($moveX, $moveY);
+
+      $pdf->SetFont('Helvetica', 'B', 9);
+      $pdf->Cell($moveW, 5, 'First Movement (Auto)', 0, 2, 'L');
+
+      $pdf->SetFont('Helvetica', '', 9);
+      $pdf->SetTextColor(20, 24, 40);
+      $pdf->MultiCell($moveW, 5, $fromLabel . "  \xE2\x86\x92  " . $toLabel, 0, 'L');
+
+      $afterActionsY = $pdf->GetY() + 4; // blank lines start after movement text
+    }
+
+    // Blank lines area (under actions + movement)
+    $y = $afterActionsY;
     for ($i = 0; $i < 5; $i++) {
       $pdf->Line($innerX + 10, $y + ($i * 8), $innerX + $innerW - 10, $y + ($i * 8));
     }
@@ -217,10 +250,12 @@ final class TransmittalMemo
     // Signature
     $sigY = $innerY + $innerH - 46;
     $sigX = $innerX + $innerW - 95;
+
     $pdf->Line($sigX, $sigY + 18, $innerX + $innerW - 12, $sigY + 18);
     $pdf->SetFont('Helvetica', 'B', 10);
     $pdf->SetXY($sigX, $sigY + 20);
     $pdf->Cell($innerX + $innerW - 12 - $sigX, 6, 'SALONGA A. SUMAMPAO', 0, 2, 'C');
+
     $pdf->SetFont('Helvetica', '', 9);
     $pdf->SetTextColor(71, 84, 103);
     $pdf->Cell($innerX + $innerW - 12 - $sigX, 5, 'Director II for Technical Service', 0, 0, 'C');
@@ -231,9 +266,11 @@ final class TransmittalMemo
     if (!is_dir($dir)) {
       @mkdir($dir, 0775, true);
     }
+
     if (!empty($tmpQrPath) && is_file($tmpQrPath)) {
       @unlink($tmpQrPath);
     }
+
     $pdf->Output('F', $absOutPath);
   }
 }
