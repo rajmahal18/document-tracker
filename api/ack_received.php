@@ -70,11 +70,14 @@ try {
   $toSectionId = (int)$row["to_section_id"];
   $currentHolder = (int)$row["current_holder_section_id"];
 
-  // 2) Permission: only pending recipient can receive (admin still needs section)
-  if ($role !== "admin" && $toSectionId !== $mySectionId) {
+  // 2) Permission: ONLY the exact pending recipient section can receive
+  if ($toSectionId !== $mySectionId) {
     $conn->rollback();
     http_response_code(403);
-    echo json_encode(["ok" => false, "error" => "Forbidden: not the pending recipient section."]);
+    echo json_encode([
+      "ok" => false,
+      "error" => "Forbidden: this route is addressed to a different section."
+    ]);
     exit;
   }
 

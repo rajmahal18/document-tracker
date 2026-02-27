@@ -5,7 +5,8 @@
   "require": {
     "dompdf/dompdf": "^2.0",
     "setasign/fpdi": "^2.6",
-    "setasign/fpdf": "^1.8"
+    "setasign/fpdf": "^1.8",
+    "endroid/qr-code": "5"
   },
   "config": {
     "platform": {

@@ -14,7 +14,7 @@ declare(strict_types=1);
 final class TransmittalMemo
 {
   /**
-   * @param array{date:string, subject:string} $data
+  * @param array{date:string, subject:string, qr_url?:string, logo_left_abs?:string, logo_right_abs?:string} $data
    */
   public static function generateA4(array $data, string $absOutPath): void
   {
@@ -63,6 +63,45 @@ final class TransmittalMemo
     $pdf->SetLineWidth(0.4);
     $pdf->Rect($innerX, $innerY, $innerW, $bandH);
 
+    // --- Header logos + QR (MPW left, OCM right, QR below OCM) ---
+    $logoLeft  = trim((string)($data['logo_left_abs'] ?? ''));
+    $logoRight = trim((string)($data['logo_right_abs'] ?? ''));
+    $qrUrl     = trim((string)($data['qr_url'] ?? ''));
+
+    // Sizes (mm) - tweak if needed
+    $logoSize = 16.0;     // square logo inside header band
+    $pad      = 3.0;
+
+    $logoY = $innerY + $pad; // inside header band
+
+    if ($logoLeft !== '' && is_file($logoLeft)) {
+      $pdf->Image($logoLeft, $innerX + $pad, $logoY, $logoSize, $logoSize);
+    }
+
+    if ($logoRight !== '' && is_file($logoRight)) {
+      $pdf->Image($logoRight, $innerX + $innerW - $pad - $logoSize, $logoY, $logoSize, $logoSize);
+    }
+
+    // QR below the right logo
+    $tmpQrPath = null;
+    $qrSizeMm  = 26.0; // QR size on paper
+
+    if ($qrUrl !== '' && class_exists(\Endroid\QrCode\QrCode::class)) {
+      $qr = \Endroid\QrCode\QrCode::create($qrUrl)
+        ->setSize(420)
+        ->setMargin(10);
+
+      $writer = new \Endroid\QrCode\Writer\PngWriter();
+      $result = $writer->write($qr);
+
+      $tmpQrPath = sys_get_temp_dir() . '/qr_' . bin2hex(random_bytes(8)) . '.png';
+      $result->saveToFile($tmpQrPath);
+
+      $qrX = $innerX + $innerW - $pad - $qrSizeMm; // right aligned
+      $qrY = $innerY + $bandH + 2.5;               // below band
+      $pdf->Image($tmpQrPath, $qrX, $qrY, $qrSizeMm, $qrSizeMm);
+    }
+
     $pdf->SetFont('Helvetica', '', 10);
     $pdf->SetTextColor(20, 24, 40);
     $pdf->SetXY($innerX, $innerY + 5);
@@ -74,11 +113,29 @@ final class TransmittalMemo
 
     // Date (top right)
     $pdf->SetFont('Helvetica', 'B', 10);
-    $pdf->SetXY($innerX + $innerW - 70, $innerY + $bandH + 8);
+    $dateX = $innerX + $innerW - 70;
+
+    // if QR was generated, push the date left to avoid overlap
+    if (!empty($tmpQrPath)) {
+      $dateX = $innerX + $innerW - 70 - ($qrSizeMm + 6.0);
+    }
+
+    $pdf->SetXY($dateX, $innerY + $bandH + 8);
     $pdf->Cell(12, 6, 'Date:', 0, 0, 'L');
     $pdf->SetFont('Helvetica', '', 10);
     $pdf->Cell(58, 6, $date, 0, 1, 'L');
-    $pdf->Line($innerX + $innerW - 58, $innerY + $bandH + 14, $innerX + $innerW - 12, $innerY + $bandH + 14);
+    $lineY = $innerY + $bandH + 13;
+
+    $lineStartX = $innerX + 15;
+    $lineEndX   = $innerX + $innerW - 15;
+
+    // If QR exists, shorten the line so it doesn't hit the QR
+    if (!empty($tmpQrPath)) {
+      $qrSafeMargin = 6.0;
+      $lineEndX = $qrX - $qrSafeMargin;
+    }
+
+    $pdf->Line($lineStartX, $lineY, $lineEndX, $lineY);
 
     // Recipients
     $y = $innerY + $bandH + 16;
@@ -173,6 +230,9 @@ final class TransmittalMemo
     $dir = dirname($absOutPath);
     if (!is_dir($dir)) {
       @mkdir($dir, 0775, true);
+    }
+    if (!empty($tmpQrPath) && is_file($tmpQrPath)) {
+      @unlink($tmpQrPath);
     }
     $pdf->Output('F', $absOutPath);
   }

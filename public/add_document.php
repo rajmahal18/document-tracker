@@ -243,10 +243,44 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           $abs = $docDir . "/" . $storedName;
           $rel = "storage/attachments/doc_" . $docId . "/" . $storedName;
 
+          // 7.a) QR token (create if missing)
+          $qrToken = null;
+
+          $stmt = $conn->prepare("
+            SELECT token
+            FROM document_qr_tokens
+            WHERE document_id = ?
+              AND revoked_at IS NULL
+            ORDER BY id DESC
+            LIMIT 1
+          ");
+          $stmt->bind_param("i", $docId);
+          $stmt->execute();
+          $rowTok = $stmt->get_result()->fetch_assoc();
+          if ($rowTok && !empty($rowTok["token"])) {
+            $qrToken = (string)$rowTok["token"];
+          } else {
+            $qrToken = bin2hex(random_bytes(16)); // 32 chars
+            $stmt = $conn->prepare("
+              INSERT INTO document_qr_tokens (document_id, token)
+              VALUES (?, ?)
+            ");
+            $stmt->bind_param("is", $docId, $qrToken);
+            $stmt->execute();
+          }
+
+          // absolute URL for QR
+          $scheme = (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off") ? "https" : "http";
+          $host = (string)($_SERVER["HTTP_HOST"] ?? "localhost");
+          $qrUrl = $scheme . "://" . $host . PUBLIC_PATH . "/qr.php?t=" . urlencode($qrToken);
+
           // Generate PDF
           TransmittalMemo::generateA4([
             'date' => $document_date,
             'subject' => $subject,
+            'qr_url' => $qrUrl,
+            'logo_left_abs'  => realpath(__DIR__ . "/../assets/mpwlogo1.png") ?: "",
+            'logo_right_abs' => realpath(__DIR__ . "/../assets/ocmlogo.png") ?: "",
           ], $abs);
 
           $size = (int)@filesize($abs);
