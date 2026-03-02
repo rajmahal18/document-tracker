@@ -71,7 +71,14 @@ try {
     LEFT JOIN sections s ON s.id = a.uploaded_by_section_id
     WHERE a.document_id = ?
       AND a.is_deleted = 0
-    ORDER BY a.uploaded_at DESC, a.id DESC
+    ORDER BY
+      CASE
+        WHEN a.note = 'AUTO:TRANSMITTAL_MEMO' THEN 0
+        WHEN a.note = 'AUTO:PPD_TRACKING_SLIP' THEN 1
+        ELSE 2
+      END ASC,
+      a.uploaded_at DESC,
+      a.id DESC
   ");
   $stmt->bind_param("i", $docId);
   $stmt->execute();

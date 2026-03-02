@@ -79,7 +79,11 @@ $stmt = $conn->prepare("
   WHERE document_id = ?
     AND is_deleted = 0
   ORDER BY
-    CASE WHEN note = 'AUTO:TRANSMITTAL_MEMO' THEN 0 ELSE 1 END ASC,
+    CASE
+      WHEN note = 'AUTO:TRANSMITTAL_MEMO' THEN 0
+      WHEN note = 'AUTO:PPD_TRACKING_SLIP' THEN 1
+      ELSE 2
+    END ASC,
     is_append ASC,
     uploaded_at ASC,
     id ASC

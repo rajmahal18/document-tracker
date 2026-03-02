@@ -22,7 +22,9 @@ require __DIR__ . "/../includes/layout.php";
 
   window.__CTX__ = {
     mySectionId: <?= (int)($_SESSION["section_id"] ?? 0) ?>,
-    myRole: "<?= htmlspecialchars($_SESSION["role"] ?? "division") ?>"
+    myRole: "<?= htmlspecialchars($_SESSION["role"] ?? "division") ?>",
+    myDivisionName: "<?= htmlspecialchars($_SESSION["division_name"] ?? "") ?>",
+    isPPD: <?= (stripos((string)($_SESSION["division_name"] ?? ""), "Planning") !== false && stripos((string)($_SESSION["division_name"] ?? ""), "Programming") !== false) ? "true" : "false" ?>
   };
 
   window.__SECTIONS__ = <?= json_encode($sections, JSON_UNESCAPED_UNICODE) ?>;
@@ -627,6 +629,15 @@ $end   = min($totalPages, $page + 2);
     <div class="kv"><div class="k">Type</div><div class="v" id="d_type"></div></div>
     <div class="kv"><div class="k">Days stuck</div><div class="v" id="d_days"></div></div>
     <div class="kv"><div class="k">Full Document</div><div class="v"><button type="button" class="btnComp" id="btnViewDocument">View document</button></div></div>
+    <div class="drawerRow" id="rowPpdSlip" style="display:none;">
+      <div class="k">PPD Tracking Slip</div>
+      <div class="v" style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
+        <button type="button" class="btnSecondary" id="btnPpdSlipGenerate">Generate</button>
+        <button type="button" class="btnSecondary" id="btnPpdSlipAttach">Attach</button>
+        <button type="button" class="btnComp" id="btnPpdSlipPrint" disabled>Print</button>
+      </div>
+    </div>
+
 
     <!-- Attachments -->
     <div style="margin-top:14px;">

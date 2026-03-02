@@ -23,6 +23,15 @@
   const elAttachments = document.getElementById("d_attachments");
   const btnViewDocument = document.getElementById("btnViewDocument");
 
+  // PPD Tracking Slip (PPD users only)
+  const rowPpdSlip = document.getElementById("rowPpdSlip");
+  const btnPpdSlipGenerate = document.getElementById("btnPpdSlipGenerate");
+  const btnPpdSlipAttach = document.getElementById("btnPpdSlipAttach");
+  const btnPpdSlipPrint = document.getElementById("btnPpdSlipPrint");
+
+  let currentPpdSlipAttId = 0;
+
+
   // Toggle buttons (must exist in documents.php)
   const btnToggleAttachments = document.getElementById("btnToggleAttachments");
   const btnToggleUpload = document.getElementById("btnToggleUpload");
@@ -249,6 +258,20 @@
       }
 
       const items = data.attachments || [];
+
+      // Track latest generated PPD slip attachment (for Print button)
+      currentPpdSlipAttId = 0;
+      for (const a of items) {
+        const note = (a.note || "").toString();
+        if (note === "AUTO:PPD_TRACKING_SLIP") {
+          currentPpdSlipAttId = Number(a.id || 0);
+          break;
+        }
+      }
+      if (btnPpdSlipPrint) {
+        btnPpdSlipPrint.disabled = !(APP.isPPD && currentPpdSlipAttId > 0);
+      }
+
       if (items.length === 0) {
         elAttachments.innerHTML = `<div class="mini" style="opacity:.7;">No files yet.</div>`;
         return;
@@ -402,6 +425,21 @@
         btnViewDocument.dataset.docId = "";
         btnViewDocument.style.display = "none";
       }
+    }
+
+    // PPD tracking slip buttons (only for PPD users)
+    if (rowPpdSlip) {
+      const isPPD = !!APP.isPPD;
+      const docId = payload.id || "";
+      rowPpdSlip.style.display = (isPPD && docId) ? "" : "none";
+
+      if (btnPpdSlipGenerate) btnPpdSlipGenerate.dataset.docId = String(docId || "");
+      if (btnPpdSlipAttach) btnPpdSlipAttach.dataset.docId = String(docId || "");
+      if (btnPpdSlipPrint) {
+        btnPpdSlipPrint.dataset.docId = String(docId || "");
+        btnPpdSlipPrint.disabled = true;
+      }
+      currentPpdSlipAttId = 0;
     }
 
     if (elId) elId.value = payload.id || "";
@@ -969,6 +1007,56 @@
 
   btnForward?.addEventListener("click", forwardDoc);
   btnAttachUpload?.addEventListener("click", uploadAttachment);
+
+  // PPD tracking slip actions
+  btnPpdSlipGenerate?.addEventListener("click", async () => {
+    const docId = btnPpdSlipGenerate.dataset.docId || elId?.value || "";
+    if (!docId) return;
+
+    btnPpdSlipGenerate.disabled = true;
+    try {
+      const form = new FormData();
+      form.append("document_id", docId);
+      form.append("csrf_token", window.__CSRF__ || "");
+
+      const res = await fetch(`${API}/ppd_tracking_slip_generate.php`, {
+        method: "POST",
+        body: form,
+        headers: { "Accept": "application/json" }
+      });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        alert(data?.error || `Generate failed. (${res.status})`);
+        return;
+      }
+
+      const attId = Number(data.attachment_id || 0);
+      await loadAttachments(docId);
+
+      if (attId > 0) {
+        window.open(`${PUBLIC}/view_attachment.php?id=${attId}`, "_blank", "noopener");
+      }
+    } catch {
+      alert("Generate failed.");
+    } finally {
+      btnPpdSlipGenerate.disabled = false;
+    }
+  });
+
+  btnPpdSlipPrint?.addEventListener("click", () => {
+    if (!currentPpdSlipAttId) return;
+    window.open(`${PUBLIC}/ppd_tracking_slip_print.php?id=${currentPpdSlipAttId}`, "_blank", "noopener");
+  });
+
+  btnPpdSlipAttach?.addEventListener("click", () => {
+    // Open upload form + prefill note so user can upload scanned/signed slip
+    setCollapsed(attachForm, false);
+    if (btnToggleUpload) btnToggleUpload.textContent = "Hide upload";
+    if (attachType) attachType.value = "1"; // append
+    if (attachNote) attachNote.value = "PPD Tracking Slip (scanned/signed)";
+    attachFile?.focus();
+  });
 
   // View document hook
   btnViewDocument?.addEventListener("click", () => {
