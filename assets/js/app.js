@@ -14,7 +14,10 @@
   const elStatus = document.getElementById("d_status");
   const elHolder = document.getElementById("d_holder");
   const elDestination = document.getElementById("d_destination");
+  const elDestinationText = document.getElementById("d_destination_text");
   const elLastHolder = document.getElementById("d_last_holder");
+
+  const btnViewRecipients = document.getElementById("btnViewRecipients");
 
   const elRemarks = document.getElementById("d_remarks");
   const elTimeline = document.getElementById("d_timeline");
@@ -28,11 +31,9 @@
   const btnPpdSlipGenerate = document.getElementById("btnPpdSlipGenerate");
   const btnPpdSlipAttach = document.getElementById("btnPpdSlipAttach");
   const btnPpdSlipPrint = document.getElementById("btnPpdSlipPrint");
-
   let currentPpdSlipAttId = 0;
 
-
-  // Toggle buttons (must exist in documents.php)
+  // Toggle buttons
   const btnToggleAttachments = document.getElementById("btnToggleAttachments");
   const btnToggleUpload = document.getElementById("btnToggleUpload");
   const btnToggleForward = document.getElementById("btnToggleForward");
@@ -51,10 +52,22 @@
   const btnRelease = document.getElementById("btnRelease");
   const btnArchive = document.getElementById("btnArchive");
 
-  // Forward box
+  // Forward box (CHECKBOX UI)
   const forwardBox = document.getElementById("forwardBox");
   const selForwardTo = document.getElementById("f_to_section");
+  const elUserList = document.getElementById("f_user_list");
+  const btnUserSelectAll = document.getElementById("btnUserSelectAll");
+  const btnUserClear = document.getElementById("btnUserClear");
+  const elRecipientsPreview = document.getElementById("forwardRecipientsPreview");
   const btnForward = document.getElementById("btnForward");
+
+  // Recipients modal
+  const recModal = document.getElementById("recModal");
+  const recModalBackdrop = document.getElementById("recModalBackdrop");
+  const recClose = document.getElementById("recClose");
+  const recBody = document.getElementById("recBody");
+  const recTitle = document.getElementById("recTitle");
+  const recSub = document.getElementById("recSub");
 
   // Attachment preview modal elements
   const attModal = document.getElementById("attModal");
@@ -146,16 +159,15 @@
 
   function updateForwardUI() {
     if (!forwardBox) return;
-
     const isOpen = !forwardBox.classList.contains("collapsed");
 
-    // Toggle visible only when allowed (set by openDrawer)
     if (btnToggleForward) btnToggleForward.style.display = currentCanForward ? "" : "none";
-
-    // Confirm button visible only when open + allowed
     if (btnForward) btnForward.style.display = (currentCanForward && isOpen) ? "" : "none";
   }
 
+  // =========================
+  // Forward: Sections dropdown
+  // =========================
   function loadSectionsOptions() {
     if (!selForwardTo) return;
 
@@ -180,6 +192,179 @@
     selForwardTo.innerHTML = html;
   }
   loadSectionsOptions();
+
+  // =========================
+  // Forward: Checkbox recipients
+  // =========================
+  function resetUsersUI(msg = "Select a section to load users…") {
+    if (elUserList) elUserList.innerHTML = `<div style="opacity:.7;">${esc(msg)}</div>`;
+    if (elRecipientsPreview) elRecipientsPreview.textContent = "Recipients: —";
+  }
+
+  function getAllRecipientBoxes() {
+    if (!elUserList) return [];
+    return Array.from(elUserList.querySelectorAll("input.f_user_cb"));
+  }
+
+  function getSelectedRecipientIds() {
+    const all = getAllRecipientBoxes();
+    return all
+      .filter(b => b.checked)
+      .map(b => Number.parseInt(b.value || "0", 10))
+      .filter(n => Number.isFinite(n) && n > 0);
+  }
+
+  function updateRecipientsPreview() {
+    if (!elRecipientsPreview) return;
+
+    const allBoxes = getAllRecipientBoxes();
+    const selectedBoxes = allBoxes.filter(b => b.checked);
+
+    if (allBoxes.length === 0 || selectedBoxes.length === 0) {
+      elRecipientsPreview.textContent = "Recipients: —";
+      return;
+    }
+
+    if (selectedBoxes.length === allBoxes.length) {
+      elRecipientsPreview.textContent = `Recipients: All selected (${allBoxes.length})`;
+      return;
+    }
+
+    const labels = selectedBoxes.slice(0, 3).map(b => {
+      const text = b.closest("label")?.innerText?.trim() || `#${b.value}`;
+      return text.replace(/\s+/g, " ");
+    });
+
+    const more = selectedBoxes.length - labels.length;
+    elRecipientsPreview.textContent =
+      `Recipients: ${labels.join(", ")}${more > 0 ? ` (+${more} more)` : ""}`;
+  }
+
+  async function loadUsersForSection(sectionId) {
+    if (!elUserList) return;
+
+    resetUsersUI("Loading users…");
+
+    try {
+      const res = await fetch(`${API}/users_by_section.php?section_id=${encodeURIComponent(sectionId)}`, {
+        headers: { "Accept": "application/json" }
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !Array.isArray(data) || data.length === 0) {
+        resetUsersUI("— No users found —");
+        return;
+      }
+
+      elUserList.innerHTML = data.map(u => {
+        const id = Number(u.id || 0);
+        const name = (u.name || "").toString();
+        return `
+          <label class="userChk" style="display:flex; gap:8px; align-items:flex-start; padding:6px 4px; cursor:pointer;">
+            <input type="checkbox" class="f_user_cb" value="${id}" style="margin-top:2px;">
+            <span>${esc(name)} <span style="opacity:.6;">(#${id})</span></span>
+          </label>
+        `;
+      }).join("");
+
+      updateRecipientsPreview();
+    } catch {
+      resetUsersUI("Failed to load users");
+    }
+  }
+
+  // initial state
+  resetUsersUI();
+
+  selForwardTo?.addEventListener("change", () => {
+    const sectionId = Number.parseInt(selForwardTo.value || "0", 10) || 0;
+    resetUsersUI();
+    if (sectionId > 0) loadUsersForSection(sectionId);
+  });
+
+  elUserList?.addEventListener("change", (e) => {
+    if (e.target && e.target.classList.contains("f_user_cb")) {
+      updateRecipientsPreview();
+    }
+  });
+
+  btnUserSelectAll?.addEventListener("click", () => {
+    const all = getAllRecipientBoxes();
+    all.forEach(b => b.checked = true);
+    updateRecipientsPreview();
+  });
+
+  btnUserClear?.addEventListener("click", () => {
+    const all = getAllRecipientBoxes();
+    all.forEach(b => b.checked = false);
+    updateRecipientsPreview();
+  });
+
+  // =========================
+  // Recipients Modal
+  // =========================
+  function openRecipientsModal({ docId, countHint }) {
+    if (!recModal || !recBody) return;
+
+    if (recTitle) recTitle.textContent = "Recipients";
+    if (recSub) recSub.textContent = (typeof countHint === "number" && countHint >= 0)
+      ? `${countHint} recipient${countHint === 1 ? "" : "s"}`
+      : "";
+
+    recBody.innerHTML = `<div class="mini" style="opacity:.8;">Loading…</div>`;
+
+    recModal.classList.add("open");
+    recModal.setAttribute("aria-hidden", "false");
+
+    fetch(`${API}/get_recipients.php?document_id=${encodeURIComponent(docId)}`, {
+      headers: { "Accept": "application/json" }
+    })
+      .then(async (res) => {
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data?.ok) {
+          recBody.innerHTML = `<div class="mini" style="opacity:.8;">${esc(data?.error || `Failed to load recipients. (${res.status})`)}</div>`;
+          return;
+        }
+
+        const items = Array.isArray(data.recipients) ? data.recipients : [];
+        if (recSub) recSub.textContent = `${items.length} recipient${items.length === 1 ? "" : "s"}`;
+
+        if (items.length === 0) {
+          recBody.innerHTML = `<div class="mini" style="opacity:.8;">No pending recipients.</div>`;
+          return;
+        }
+
+        recBody.innerHTML = `
+          <div style="display:flex; flex-direction:column; gap:10px;">
+            ${items.map((r) => {
+              const sec = (r.to_section_name || "—").toString();
+              const user = (r.to_user_name || "").toString().trim();
+              const who = user ? user : "(No specific user)";
+              return `
+                <div style="border:1px solid rgba(0,0,0,.08); border-radius:12px; padding:10px 12px;">
+                  <div style="font-weight:900;">${esc(who)}</div>
+                  <div class="mini" style="opacity:.8; margin-top:2px;">Section: ${esc(sec)}</div>
+                </div>
+              `;
+            }).join("")}
+          </div>
+        `;
+      })
+      .catch(() => {
+        recBody.innerHTML = `<div class="mini" style="opacity:.8;">Failed to load recipients (network error).</div>`;
+      });
+  }
+
+  function closeRecipientsModal() {
+    if (!recModal) return;
+    recModal.classList.remove("open");
+    recModal.setAttribute("aria-hidden", "true");
+    if (recBody) recBody.innerHTML = "";
+  }
+
+  recClose?.addEventListener("click", closeRecipientsModal);
+  recModalBackdrop?.addEventListener("click", closeRecipientsModal);
 
   // =========================
   // Attachment Modal
@@ -237,6 +422,7 @@
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       if (attModal?.classList.contains("open")) closeAttachmentModal();
+      if (recModal?.classList.contains("open")) closeRecipientsModal();
       if (drawer?.classList.contains("open")) closeDrawer();
     }
   });
@@ -259,7 +445,6 @@
 
       const items = data.attachments || [];
 
-      // Track latest generated PPD slip attachment (for Print button)
       currentPpdSlipAttId = 0;
       for (const a of items) {
         const note = (a.note || "").toString();
@@ -328,7 +513,6 @@
     }
   }
 
-  // Delegated click for attachment preview
   document.addEventListener("click", (e) => {
     const link = e.target?.closest?.("a.attachLink[data-view-url]");
     if (!link) return;
@@ -407,12 +591,9 @@
   // Drawer open/close
   // =========================
   function openDrawer(payload) {
-    // Always reset collapsibles on open (clean default)
     setCollapsed(elAttachments, true);
     setCollapsed(attachForm, true);
     setCollapsed(forwardBox, true);
-
-    // reset button labels
     syncToggleLabels();
 
     // View document button
@@ -427,7 +608,7 @@
       }
     }
 
-    // PPD tracking slip buttons (only for PPD users)
+    // PPD tracking slip buttons
     if (rowPpdSlip) {
       const isPPD = !!APP.isPPD;
       const docId = payload.id || "";
@@ -454,19 +635,30 @@
     const inTransit = (payload.in_transit === 1 || payload.in_transit === "1" || payload.in_transit === true);
     const docStatus = (payload.current_status || "ACTIVE").toString().toUpperCase();
 
-    // Status (must match table)
     if (elStatus) {
       elStatus.textContent = payload.status_label || (inTransit ? "IN TRANSIT" : (docStatus || "—"));
       elStatus.className = payload.status_chip_class || (inTransit ? "chip action" : "chip incoming");
     }
 
-    // Holder
     if (elHolder) {
       elHolder.textContent = payload.current_holder_text || "—";
       elHolder.className = "chip incoming";
     }
 
-    if (elDestination) elDestination.textContent = payload.movement_text || "—";
+    // Destination + recipients viewer
+    const openCount = Number.parseInt(payload.open_route_count, 10) || 0;
+    const destText = payload.movement_text || "—";
+
+    if (elDestinationText) elDestinationText.textContent = destText;
+    else if (elDestination) elDestination.textContent = destText;
+
+    if (btnViewRecipients) {
+      const show = !!inTransit && openCount > 0;
+      btnViewRecipients.style.display = show ? "" : "none";
+      btnViewRecipients.dataset.docId = show ? String(payload.id || "") : "";
+      btnViewRecipients.dataset.count = String(openCount || 0);
+    }
+
     if (elLastHolder) elLastHolder.textContent = payload.last_holder_text || "—";
     if (elRemarks) elRemarks.value = "";
 
@@ -498,22 +690,20 @@
 
     const canForward = (!inTransit && docStatus === "ACTIVE" && holderSectionId > 0 && mySectionId > 0 && holderSectionId === mySectionId);
 
-    // cache forward permission for toggle handler
     currentCanForward = canForward;
 
-    // Show/hide toggles (NOT the boxes)
     if (btnToggleUpload) btnToggleUpload.style.display = canAttach ? "" : "none";
     if (btnToggleAttachments) btnToggleAttachments.style.display = "";
-    // Forward toggle is controlled by updateForwardUI()
     updateForwardUI();
 
-    // Reset inputs
+    // Reset inputs (forward)
     if (attachFile) attachFile.value = "";
     if (attachNote) attachNote.value = "";
-    if (attachType) attachType.value = "1"; // append only
+    if (attachType) attachType.value = "1";
     if (selForwardTo) selForwardTo.value = "";
+    resetUsersUI();
 
-    // Action buttons visibility logic (yours, preserved)
+    // Action buttons visibility logic (yours)
     if (btnAckReceived) btnAckReceived.style.display = "none";
     if (btnRelease) btnRelease.style.display = "none";
     if (btnArchive) btnArchive.style.display = "none";
@@ -575,7 +765,6 @@
 
     if (holderSectionId > 0 && mySectionId > 0 && holderSectionId === mySectionId) {
       if (btnRelease) btnRelease.style.display = "";
-      // forward toggle already handled
     }
 
     syncToggleLabels();
@@ -587,7 +776,7 @@
   }
 
   // =========================
-  // Timeline loader
+  // Timeline loader (unchanged)
   // =========================
   async function loadTimeline(docId) {
     if (!elTimeline) return;
@@ -931,9 +1120,18 @@
       return;
     }
 
+    const selected = getSelectedRecipientIds(); // ✅ from checkboxes
+
     const form = new FormData();
     form.append("document_id", docId);
     form.append("to_section_id", String(toSectionId));
+
+    if (selected.length === 1) {
+      form.append("to_user_id", String(selected[0]));
+    } else if (selected.length > 1) {
+      selected.forEach(id => form.append("to_user_ids[]", String(id)));
+    }
+
     form.append("remarks", elRemarks ? elRemarks.value : "");
     form.append("csrf_token", window.__CSRF__ || "");
 
@@ -979,7 +1177,6 @@
     syncToggleLabels();
   });
 
-  // ✅ Toggle-only behavior
   btnToggleForward?.addEventListener("click", () => {
     if (!forwardBox) return;
 
@@ -1050,10 +1247,9 @@
   });
 
   btnPpdSlipAttach?.addEventListener("click", () => {
-    // Open upload form + prefill note so user can upload scanned/signed slip
     setCollapsed(attachForm, false);
     if (btnToggleUpload) btnToggleUpload.textContent = "Hide upload";
-    if (attachType) attachType.value = "1"; // append
+    if (attachType) attachType.value = "1";
     if (attachNote) attachNote.value = "PPD Tracking Slip (scanned/signed)";
     attachFile?.focus();
   });
@@ -1071,7 +1267,15 @@
     document.dispatchEvent(new CustomEvent("dt:view_document", { detail: { documentId: docId } }));
   });
 
-  // initial label sync (in case drawer starts open)
+  // View recipients (multiple send)
+  btnViewRecipients?.addEventListener("click", () => {
+    const docId = btnViewRecipients.dataset.docId || elId?.value || "";
+    const count = Number.parseInt(btnViewRecipients.dataset.count || "0", 10);
+    if (!docId) return;
+    openRecipientsModal({ docId, countHint: Number.isFinite(count) ? count : undefined });
+  });
+
+  // initial label sync
   syncToggleLabels();
   updateForwardUI();
 })();

@@ -75,7 +75,8 @@ if (!$isPrivileged) {
         SELECT 1
         FROM routes r
         WHERE r.document_id = d.id
-          AND r.is_open = 1
+          AND r.received_at IS NULL
+          AND r.cancelled_at IS NULL
           AND r.to_section_id = ?
       )
       OR EXISTS (
@@ -179,6 +180,8 @@ $sql = "
     r_open.to_section_id AS open_to_section_id,
     st_open.name AS open_to_section_name,
 
+    COALESCE(ro.open_count, 0) AS open_route_count,
+
     -- last holder (fallback when not in transit)
     sf_last.name AS last_holder_name,
 
@@ -186,17 +189,27 @@ $sql = "
   FROM documents d
   LEFT JOIN sections sh ON sh.id = d.current_holder_section_id
 
+  LEFT JOIN (
+    SELECT
+      r.document_id,
+      MIN(r.id) AS any_open_route_id,
+      COUNT(*) AS open_count
+    FROM routes r
+    WHERE r.received_at IS NULL AND r.cancelled_at IS NULL
+    GROUP BY r.document_id
+  ) ro ON ro.document_id = d.id
+
   LEFT JOIN routes r_open
-    ON r_open.document_id = d.id AND r_open.is_open = 1
+    ON r_open.id = ro.any_open_route_id
   LEFT JOIN sections sf_open ON sf_open.id = r_open.from_section_id
   LEFT JOIN sections st_open ON st_open.id = r_open.to_section_id
 
   LEFT JOIN routes r_last
-    ON r_last.document_id = d.id AND r_last.is_open = 0
+    ON r_last.document_id = d.id
    AND r_last.received_at = (
       SELECT MAX(r2.received_at)
       FROM routes r2
-      WHERE r2.document_id = d.id AND r2.is_open = 0 AND r2.received_at IS NOT NULL
+      WHERE r2.document_id = d.id AND r2.received_at IS NOT NULL
    )
   LEFT JOIN sections sf_last ON sf_last.id = r_last.from_section_id
 ";
@@ -259,7 +272,8 @@ if (!$isPrivileged) {
         SELECT 1
         FROM routes r
         WHERE r.document_id = d.id
-          AND r.is_open = 1
+          AND r.received_at IS NULL
+          AND r.cancelled_at IS NULL
           AND r.to_section_id = ?
       )
       OR EXISTS (
@@ -466,8 +480,12 @@ function quickUrl(string $target): string {
             }
           }
 
+          $openCount = (int)($d["open_route_count"] ?? 0);
+
           $movementText = $inTransit
-            ? (string)($d["open_to_section_name"] ?? "—")
+            ? (($openCount > 1)
+                ? ("Multiple recipients (" . $openCount . ")")
+                : (string)($d["open_to_section_name"] ?? "—"))
             : "—";
 
           $currentHolderText = $inTransit ? "—" : (string)($d["current_holder_name"] ?? "—");
@@ -494,6 +512,7 @@ function quickUrl(string $target): string {
               "in_transit" => !empty($d["open_to_section_id"]) ? 1 : 0,
               "open_to_section_id" => (int)($d["open_to_section_id"] ?? 0),
               "open_from_section_id" => (int)($d["open_from_section_id"] ?? 0),
+              "open_route_count" => $openCount,
 
               "movement_text" => $movementText,
               "current_holder_text" => $currentHolderText,
@@ -615,7 +634,10 @@ $end   = min($totalPages, $page + 2);
 
     <div class="kv">
       <div class="k">Destination</div>
-      <div class="v" id="d_destination">—</div>
+      <div class="v" id="d_destination">
+        <span id="d_destination_text">—</span>
+        <button type="button" class="btnSecondary" id="btnViewRecipients" style="display:none; padding:6px 10px; margin-left:8px;">View</button>
+      </div>
     </div>
 
     <div class="kv">
@@ -690,6 +712,24 @@ $end   = min($totalPages, $page + 2);
       <option value="">-- Select section --</option>
     </select>
 
+    <label style="font-size:12px; font-weight:900; margin-top:10px; display:block;">Recipients</label>
+
+    <div class="forwardUserTools" style="display:flex; gap:8px; margin:6px 0 8px;">
+      <button type="button" class="btnSecondary" id="btnUserSelectAll" style="padding:6px 10px;">Select all</button>
+      <button type="button" class="btnSecondary" id="btnUserClear" style="padding:6px 10px;">Clear</button>
+    </div>
+
+    <div id="f_user_list" class="userChecklist mini"
+        style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:10px; max-height:170px; overflow:auto;">
+      <div style="opacity:.7;">Select a section to load users…</div>
+    </div>
+
+    <div id="forwardRecipientsPreview" class="mini" style="opacity:.75; margin-top:6px;">
+      Recipients: —
+    </div>
+
+    <div id="forwardRecipientsPreview" class="mini" style="opacity:.9; margin-top:6px;"></div>
+
     <button id="btnForward" type="button" class="btnSecondary" style="margin-top:10px; margin-bottom:10px; margin-left:10px; display:none;">
       Forward
     </button>
@@ -714,6 +754,23 @@ $end   = min($totalPages, $page + 2);
     <div class="attFooter">
       <a id="attDownload" class="btnSecondary" href="#" target="_blank" rel="noopener">Download</a>
     </div>
+  </div>
+</div>
+
+<!-- Recipients Modal (reuses attachment modal styles) -->
+<div id="recModal" class="attModal" aria-hidden="true">
+  <div id="recModalBackdrop" class="attBackdrop"></div>
+
+  <div class="attDialog">
+    <div class="attTopbar">
+      <div>
+        <div id="recTitle" class="attTitle">Recipients</div>
+        <div id="recSub" class="attSub mini"></div>
+      </div>
+      <button id="recClose" class="attClose" type="button">✕</button>
+    </div>
+
+    <div id="recBody" class="attBody" style="padding:16px;"></div>
   </div>
 </div>
 
