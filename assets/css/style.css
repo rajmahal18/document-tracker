@@ -1563,3 +1563,9 @@ body.modalOpen{
   .attachRow{ grid-template-columns: 1fr; }
   .docFormHead{ flex-direction: column; align-items:flex-start; }
 }
+
+.destClickable {
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

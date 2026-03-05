@@ -636,7 +636,6 @@ $end   = min($totalPages, $page + 2);
       <div class="k">Destination</div>
       <div class="v" id="d_destination">
         <span id="d_destination_text">—</span>
-        <button type="button" class="btnSecondary" id="btnViewRecipients" style="display:none; padding:6px 10px; margin-left:8px;">View</button>
       </div>
     </div>
 

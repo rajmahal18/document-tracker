@@ -46,17 +46,6 @@ if ($fromSectionId > 0) {
   ));
 }
 
-/**
- * Minimal PPD Document Tracking Slip PDF generator (A4)
- *
- * @param array{
- *   ppd_tracking_no:string,
- *   from_label:string,
- *   document_date:string,
- *   subject:string
- * } $data
- */
-
 // ✅ Load sections for dropdown
 $sections = $conn->query("
   SELECT s.id, s.name, d.name AS division_name
@@ -66,6 +55,10 @@ $sections = $conn->query("
   ORDER BY d.name ASC, s.name ASC
 ")->fetch_all(MYSQLI_ASSOC);
 
+// Default date
+$phNow = new DateTime("now", new DateTimeZone("Asia/Manila"));
+$defaultDocDate = $phNow->format("Y-m-d");
+
 if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   $tracking_no   = "TRK-" . time(); // simple unique (ok for now)
   $requester     = trim($_POST["requester"] ?? "");
@@ -74,6 +67,17 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   $content_type  = trim($_POST["content_type"] ?? "");
   $comm_type     = trim($_POST["comm_type"] ?? "internal");
   $toSectionId   = (int)($_POST["to_section_id"] ?? 0);
+
+  // ✅ multiple initial recipients (optional)
+  $toUserIds = $_POST["to_user_ids"] ?? [];
+  if (!is_array($toUserIds)) $toUserIds = [];
+  $toUserIds = array_values(array_unique(array_filter(array_map(
+    static fn($v) => (int)$v,
+    $toUserIds
+  ), static fn($n) => $n > 0)));
+
+  // ✅ One batch id for the initial send (even if 1 user or section-only)
+  $sendBatchId = bin2hex(random_bytes(16));
 
   // Generator choice
   $genChoice = "none";
@@ -94,8 +98,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   } else {
     $userId = (int)($_SESSION["user_id"] ?? 0);
 
-    if ($toSectionId === $fromSectionId) {
-      $error = "Forward To must be a different section.";
+    // ✅ NEW RULE (match forward.php):
+    // Same-section is allowed ONLY if at least 1 recipient user is selected.
+    if ($toSectionId === $fromSectionId && count($toUserIds) === 0) {
+      $error = "Forward To must be a different section (or select at least 1 recipient user).";
     } else {
       try {
         $conn->begin_transaction();
@@ -127,7 +133,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         $stmt->bind_param("iii", $docId, $fromSectionId, $userId);
         $stmt->execute();
 
-        // 3) participants: pending recipient can SEE
+        // 3) participants: pending recipient section can SEE
         $stmt = $conn->prepare("
           INSERT IGNORE INTO document_participants
             (document_id, section_id, added_via, added_by_user_id)
@@ -136,15 +142,64 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         $stmt->bind_param("iii", $docId, $toSectionId, $userId);
         $stmt->execute();
 
-        // 4) routes: open route
+        // 3.5) Validate selected users (if any): must belong to destination section and be active
+        if (count($toUserIds) > 0) {
+          $placeholders = implode(",", array_fill(0, count($toUserIds), "?"));
+          $types = "i" . str_repeat("i", count($toUserIds)); // section_id + each user_id
+          $params = array_merge([$toSectionId], $toUserIds);
+
+          $sql = "
+            SELECT id
+            FROM users
+            WHERE section_id = ?
+              AND is_active = 1
+              AND id IN ($placeholders)
+          ";
+
+          $stmt = $conn->prepare($sql);
+          $stmt->bind_param($types, ...$params);
+          $stmt->execute();
+          $res = $stmt->get_result();
+
+          $found = [];
+          while ($r = $res->fetch_assoc()) $found[] = (int)$r["id"];
+
+          sort($found);
+          $expected = $toUserIds;
+          sort($expected);
+
+          if ($found !== $expected) {
+            throw new RuntimeException("One or more selected users are invalid/inactive for the selected section.");
+          }
+        }
+
+        // 4) routes: open route(s) — match new routing model
         $remarks = "Initial forward on creation";
-        $stmt = $conn->prepare("
-          INSERT INTO routes
-            (document_id, from_section_id, to_section_id, sent_by_user_id, remarks)
-          VALUES (?, ?, ?, ?, ?)
-        ");
-        $stmt->bind_param("iiiis", $docId, $fromSectionId, $toSectionId, $userId, $remarks);
-        $stmt->execute();
+
+        if (count($toUserIds) === 0) {
+          // legacy: section-only
+          $stmt = $conn->prepare("
+            INSERT INTO routes
+              (document_id, from_section_id, to_section_id, to_user_id, send_batch_id, received_at, sent_by_user_id, remarks)
+            VALUES
+              (?, ?, ?, NULL, ?, NULL, ?, ?)
+          ");
+          $stmt->bind_param("iiisis", $docId, $fromSectionId, $toSectionId, $sendBatchId, $userId, $remarks);
+          $stmt->execute();
+        } else {
+          // per-user send (one row per user)
+          $stmt = $conn->prepare("
+            INSERT INTO routes
+              (document_id, from_section_id, to_section_id, to_user_id, send_batch_id, received_at, sent_by_user_id, remarks)
+            VALUES
+              (?, ?, ?, ?, ?, NULL, ?, ?)
+          ");
+
+          foreach ($toUserIds as $rid) {
+            $stmt->bind_param("iiiisis", $docId, $fromSectionId, $toSectionId, $rid, $sendBatchId, $userId, $remarks);
+            $stmt->execute();
+          }
+        }
 
         // 5) events: created + sent
         $payloadCreated = json_encode([
@@ -160,7 +215,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         $stmt->bind_param("iiis", $docId, $userId, $fromSectionId, $payloadCreated);
         $stmt->execute();
 
-        $payloadSent = json_encode(["remarks" => $remarks], JSON_UNESCAPED_UNICODE);
+        $payloadSent = json_encode([
+          "remarks" => $remarks,
+          "to_user_ids" => (count($toUserIds) > 0 ? $toUserIds : null),
+          "send_batch_id" => $sendBatchId,
+        ], JSON_UNESCAPED_UNICODE);
+
         $stmt = $conn->prepare("
           INSERT INTO document_events
             (document_id, event_type, actor_user_id, actor_section_id, from_section_id, to_section_id, payload_json)
@@ -471,7 +531,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           $stmt->bind_param("iiis", $docId, $userId, $fromSectionId, $payloadSlip);
           $stmt->execute();
 
-          // reuse existing print wrapper (works for any PDF)
           if ($ppdSlipMode === "print" && $ppdAttachId > 0) {
             redirect(PUBLIC_PATH . "/transmittal_print.php?id=" . $ppdAttachId);
           }
@@ -486,10 +545,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
     }
   }
 }
-
-// Default date
-$phNow = new DateTime("now", new DateTimeZone("Asia/Manila"));
-$defaultDocDate = $phNow->format("Y-m-d");
 
 require __DIR__ . "/../includes/layout.php";
 ?>
@@ -548,7 +603,7 @@ require __DIR__ . "/../includes/layout.php";
 
     <div class="authField span2">
       <label>Forward To (Initial Section) <span class="req">*</span></label>
-      <select name="to_section_id" class="select" required>
+      <select name="to_section_id" class="select" required id="addToSection">
         <option value="">-- Select Section --</option>
         <?php foreach ($sections as $s): ?>
           <option
@@ -560,6 +615,25 @@ require __DIR__ . "/../includes/layout.php";
         <?php endforeach; ?>
       </select>
       <div class="mini">This sets the initial routing destination.</div>
+
+      <!-- ✅ NEW: per-user recipients -->
+      <div style="margin-top:10px;">
+        <div style="font-weight:900; margin-bottom:6px;">Send To User(s) (optional)</div>
+
+        <div class="mini" style="margin-bottom:8px;">
+          If you select users, it will create <b>one route per user</b>. If none selected, it forwards to the section only.
+        </div>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:8px;">
+          <button type="button" class="btnGhost" id="btnAddSelAll">Select all</button>
+          <button type="button" class="btnGhost" id="btnAddClear">Clear</button>
+          <div class="mini" id="addRecipientsPreview" style="margin-left:auto; align-self:center;"></div>
+        </div>
+
+        <div id="addUsersBox" style="border:1px solid rgba(0,0,0,.10); border-radius:12px; padding:10px; max-height:220px; overflow:auto;">
+          <div class="mini" style="opacity:.8;">Select a section first to load users.</div>
+        </div>
+      </div>
     </div>
 
     <?php if ($isPPD): ?>
@@ -665,53 +739,146 @@ require __DIR__ . "/../includes/layout.php";
     if (!isPPD) {
       const cb = document.getElementById('genTransmittal');
       const transOpts = document.getElementById('transmittalOpts');
-      if (!cb || !transOpts) return;
+      if (cb && transOpts) {
+        function sync(){
+          show(transOpts, cb.checked);
+          if (cb.checked) {
+            const any = transOpts.querySelector('input[type="radio"]:checked');
+            if (!any) {
+              const def = transOpts.querySelector('input[type="radio"][value="attach"]');
+              if (def) def.checked = true;
+            }
+          }
+        }
+        cb.addEventListener('change', sync);
+        sync();
+      }
+    } else {
+      const transOpts = document.getElementById('transmittalOpts');
+      const slipOpts  = document.getElementById('ppdSlipOpts');
+      const radios = document.querySelectorAll('input[name="gen_choice"]');
 
-      function sync(){
-        show(transOpts, cb.checked);
-        if (cb.checked) {
+      function syncPPD(){
+        let choice = "none";
+        radios.forEach(r => { if (r.checked) choice = r.value; });
+
+        show(transOpts, choice === "transmittal");
+        show(slipOpts,  choice === "ppd_slip");
+
+        if (choice === "transmittal" && transOpts) {
           const any = transOpts.querySelector('input[type="radio"]:checked');
           if (!any) {
             const def = transOpts.querySelector('input[type="radio"][value="attach"]');
             if (def) def.checked = true;
           }
         }
-      }
-      cb.addEventListener('change', sync);
-      sync();
-      return;
-    }
 
-    const transOpts = document.getElementById('transmittalOpts');
-    const slipOpts  = document.getElementById('ppdSlipOpts');
-    const radios = document.querySelectorAll('input[name="gen_choice"]');
-
-    function syncPPD(){
-      let choice = "none";
-      radios.forEach(r => { if (r.checked) choice = r.value; });
-
-      show(transOpts, choice === "transmittal");
-      show(slipOpts,  choice === "ppd_slip");
-
-      if (choice === "transmittal" && transOpts) {
-        const any = transOpts.querySelector('input[type="radio"]:checked');
-        if (!any) {
-          const def = transOpts.querySelector('input[type="radio"][value="attach"]');
-          if (def) def.checked = true;
+        if (choice === "ppd_slip" && slipOpts) {
+          const any = slipOpts.querySelector('input[type="radio"]:checked');
+          if (!any) {
+            const def = slipOpts.querySelector('input[type="radio"][value="attach"]');
+            if (def) def.checked = true;
+          }
         }
       }
 
-      if (choice === "ppd_slip" && slipOpts) {
-        const any = slipOpts.querySelector('input[type="radio"]:checked');
-        if (!any) {
-          const def = slipOpts.querySelector('input[type="radio"][value="attach"]');
-          if (def) def.checked = true;
+      radios.forEach(r => r.addEventListener('change', syncPPD));
+      syncPPD();
+    }
+
+    // ===== Add Document: per-user initial recipients =====
+    const selSection = document.getElementById("addToSection");
+    const box = document.getElementById("addUsersBox");
+    const btnAll = document.getElementById("btnAddSelAll");
+    const btnClear = document.getElementById("btnAddClear");
+    const preview = document.getElementById("addRecipientsPreview");
+
+    function esc(s){
+      return String(s ?? "").replace(/[&<>"']/g, c => ({
+        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+      }[c]));
+    }
+
+    function syncPreview() {
+      if (!box || !preview) return;
+      const checked = Array.from(box.querySelectorAll('input.f_user_cb:checked'));
+
+      if (checked.length === 0) {
+        preview.textContent = "Recipients: (section only)";
+        return;
+      }
+      if (checked.length <= 3) {
+        const names = checked.map(cb => cb.dataset.name || ("#" + cb.value));
+        preview.textContent = "Recipients: " + names.join(", ");
+        return;
+      }
+      preview.textContent = `Recipients: ${checked.length} selected`;
+    }
+
+    async function loadUsers(sectionId) {
+      if (!box) return;
+      box.innerHTML = `<div class="mini" style="opacity:.8;">Loading users…</div>`;
+      syncPreview();
+
+      if (!sectionId) {
+        box.innerHTML = `<div class="mini" style="opacity:.8;">Select a section first to load users.</div>`;
+        syncPreview();
+        return;
+      }
+
+      try {
+        const res = await fetch(`<?= API_PATH ?>/users_by_section.php?section_id=${encodeURIComponent(sectionId)}`, {
+          headers: { "Accept": "application/json" }
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+
+        const rows = await res.json();
+        if (!Array.isArray(rows) || rows.length === 0) {
+          box.innerHTML = `<div class="mini" style="opacity:.8;">No active users found in that section.</div>`;
+          syncPreview();
+          return;
         }
+
+        // Preserve checked users after validation error (server re-render)
+        const preChecked = new Set(<?= json_encode(array_map('intval', $_POST['to_user_ids'] ?? []), JSON_UNESCAPED_UNICODE) ?>);
+
+        box.innerHTML = rows.map(u => {
+          const id = Number(u.id);
+          const name = String(u.name || ("#" + id));
+          const checked = preChecked.has(id) ? "checked" : "";
+          return `
+            <label style="display:flex; align-items:center; gap:10px; padding:6px 4px; border-radius:10px;">
+              <input class="f_user_cb" type="checkbox" name="to_user_ids[]" value="${id}" data-name="${esc(name)}" ${checked}>
+              <span style="font-weight:800;">${esc(name)}</span>
+              <span class="mini" style="margin-left:auto; opacity:.7;">#${id}</span>
+            </label>
+          `;
+        }).join("");
+
+        box.querySelectorAll("input.f_user_cb").forEach(cb => {
+          cb.addEventListener("change", syncPreview);
+        });
+
+        syncPreview();
+
+      } catch (e) {
+        box.innerHTML = `<div class="mini" style="opacity:.8;">Failed to load users. Try again.</div>`;
+        syncPreview();
       }
     }
 
-    radios.forEach(r => r.addEventListener('change', syncPPD));
-    syncPPD();
+    btnAll?.addEventListener("click", () => {
+      box?.querySelectorAll("input.f_user_cb").forEach(cb => cb.checked = true);
+      syncPreview();
+    });
+
+    btnClear?.addEventListener("click", () => {
+      box?.querySelectorAll("input.f_user_cb").forEach(cb => cb.checked = false);
+      syncPreview();
+    });
+
+    selSection?.addEventListener("change", () => loadUsers(selSection.value));
+    loadUsers(selSection?.value || "");
   })();
 </script>
 

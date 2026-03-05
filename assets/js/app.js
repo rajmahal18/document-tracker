@@ -17,8 +17,6 @@
   const elDestinationText = document.getElementById("d_destination_text");
   const elLastHolder = document.getElementById("d_last_holder");
 
-  const btnViewRecipients = document.getElementById("btnViewRecipients");
-
   const elRemarks = document.getElementById("d_remarks");
   const elTimeline = document.getElementById("d_timeline");
 
@@ -335,19 +333,29 @@
           return;
         }
 
+        // group by section
+        const groups = new Map();
+        items.forEach((r) => {
+          const sec = (r.to_section_name || "—").toString();
+          const user = (r.to_user_name || "").toString().trim() || "(No specific user)";
+
+          if (!groups.has(sec)) groups.set(sec, []);
+          groups.get(sec).push(user);
+        });
+
+        // render
         recBody.innerHTML = `
-          <div style="display:flex; flex-direction:column; gap:10px;">
-            ${items.map((r) => {
-              const sec = (r.to_section_name || "—").toString();
-              const user = (r.to_user_name || "").toString().trim();
-              const who = user ? user : "(No specific user)";
-              return `
-                <div style="border:1px solid rgba(0,0,0,.08); border-radius:12px; padding:10px 12px;">
-                  <div style="font-weight:900;">${esc(who)}</div>
-                  <div class="mini" style="opacity:.8; margin-top:2px;">Section: ${esc(sec)}</div>
+          <div style="display:flex; flex-direction:column; gap:12px;">
+            ${Array.from(groups.entries()).map(([sec, users]) => `
+              <div style="border:1px solid rgba(0,0,0,.08); border-radius:12px; padding:10px 12px;">
+                <div style="font-weight:900; margin-bottom:6px;">${esc(sec)}</div>
+                <div style="display:flex; flex-direction:column; gap:6px;">
+                  ${users.map(u => `
+                    <div class="mini" style="opacity:.9;">• ${esc(u)}</div>
+                  `).join("")}
                 </div>
-              `;
-            }).join("")}
+              </div>
+            `).join("")}
           </div>
         `;
       })
@@ -365,6 +373,16 @@
 
   recClose?.addEventListener("click", closeRecipientsModal);
   recModalBackdrop?.addEventListener("click", closeRecipientsModal);
+
+  elDestination?.addEventListener("click", () => {
+    if (!elDestination.classList.contains("destClickable")) return;
+
+    const docId = Number.parseInt(elDestination.dataset.docId || "0", 10);
+    const countHint = Number.parseInt(elDestination.dataset.count || "0", 10);
+
+    if (!docId) return;
+    openRecipientsModal({ docId, countHint });
+  });
 
   // =========================
   // Attachment Modal
@@ -652,11 +670,19 @@
     if (elDestinationText) elDestinationText.textContent = destText;
     else if (elDestination) elDestination.textContent = destText;
 
-    if (btnViewRecipients) {
-      const show = !!inTransit && openCount > 0;
-      btnViewRecipients.style.display = show ? "" : "none";
-      btnViewRecipients.dataset.docId = show ? String(payload.id || "") : "";
-      btnViewRecipients.dataset.count = String(openCount || 0);
+    // Destination clickable ONLY if multiple pending recipients
+    if (elDestination) {
+      const clickable = !!inTransit && openCount > 1;
+
+      elDestination.classList.toggle("destClickable", clickable);
+
+      if (clickable) {
+        elDestination.dataset.docId = String(payload.id || "");
+        elDestination.dataset.count = String(openCount || 0);
+      } else {
+        delete elDestination.dataset.docId;
+        delete elDestination.dataset.count;
+      }
     }
 
     if (elLastHolder) elLastHolder.textContent = payload.last_holder_text || "—";
@@ -1265,14 +1291,6 @@
     }
 
     document.dispatchEvent(new CustomEvent("dt:view_document", { detail: { documentId: docId } }));
-  });
-
-  // View recipients (multiple send)
-  btnViewRecipients?.addEventListener("click", () => {
-    const docId = btnViewRecipients.dataset.docId || elId?.value || "";
-    const count = Number.parseInt(btnViewRecipients.dataset.count || "0", 10);
-    if (!docId) return;
-    openRecipientsModal({ docId, countHint: Number.isFinite(count) ? count : undefined });
   });
 
   // initial label sync
