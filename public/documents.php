@@ -545,19 +545,26 @@ function quickUrl(string $target): string {
             $statusLabel = "RELEASED";
             $statusChipClass = "chip released";
           } else {
-            if ($inTransit) {
-              $openToSectionId = (int)($d["open_to_section_id"] ?? 0);
-              $openToUserId    = (int)($d["open_to_user_id"] ?? 0);
+            $openToSectionId = (int)($d["open_to_section_id"] ?? 0);
+            $openToUserId    = (int)($d["open_to_user_id"] ?? 0);
+            $openFromSectionId = (int)($d["open_from_section_id"] ?? 0);
+            $holderSectionId = (int)($d["current_holder_section_id"] ?? 0);
+            $isMine = ($holderSectionId === $mySectionId);
+            $holderStillSending = $inTransit && $holderSectionId > 0 && $openFromSectionId === $holderSectionId;
 
-              $isIncomingToMe =
-                ($openToUserId > 0 && $openToUserId === $myUserId)
-                || ($openToUserId === 0 && $isChief && $openToSectionId === $mySectionId);
+            $isIncomingToMe =
+              ($openToUserId > 0 && $openToUserId === $myUserId)
+              || ($openToUserId === 0 && $isChief && $openToSectionId === $mySectionId);
+
+            if ($isMine && !$holderStillSending) {
+              $statusLabel = $inTransit ? "NEEDS ACTION (OTHERS PENDING)" : "NEEDS ACTION";
+              $statusChipClass = "chip overdue";
+            } elseif ($inTransit) {
               $statusLabel = $isIncomingToMe ? "IN TRANSIT (TO YOU)" : "IN TRANSIT";
               $statusChipClass = "chip action";
             } else {
-              $isMine = ((int)($d["current_holder_section_id"] ?? 0) === $mySectionId);
-              $statusLabel = $isMine ? "NEEDS ACTION" : "ACTIVE";
-              $statusChipClass = $isMine ? "chip overdue" : "chip incoming";
+              $statusLabel = "ACTIVE";
+              $statusChipClass = "chip incoming";
             }
           }
 
@@ -574,7 +581,7 @@ function quickUrl(string $target): string {
             }
           }
 
-          $currentHolderText = $inTransit ? "—" : (string)($d["current_holder_name"] ?? "—");
+          $currentHolderText = (string)($d["current_holder_name"] ?? "—");
 
           $lastHolderText = $inTransit
             ? (string)($d["open_from_section_name"] ?? "—")

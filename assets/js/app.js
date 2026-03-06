@@ -709,6 +709,7 @@
 
     const openToSectionId = Number.parseInt(payload.open_to_section_id, 10) || 0;
     const holderSectionId = Number.parseInt(payload.current_holder_section_id, 10) || 0;
+    const openFromSectionId = Number.parseInt(payload.open_from_section_id, 10) || 0;
 
     const openToUserId = Number.parseInt(payload.open_to_user_id, 10) || 0;
 
@@ -725,11 +726,26 @@
 
     const isPrivileged = (myRole === "admin" || myRole === "records");
 
-    const canAttach = (docStatus === "ACTIVE" && !inTransit && (
-      isPrivileged || (holderSectionId > 0 && mySectionId > 0 && holderSectionId === mySectionId)
+    const holderStillSending = (
+      inTransit && holderSectionId > 0 && openFromSectionId > 0 && openFromSectionId === holderSectionId
+    );
+
+    const canAttach = (docStatus === "ACTIVE" && (
+      isPrivileged || (
+        holderSectionId > 0
+        && mySectionId > 0
+        && holderSectionId === mySectionId
+        && !holderStillSending
+      )
     ));
 
-    const canForward = (!inTransit && docStatus === "ACTIVE" && holderSectionId > 0 && mySectionId > 0 && holderSectionId === mySectionId);
+    const canForward = (
+      docStatus === "ACTIVE"
+      && holderSectionId > 0
+      && mySectionId > 0
+      && holderSectionId === mySectionId
+      && !holderStillSending
+    );
 
     currentCanForward = canForward;
 

@@ -59,6 +59,7 @@ try {
       r.from_section_id,
       r.to_section_id,
       r.to_user_id,
+      r.send_batch_id,
       d.current_holder_section_id,
       d.current_status
     FROM routes r
@@ -96,6 +97,7 @@ try {
         r.from_section_id,
         r.to_section_id,
         r.to_user_id,
+        r.send_batch_id,
         d.current_holder_section_id,
         d.current_status
       FROM routes r
@@ -128,6 +130,7 @@ try {
   $fromSectionId = (int)$row["from_section_id"];
   $toSectionId   = (int)$row["to_section_id"];
   $toUserId      = ($row["to_user_id"] !== null ? (int)$row["to_user_id"] : null);
+  $sendBatchId   = trim((string)($row["send_batch_id"] ?? ""));
   $currentHolder = (int)$row["current_holder_section_id"];
   $docStatus     = strtoupper((string)($row["current_status"] ?? "ACTIVE"));
 
@@ -195,12 +198,51 @@ try {
   }
 
   /**
-   * 4) Holder update policy (important for multi-recipient):
-   * - If after receiving this route, THERE ARE NO MORE open routes for this document,
-   *   then update holder to receiver section.
-   * - If there are STILL open routes (multiple recipients), keep holder unchanged
-   *   to preserve in-transit state.
+   * 4) Multi-recipient receive semantics:
+   *
+   * SAME-SECTION fanout:
+   * - If multiple users in the SAME destination section were included in one send batch,
+   *   the first valid receive should be enough for that section.
+   * - So we auto-cancel sibling open routes in the SAME batch + SAME destination section.
+   *
+   * CROSS-SECTION fanout:
+   * - Other sections keep their own pending routes for now.
+   * - To avoid the "everyone waits for the last unread person" problem, the FIRST section
+   *   to receive from the current holder claims the holder immediately.
+   * - Later sibling receives from the same old batch must NOT steal holder back.
    */
+  $cancelledSiblingCount = 0;
+
+  if ($sendBatchId !== "") {
+    $stmt = $conn->prepare("
+      UPDATE routes
+      SET cancelled_by_user_id = ?,
+          cancelled_at = NOW()
+      WHERE document_id = ?
+        AND send_batch_id = ?
+        AND to_section_id = ?
+        AND id <> ?
+        AND received_at IS NULL
+        AND cancelled_at IS NULL
+    ");
+    $stmt->bind_param("iisii", $userId, $docId, $sendBatchId, $toSectionId, $routeId);
+    $stmt->execute();
+    $cancelledSiblingCount = max(0, (int)$stmt->affected_rows);
+  }
+
+  $holderUpdated = false;
+  if ($currentHolder === $fromSectionId) {
+    $stmt = $conn->prepare("
+      UPDATE documents
+      SET current_holder_section_id = ?
+      WHERE id = ?
+        AND current_holder_section_id = ?
+    ");
+    $stmt->bind_param("iii", $toSectionId, $docId, $fromSectionId);
+    $stmt->execute();
+    $holderUpdated = ($stmt->affected_rows > 0);
+  }
+
   $stmt = $conn->prepare("
     SELECT COUNT(*) AS c
     FROM routes
@@ -212,16 +254,6 @@ try {
   $stmt->execute();
   $cRow = $stmt->get_result()->fetch_assoc();
   $openRemaining = (int)($cRow["c"] ?? 0);
-
-  if ($openRemaining === 0) {
-    $stmt = $conn->prepare("
-      UPDATE documents
-      SET current_holder_section_id = ?
-      WHERE id = ?
-    ");
-    $stmt->bind_param("ii", $toSectionId, $docId);
-    $stmt->execute();
-  }
 
   // 5) Ensure receiver section is participant (legacy visibility helper, harmless)
   $stmt = $conn->prepare("
@@ -237,7 +269,9 @@ try {
     "remarks" => $remarks,
     "receive_mode" => $receiveMode,          // "user" | "section"
     "to_user_id" => $toUserId,               // null if section-only
-    "open_remaining_after_receive" => $openRemaining
+    "open_remaining_after_receive" => $openRemaining,
+    "cancelled_same_section_siblings" => $cancelledSiblingCount,
+    "holder_updated" => $holderUpdated
   ], JSON_UNESCAPED_UNICODE);
 
   $stmt = $conn->prepare("
@@ -258,7 +292,8 @@ try {
     "to_section_id" => $toSectionId,
     "receive_mode" => $receiveMode,
     "open_remaining" => $openRemaining,
-    "holder_updated" => ($openRemaining === 0)
+    "cancelled_same_section_siblings" => $cancelledSiblingCount,
+    "holder_updated" => $holderUpdated
   ]);
   exit;
 

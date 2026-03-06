@@ -82,14 +82,7 @@ try {
   $stmt = $conn->prepare("
     SELECT
       d.current_status,
-      d.current_holder_section_id,
-      EXISTS (
-        SELECT 1
-        FROM routes r
-        WHERE r.document_id = d.id
-          AND r.received_at IS NULL
-          AND r.cancelled_at IS NULL
-      ) AS has_open_route
+      d.current_holder_section_id
     FROM documents d
     WHERE d.id = ?
     LIMIT 1
@@ -107,15 +100,6 @@ try {
 
   $status          = (string)$doc["current_status"];
   $holderSectionId = (int)$doc["current_holder_section_id"];
-  $hasOpenRoute    = ((int)$doc["has_open_route"] === 1);
-
-  // Prevent forwarding while in transit
-  if ($hasOpenRoute) {
-    $conn->rollback();
-    http_response_code(409);
-    echo json_encode(["ok" => false, "error" => "Document is currently in transit."]);
-    exit;
-  }
 
   if ($status !== "ACTIVE") {
     $conn->rollback();
@@ -131,6 +115,26 @@ try {
     echo json_encode([
       "ok" => false,
       "error" => "Your section does not hold this document."
+    ]);
+    exit;
+  }
+
+  if ($toSectionId === $mySectionId) {
+    $conn->rollback();
+    http_response_code(400);
+    echo json_encode([
+      "ok" => false,
+      "error" => "You cannot forward a document to your own section."
+    ]);
+    exit;
+  }
+
+  if (in_array($userId, $recipients, true)) {
+    $conn->rollback();
+    http_response_code(400);
+    echo json_encode([
+      "ok" => false,
+      "error" => "You cannot forward a document to yourself."
     ]);
     exit;
   }

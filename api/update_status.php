@@ -78,7 +78,7 @@ try {
   if ($hasOpenRoute) {
     $conn->rollback();
     http_response_code(409);
-    echo json_encode(["ok" => false, "error" => "Cannot change status while document has a pending route."]);
+    echo json_encode(["ok" => false, "error" => "Cannot change root status while document still has pending routes."]);
     exit;
   }
 
