@@ -53,7 +53,7 @@ $stmt = $conn->prepare("
   LEFT JOIN sections fs ON fs.id = r.from_section_id
   LEFT JOIN sections ts ON ts.id = r.to_section_id
   WHERE r.document_id = ?
-    AND r.is_open = 1
+    AND r.received_at IS NULL AND r.cancelled_at IS NULL
   ORDER BY r.id DESC
   LIMIT 1
 ");
@@ -62,7 +62,7 @@ $stmt->execute();
 $route = $stmt->get_result()->fetch_assoc();
 
 $isLoggedIn  = is_logged_in();
-$role        = (string)($_SESSION["role"] ?? "division");
+$role        = (string)($_SESSION["role"] ?? "user");
 $mySectionId = (int)($_SESSION["section_id"] ?? 0);
 
 $pendingToSectionId = $route ? (int)$route["to_section_id"] : 0;

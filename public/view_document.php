@@ -11,41 +11,8 @@ if ($docId <= 0) {
   exit;
 }
 
-$role        = (string)($_SESSION["role"] ?? "division");
-$mySectionId = (int)($_SESSION["section_id"] ?? 0);
-
-/**
- * Visibility rule:
- * - admin/records: all
- * - others: holder OR pending recipient (open route) OR participant
- */
-function can_view_doc(mysqli $conn, int $docId, string $role, int $mySectionId): bool {
-  if (in_array($role, ["admin", "records"], true)) return true;
-  if ($mySectionId <= 0) return false;
-
-  $stmt = $conn->prepare("
-    SELECT 1
-    FROM documents d
-    WHERE d.id = ?
-      AND (
-        d.current_holder_section_id = ?
-        OR EXISTS (
-          SELECT 1 FROM routes r
-          WHERE r.document_id = d.id AND r.is_open = 1 AND r.to_section_id = ?
-        )
-        OR EXISTS (
-          SELECT 1 FROM document_participants p
-          WHERE p.document_id = d.id AND p.section_id = ?
-        )
-      )
-    LIMIT 1
-  ");
-  $stmt->bind_param("iiii", $docId, $mySectionId, $mySectionId, $mySectionId);
-  $stmt->execute();
-  return (bool)$stmt->get_result()->fetch_row();
-}
-
-if (!can_view_doc($conn, $docId, $role, $mySectionId)) {
+// ✅ NEW: centralized visibility rule (chief-only section inbox supported)
+if (!can_view_document($conn, $docId)) {
   http_response_code(403);
   echo "Forbidden";
   exit;
@@ -64,6 +31,7 @@ if ($row && !empty($row["tracking_no"])) {
 /**
  * Attachments order:
  * - Force Transmittal Memo first (note = AUTO:TRANSMITTAL_MEMO)
+ * - then PPD slip
  * - then main/append by time
  */
 $stmt = $conn->prepare("

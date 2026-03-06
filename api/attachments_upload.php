@@ -30,7 +30,7 @@ if (!isset($_FILES["file"])) {
   exit;
 }
 
-$role        = (string)($_SESSION["role"] ?? "division");
+$role        = (string)($_SESSION["role"] ?? "user");
 $mySectionId = (int)($_SESSION["section_id"] ?? 0);
 $userId      = (int)($_SESSION["user_id"] ?? 0);
 
@@ -80,7 +80,7 @@ try {
     SELECT
       d.current_status,
       d.current_holder_section_id,
-      EXISTS (SELECT 1 FROM routes r WHERE r.document_id = d.id AND r.is_open = 1) AS has_open_route
+      EXISTS (SELECT 1 FROM routes r WHERE r.document_id = d.id AND r.received_at IS NULL AND r.cancelled_at IS NULL) AS has_open_route
     FROM documents d
     WHERE d.id = ?
     LIMIT 1

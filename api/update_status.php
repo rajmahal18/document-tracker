@@ -26,7 +26,7 @@ if ($docId <= 0 || !in_array($newStatus, $allowed, true)) {
   exit;
 }
 
-$role        = $_SESSION["role"] ?? "division";
+$role        = $_SESSION["role"] ?? "user";
 $mySectionId = (int)($_SESSION["section_id"] ?? 0);
 $userId      = (int)($_SESSION["user_id"] ?? 0);
 
@@ -45,7 +45,7 @@ try {
       d.current_holder_section_id,
       EXISTS (
         SELECT 1 FROM routes r
-        WHERE r.document_id = d.id AND r.is_open = 1
+        WHERE r.document_id = d.id AND r.received_at IS NULL AND r.cancelled_at IS NULL
       ) AS has_open_route
     FROM documents d
     WHERE d.id = ?

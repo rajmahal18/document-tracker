@@ -19,7 +19,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $error = "Please enter your username/email and password.";
   } else {
 
-    // ✅ Pull user + section + division for session UI
+    // ✅ Pull user + section + division + chief flag
     $stmt = $conn->prepare("
       SELECT
         u.id,
@@ -29,6 +29,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         u.must_change_password,
         u.role,
         u.section_id,
+        u.is_chief,
         s.name AS section_name,
         d.name AS division_name
       FROM users u
@@ -44,7 +45,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     if (!$user || !password_verify($password, (string)$user["password_hash"])) {
       $error = "Invalid login credentials.";
     } else {
-      // ✅ store everything needed in session
+
+      // ✅ Store session data
       $_SESSION["user_id"]       = (int)$user["id"];
       $_SESSION["full_name"]     = (string)$user["full_name"];
       $_SESSION["role"]          = (string)($user["role"] ?? "user");
@@ -53,6 +55,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
       $_SESSION["section_id"]    = isset($user["section_id"]) ? (int)$user["section_id"] : null;
       $_SESSION["section_name"]  = (string)($user["section_name"] ?? "");
       $_SESSION["division_name"] = (string)($user["division_name"] ?? "");
+
+      // ✅ NEW: chief flag for permission system
+      $_SESSION["is_chief"] = (int)($user["is_chief"] ?? 0);
 
       if ((int)($_SESSION["must_change_password"] ?? 0) === 1) {
         redirect(PUBLIC_PATH . "/change_password.php");

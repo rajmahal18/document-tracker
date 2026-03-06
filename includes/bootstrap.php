@@ -79,3 +79,85 @@ function require_csrf(): void {
     exit;
   }
 }
+
+/**
+ * ===== Permission Helpers =====
+ */
+
+function is_admin_user(): bool {
+  return (($_SESSION["role"] ?? "") === "admin");
+}
+
+function is_chief_user(): bool {
+  return ((int)($_SESSION["is_chief"] ?? 0) === 1);
+}
+
+/**
+ * Determine if current user can view a document.
+ *
+ * Rules:
+ * admin → everything
+ * creator → allowed
+ * assigned recipient → allowed
+ * section chief for section-only route → allowed
+ * section chief for section-held doc → allowed
+ */
+function can_view_document(mysqli $conn, int $docId): bool {
+
+  if (is_admin_user()) {
+    return true;
+  }
+
+  $userId = (int)($_SESSION["user_id"] ?? 0);
+  $sectionId = (int)($_SESSION["section_id"] ?? 0);
+  $isChief = is_chief_user() ? 1 : 0;
+
+  $sql = "
+  SELECT 1
+  FROM documents d
+  LEFT JOIN routes r ON r.document_id = d.id
+  WHERE d.id = ?
+  AND (
+        d.created_by_user_id = ?
+        OR r.to_user_id = ?
+        OR r.sent_by_user_id = ?
+        OR r.received_by_user_id = ?
+        OR (
+              r.to_user_id IS NULL
+              AND r.to_section_id = ?
+              AND ? = 1
+           )
+        OR (
+              d.current_holder_section_id = ?
+              AND ? = 1
+              AND NOT EXISTS (
+                SELECT 1
+                FROM routes rr
+                WHERE rr.document_id = d.id
+                  AND rr.received_at IS NULL
+                  AND rr.cancelled_at IS NULL
+              )
+           )
+      )
+  LIMIT 1
+  ";
+
+  $stmt = $conn->prepare($sql);
+
+  $stmt->bind_param(
+    "iiiiiiiii",
+    $docId,
+    $userId,
+    $userId,
+    $userId,
+    $userId,
+    $sectionId,
+    $isChief,
+    $sectionId,
+    $isChief
+  );
+
+  $stmt->execute();
+
+  return (bool)$stmt->get_result()->fetch_row();
+}

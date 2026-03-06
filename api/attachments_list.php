@@ -13,7 +13,7 @@ if ($docId <= 0) {
   exit;
 }
 
-$role        = (string)($_SESSION["role"] ?? "division");
+$role        = (string)($_SESSION["role"] ?? "user");
 $mySectionId = (int)($_SESSION["section_id"] ?? 0);
 
 /**
@@ -33,7 +33,7 @@ function can_view_doc(mysqli $conn, int $docId, string $role, int $mySectionId):
         d.current_holder_section_id = ?
         OR EXISTS (
           SELECT 1 FROM routes r
-          WHERE r.document_id = d.id AND r.is_open = 1 AND r.to_section_id = ?
+          WHERE r.document_id = d.id AND r.received_at IS NULL AND r.cancelled_at IS NULL AND r.to_section_id = ?
         )
         OR EXISTS (
           SELECT 1 FROM document_participants p

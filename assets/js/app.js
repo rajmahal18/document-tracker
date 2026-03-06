@@ -702,11 +702,26 @@
 
     // Permissions / button visibility
     const ctx = window.__CTX__ || {};
-    const myRole = (ctx.myRole || "division").toString().toLowerCase();
+    const myRole = (ctx.myRole || "user").toString().toLowerCase();
     const mySectionId = Number(ctx.mySectionId || 0);
+    const myUserId = Number(ctx.myUserId || 0);
+    const isChief = !!ctx.isChief;
 
     const openToSectionId = Number.parseInt(payload.open_to_section_id, 10) || 0;
     const holderSectionId = Number.parseInt(payload.current_holder_section_id, 10) || 0;
+
+    const openToUserId = Number.parseInt(payload.open_to_user_id, 10) || 0;
+
+    const canAckReceived = (
+      inTransit && (
+        (openToUserId > 0 && myUserId > 0 && openToUserId === myUserId) ||
+        (openToUserId === 0 && isChief && openToSectionId > 0 && mySectionId > 0 && openToSectionId === mySectionId)
+      )
+    );
+
+    const canAckReceivedPrivileged = (
+      inTransit && openToSectionId > 0 && mySectionId > 0 && openToSectionId === mySectionId
+    );
 
     const isPrivileged = (myRole === "admin" || myRole === "records");
 
@@ -763,7 +778,7 @@
 
     if (isPrivileged) {
       if (docStatus === "ACTIVE") {
-        if (inTransit && openToSectionId > 0 && mySectionId > 0 && openToSectionId === mySectionId) {
+        if (canAckReceivedPrivileged) {
           if (btnAckReceived) btnAckReceived.style.display = "";
         }
       }
@@ -782,7 +797,7 @@
     }
 
     if (inTransit) {
-      if (openToSectionId > 0 && mySectionId > 0 && openToSectionId === mySectionId) {
+      if (canAckReceived) {
         if (btnAckReceived) btnAckReceived.style.display = "";
       }
       syncToggleLabels();

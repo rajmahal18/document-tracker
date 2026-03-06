@@ -15,11 +15,11 @@ if ($sectionId <= 0) {
 // NOTE: adjust column names if your users table differs.
 // You mentioned users(full_name,...)
 $stmt = $conn->prepare("
-  SELECT id, full_name
+  SELECT id, full_name, is_chief
   FROM users
   WHERE section_id = ?
     AND is_active = 1
-  ORDER BY full_name ASC
+  ORDER BY is_chief DESC, full_name ASC
 ");
 $stmt->bind_param("i", $sectionId);
 $stmt->execute();
@@ -30,6 +30,7 @@ while ($row = $res->fetch_assoc()) {
   $out[] = [
     "id" => (int)$row["id"],
     "name" => (string)$row["full_name"],
+    "is_chief" => ((int)($row["is_chief"] ?? 0) === 1),
   ];
 }
 

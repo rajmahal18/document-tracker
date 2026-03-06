@@ -21,8 +21,10 @@ require __DIR__ . "/../includes/layout.php";
   window.__CSRF__ = "<?= htmlspecialchars(csrf_token(), ENT_QUOTES, "UTF-8") ?>";
 
   window.__CTX__ = {
+    myUserId: <?= (int)($_SESSION["user_id"] ?? 0) ?>,
     mySectionId: <?= (int)($_SESSION["section_id"] ?? 0) ?>,
-    myRole: "<?= htmlspecialchars($_SESSION["role"] ?? "division") ?>",
+    myRole: "<?= htmlspecialchars($_SESSION["role"] ?? "user") ?>",
+    isChief: <?= ((int)($_SESSION["is_chief"] ?? 0) === 1) ? "true" : "false" ?>,
     myDivisionName: "<?= htmlspecialchars($_SESSION["division_name"] ?? "") ?>",
     isPPD: <?= (stripos((string)($_SESSION["division_name"] ?? ""), "Planning") !== false && stripos((string)($_SESSION["division_name"] ?? ""), "Programming") !== false) ? "true" : "false" ?>
   };
@@ -48,8 +50,10 @@ $perPage = 15;   // ✅ fixed, unchangeable
 
 $offset = ($page - 1) * $perPage;
 
-$role        = $_SESSION["role"] ?? "division";
+$role        = (string)($_SESSION["role"] ?? "user");
+$myUserId    = (int)($_SESSION["user_id"] ?? 0);
 $mySectionId = (int)($_SESSION["section_id"] ?? 0);
+$isChief     = ((int)($_SESSION["is_chief"] ?? 0) === 1);
 
 $where  = [];
 $params = [];
@@ -63,31 +67,66 @@ $types  = "";
  *  2) pending recipient (open route)
  *  3) participant
  */
-$isPrivileged = in_array($role, ["admin", "records"], true);
+$isPrivileged = ($role === "admin");
 
 if (!$isPrivileged) {
-  if ($mySectionId <= 0) {
+  if ($myUserId <= 0) {
     $where[] = "1=0";
   } else {
+    // Per-user visibility + chief-only section inbox
     $where[] = "(
-      d.current_holder_section_id = ?
+      d.created_by_user_id = ?
+
       OR EXISTS (
         SELECT 1
         FROM routes r
         WHERE r.document_id = d.id
-          AND r.received_at IS NULL
-          AND r.cancelled_at IS NULL
-          AND r.to_section_id = ?
+          AND (
+            r.to_user_id = ?
+            OR r.sent_by_user_id = ?
+            OR r.received_by_user_id = ?
+          )
       )
-      OR EXISTS (
-        SELECT 1
-        FROM document_participants p
-        WHERE p.document_id = d.id
-          AND p.section_id = ?
+
+      OR (
+        ? = 1
+        AND EXISTS (
+          SELECT 1
+          FROM routes r
+          WHERE r.document_id = d.id
+            AND r.received_at IS NULL
+            AND r.cancelled_at IS NULL
+            AND r.to_section_id = ?
+            AND r.to_user_id IS NULL
+        )
+      )
+
+      OR (
+        ? = 1
+        AND d.current_holder_section_id = ?
+        AND NOT EXISTS (
+          SELECT 1
+          FROM routes r
+          WHERE r.document_id = d.id
+            AND r.received_at IS NULL
+            AND r.cancelled_at IS NULL
+        )
       )
     )";
-    array_push($params, $mySectionId, $mySectionId, $mySectionId);
-    $types .= "iii";
+
+    array_push(
+      $params,
+      $myUserId,        // created_by_user_id
+      $myUserId,        // routes.to_user_id
+      $myUserId,        // routes.sent_by_user_id
+      $myUserId,        // routes.received_by_user_id
+      $isChief ? 1 : 0, // chief gate for section-only open routes
+      $mySectionId,     // to_section_id for section-only open routes
+      $isChief ? 1 : 0, // chief gate for holder visibility
+      $mySectionId      // holder section id
+    );
+
+    $types .= "iiiiiiii";
   }
 }
 
@@ -179,6 +218,8 @@ $sql = "
     sf_open.name AS open_from_section_name,
     r_open.to_section_id AS open_to_section_id,
     st_open.name AS open_to_section_name,
+    r_open.to_user_id AS open_to_user_id,
+    u_open.full_name AS open_to_user_name,
 
     COALESCE(ro.open_count, 0) AS open_route_count,
 
@@ -203,6 +244,7 @@ $sql = "
     ON r_open.id = ro.any_open_route_id
   LEFT JOIN sections sf_open ON sf_open.id = r_open.from_section_id
   LEFT JOIN sections st_open ON st_open.id = r_open.to_section_id
+  LEFT JOIN users u_open ON u_open.id = r_open.to_user_id
 
   LEFT JOIN routes r_last
     ON r_last.document_id = d.id
@@ -263,28 +305,62 @@ $statParams = [];
 $statTypes  = "";
 
 if (!$isPrivileged) {
-  if ($mySectionId <= 0) {
+  if ($myUserId <= 0) {
     $statWhere[] = "1=0";
   } else {
     $statWhere[] = "(
-      d.current_holder_section_id = ?
+      d.created_by_user_id = ?
+
       OR EXISTS (
         SELECT 1
         FROM routes r
         WHERE r.document_id = d.id
-          AND r.received_at IS NULL
-          AND r.cancelled_at IS NULL
-          AND r.to_section_id = ?
+          AND (
+            r.to_user_id = ?
+            OR r.sent_by_user_id = ?
+            OR r.received_by_user_id = ?
+          )
       )
-      OR EXISTS (
-        SELECT 1
-        FROM document_participants p
-        WHERE p.document_id = d.id
-          AND p.section_id = ?
+
+      OR (
+        ? = 1
+        AND EXISTS (
+          SELECT 1
+          FROM routes r
+          WHERE r.document_id = d.id
+            AND r.received_at IS NULL
+            AND r.cancelled_at IS NULL
+            AND r.to_section_id = ?
+            AND r.to_user_id IS NULL
+        )
+      )
+
+      OR (
+        ? = 1
+        AND d.current_holder_section_id = ?
+        AND NOT EXISTS (
+          SELECT 1
+          FROM routes r
+          WHERE r.document_id = d.id
+            AND r.received_at IS NULL
+            AND r.cancelled_at IS NULL
+        )
       )
     )";
-    array_push($statParams, $mySectionId, $mySectionId, $mySectionId);
-    $statTypes .= "iii";
+
+    array_push(
+      $statParams,
+      $myUserId,
+      $myUserId,
+      $myUserId,
+      $myUserId,
+      $isChief ? 1 : 0,
+      $mySectionId,
+      $isChief ? 1 : 0,
+      $mySectionId
+    );
+
+    $statTypes .= "iiiiiiii";
   }
 }
 
@@ -470,7 +546,12 @@ function quickUrl(string $target): string {
             $statusChipClass = "chip released";
           } else {
             if ($inTransit) {
-              $isIncomingToMe = ((int)($d["open_to_section_id"] ?? 0) === $mySectionId);
+              $openToSectionId = (int)($d["open_to_section_id"] ?? 0);
+              $openToUserId    = (int)($d["open_to_user_id"] ?? 0);
+
+              $isIncomingToMe =
+                ($openToUserId > 0 && $openToUserId === $myUserId)
+                || ($openToUserId === 0 && $isChief && $openToSectionId === $mySectionId);
               $statusLabel = $isIncomingToMe ? "IN TRANSIT (TO YOU)" : "IN TRANSIT";
               $statusChipClass = "chip action";
             } else {
@@ -482,11 +563,16 @@ function quickUrl(string $target): string {
 
           $openCount = (int)($d["open_route_count"] ?? 0);
 
-          $movementText = $inTransit
-            ? (($openCount > 1)
-                ? ("Multiple recipients (" . $openCount . ")")
-                : (string)($d["open_to_section_name"] ?? "—"))
-            : "—";
+          $movementText = "—";
+          if ($inTransit) {
+            if ($openCount > 1) {
+              $movementText = "Multiple recipients (" . $openCount . ")";
+            } else {
+              $toUserName = trim((string)($d["open_to_user_name"] ?? ""));
+              $toSecName  = (string)($d["open_to_section_name"] ?? "—");
+              $movementText = $toUserName !== "" ? $toUserName : $toSecName;
+            }
+          }
 
           $currentHolderText = $inTransit ? "—" : (string)($d["current_holder_name"] ?? "—");
 
@@ -511,6 +597,10 @@ function quickUrl(string $target): string {
 
               "in_transit" => !empty($d["open_to_section_id"]) ? 1 : 0,
               "open_to_section_id" => (int)($d["open_to_section_id"] ?? 0),
+              "open_to_user_id" => (int)($d["open_to_user_id"] ?? 0),
+              "open_to_user_name" => (string)($d["open_to_user_name"] ?? ""),
+              "open_to_section_name" => (string)($d["open_to_section_name"] ?? ""),
+              "open_from_section_name" => (string)($d["open_from_section_name"] ?? ""),
               "open_from_section_id" => (int)($d["open_from_section_id"] ?? 0),
               "open_route_count" => $openCount,
 
@@ -726,8 +816,6 @@ $end   = min($totalPages, $page + 2);
     <div id="forwardRecipientsPreview" class="mini" style="opacity:.75; margin-top:6px;">
       Recipients: —
     </div>
-
-    <div id="forwardRecipientsPreview" class="mini" style="opacity:.9; margin-top:6px;"></div>
 
     <button id="btnForward" type="button" class="btnSecondary" style="margin-top:10px; margin-bottom:10px; margin-left:10px; display:none;">
       Forward

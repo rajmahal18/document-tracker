@@ -13,51 +13,15 @@ if ($docId <= 0) {
   exit;
 }
 
-$role        = (string)($_SESSION["role"] ?? "division");
-$mySectionId = (int)($_SESSION["section_id"] ?? 0);
-
-/**
- * Visibility rule:
- * - admin/records: all
- * - others: holder OR pending recipient (open route) OR participant
- */
-function can_view_doc(mysqli $conn, int $docId, string $role, int $mySectionId): bool {
-  if (in_array($role, ["admin", "records"], true)) return true;
-  if ($mySectionId <= 0) return false;
-
-  // NOTE: we treat "open" as (received_at IS NULL AND cancelled_at IS NULL)
-  $stmt = $conn->prepare("
-    SELECT 1
-    FROM documents d
-    WHERE d.id = ?
-      AND (
-        d.current_holder_section_id = ?
-        OR EXISTS (
-          SELECT 1 FROM routes r
-          WHERE r.document_id = d.id
-            AND r.received_at IS NULL
-            AND r.cancelled_at IS NULL
-            AND r.to_section_id = ?
-        )
-        OR EXISTS (
-          SELECT 1 FROM document_participants p
-          WHERE p.document_id = d.id AND p.section_id = ?
-        )
-      )
-    LIMIT 1
-  ");
-  $stmt->bind_param("iiii", $docId, $mySectionId, $mySectionId, $mySectionId);
-  $stmt->execute();
-  return (bool)$stmt->get_result()->fetch_assoc();
-}
-
 try {
-  if (!can_view_doc($conn, $docId, $role, $mySectionId)) {
+  // ✅ Centralized permission (chief-only section inbox included)
+  if (!can_view_document($conn, $docId)) {
     http_response_code(403);
     echo json_encode(["ok" => false, "error" => "Forbidden"]);
     exit;
   }
 
+  // ✅ Pending recipients = open routes
   $stmt = $conn->prepare("
     SELECT
       r.id AS route_id,
@@ -70,8 +34,7 @@ try {
     LEFT JOIN sections s ON s.id = r.to_section_id
     LEFT JOIN users u ON u.id = r.to_user_id
     WHERE r.document_id = ?
-      AND r.received_at IS NULL
-      AND r.cancelled_at IS NULL
+      AND r.received_at IS NULL AND r.cancelled_at IS NULL
     ORDER BY r.sent_at DESC, r.id DESC
   ");
   $stmt->bind_param("i", $docId);
@@ -82,7 +45,7 @@ try {
     "ok" => true,
     "document_id" => $docId,
     "count" => count($rows),
-    "recipients" => array_map(static function(array $r): array {
+    "recipients" => array_map(static function (array $r): array {
       return [
         "route_id" => (int)($r["route_id"] ?? 0),
         "to_section_id" => (int)($r["to_section_id"] ?? 0),
