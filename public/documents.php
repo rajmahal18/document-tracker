@@ -13,6 +13,8 @@ $sections = $conn->query("
   ORDER BY d.name ASC, s.name ASC
 ")->fetch_all(MYSQLI_ASSOC);
 
+$branchMode = workflow_branch_mode_enabled($conn);
+
 $pageTitle = "Documents - Document Tracker";
 require __DIR__ . "/../includes/layout.php";
 ?>
@@ -26,7 +28,8 @@ require __DIR__ . "/../includes/layout.php";
     myRole: "<?= htmlspecialchars($_SESSION["role"] ?? "user") ?>",
     isChief: <?= ((int)($_SESSION["is_chief"] ?? 0) === 1) ? "true" : "false" ?>,
     myDivisionName: "<?= htmlspecialchars($_SESSION["division_name"] ?? "") ?>",
-    isPPD: <?= (stripos((string)($_SESSION["division_name"] ?? ""), "Planning") !== false && stripos((string)($_SESSION["division_name"] ?? ""), "Programming") !== false) ? "true" : "false" ?>
+    isPPD: <?= (stripos((string)($_SESSION["division_name"] ?? ""), "Planning") !== false && stripos((string)($_SESSION["division_name"] ?? ""), "Programming") !== false) ? "true" : "false" ?>,
+    branchMode: <?= $branchMode ? "true" : "false" ?>
   };
 
   window.__SECTIONS__ = <?= json_encode($sections, JSON_UNESCAPED_UNICODE) ?>;
@@ -60,73 +63,93 @@ $params = [];
 $types  = "";
 
 /**
- * ✅ VISIBILITY RULE (NEW SCHEMA)
- * Records + admin see ALL.
- * Others see docs if:
- *  1) current holder
- *  2) pending recipient (open route)
- *  3) participant
+ * ✅ VISIBILITY RULE
+ * Branch mode = creator + explicit user visibility + direct route involvement.
+ * Legacy mode = previous section-aware fallback.
  */
 $isPrivileged = ($role === "admin");
-
 if (!$isPrivileged) {
   if ($myUserId <= 0) {
     $where[] = "1=0";
   } else {
-    // Per-user visibility + chief-only section inbox
-    $where[] = "(
-      d.created_by_user_id = ?
+    if ($branchMode) {
+      $where[] = "(
+        d.created_by_user_id = ?
+        OR EXISTS (
+          SELECT 1
+          FROM document_user_visibility duv
+          WHERE duv.document_id = d.id
+            AND duv.user_id = ?
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM routes r
+          WHERE r.document_id = d.id
+            AND (
+              r.to_user_id = ?
+              OR r.sent_by_user_id = ?
+              OR r.received_by_user_id = ?
+            )
+        )
+      )";
 
-      OR EXISTS (
-        SELECT 1
-        FROM routes r
-        WHERE r.document_id = d.id
-          AND (
-            r.to_user_id = ?
-            OR r.sent_by_user_id = ?
-            OR r.received_by_user_id = ?
+      array_push($params, $myUserId, $myUserId, $myUserId, $myUserId, $myUserId);
+      $types .= "iiiii";
+    } else {
+      $where[] = "(
+        d.created_by_user_id = ?
+
+        OR EXISTS (
+          SELECT 1
+          FROM routes r
+          WHERE r.document_id = d.id
+            AND (
+              r.to_user_id = ?
+              OR r.sent_by_user_id = ?
+              OR r.received_by_user_id = ?
+            )
+        )
+
+        OR (
+          ? = 1
+          AND EXISTS (
+            SELECT 1
+            FROM routes r
+            WHERE r.document_id = d.id
+              AND r.received_at IS NULL
+              AND r.cancelled_at IS NULL
+              AND r.to_section_id = ?
+              AND r.to_user_id IS NULL
           )
-      )
-
-      OR (
-        ? = 1
-        AND EXISTS (
-          SELECT 1
-          FROM routes r
-          WHERE r.document_id = d.id
-            AND r.received_at IS NULL
-            AND r.cancelled_at IS NULL
-            AND r.to_section_id = ?
-            AND r.to_user_id IS NULL
         )
-      )
 
-      OR (
-        ? = 1
-        AND d.current_holder_section_id = ?
-        AND NOT EXISTS (
-          SELECT 1
-          FROM routes r
-          WHERE r.document_id = d.id
-            AND r.received_at IS NULL
-            AND r.cancelled_at IS NULL
+        OR (
+          ? = 1
+          AND d.current_holder_section_id = ?
+          AND NOT EXISTS (
+            SELECT 1
+            FROM routes r
+            WHERE r.document_id = d.id
+              AND r.received_at IS NULL
+              AND r.cancelled_at IS NULL
+          )
         )
-      )
-    )";
+      )";
 
-    array_push(
-      $params,
-      $myUserId,        // created_by_user_id
-      $myUserId,        // routes.to_user_id
-      $myUserId,        // routes.sent_by_user_id
-      $myUserId,        // routes.received_by_user_id
-      $isChief ? 1 : 0, // chief gate for section-only open routes
-      $mySectionId,     // to_section_id for section-only open routes
-      $isChief ? 1 : 0, // chief gate for holder visibility
-      $mySectionId      // holder section id
-    );
+      array_push(
+        $params,
+        $myUserId,
+        $myUserId,
+        $myUserId,
+        $myUserId,
+        $isChief ? 1 : 0,
+        $mySectionId,
+        $isChief ? 1 : 0,
+        $mySectionId
+      );
 
-    $types .= "iiiiiiii";
+      $types .= "iiiiiiii";
+    }
   }
 }
 
@@ -221,6 +244,7 @@ $sql = "
     r_open.to_user_id AS open_to_user_id,
     u_open.full_name AS open_to_user_name,
 
+    ro.any_open_route_id,
     COALESCE(ro.open_count, 0) AS open_route_count,
 
     -- last holder (fallback when not in transit)
@@ -609,6 +633,7 @@ function quickUrl(string $target): string {
               "open_to_section_name" => (string)($d["open_to_section_name"] ?? ""),
               "open_from_section_name" => (string)($d["open_from_section_name"] ?? ""),
               "open_from_section_id" => (int)($d["open_from_section_id"] ?? 0),
+              "open_route_id" => (int)($d["any_open_route_id"] ?? 0),
               "open_route_count" => $openCount,
 
               "movement_text" => $movementText,
@@ -782,6 +807,15 @@ $end   = min($totalPages, $page + 2);
         <button id="btnAttachUpload" type="button" class="btnPrimary" style="margin-top:10px;">Upload</button>
         <div id="attachMsg" class="mini" style="margin-top:6px;"></div>
       </form>
+    </div>
+
+    <div class="drawerBranchWrap" id="d_branch_wrap" style="display:none;">
+      <div class="k" style="margin-bottom:8px; display:flex; align-items:center; gap:8px;">
+        <span>Branches</span>
+        <span class="mini" id="d_branch_hint" style="opacity:.7;">Select a branch to act on.</span>
+      </div>
+      <div id="d_branch_bar" class="branchBar"></div>
+      <div id="d_branch_meta" class="branchMeta mini"></div>
     </div>
 
     <div style="margin-top:14px;">

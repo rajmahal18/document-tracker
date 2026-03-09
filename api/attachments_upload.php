@@ -14,9 +14,11 @@ if ($_SERVER["REQUEST_METHOD"] !== "POST") {
 
 require_csrf();
 
-$docId    = (int)($_POST["document_id"] ?? 0);
-$note     = trim((string)($_POST["note"] ?? ""));
-$isAppend = (int)($_POST["is_append"] ?? 0) === 1 ? 1 : 0;
+$docId       = (int)($_POST["document_id"] ?? 0);
+$routeIdReq  = (int)($_POST["route_id"] ?? 0);
+$branchIdReq = (int)($_POST["branch_id"] ?? 0);
+$note        = trim((string)($_POST["note"] ?? ""));
+$isAppend    = (int)($_POST["is_append"] ?? 0) === 1 ? 1 : 0;
 
 if ($docId <= 0) {
   http_response_code(400);
@@ -96,9 +98,12 @@ try {
     exit;
   }
 
-  $status = (string)($doc["current_status"] ?? "");
+  $status = strtoupper((string)($doc["current_status"] ?? ""));
   $holderSectionId = (int)($doc["current_holder_section_id"] ?? 0);
   $hasOpenRoute = ((int)($doc["has_open_route"] ?? 0) === 1);
+  $branchMode = workflow_branch_mode_enabled($conn);
+  $isPrivileged = in_array($role, ["admin", "records"], true);
+  $attachmentBranchId = 0;
 
   // Only ACTIVE docs can accept attachments (keeps audit sane)
   if ($status !== "ACTIVE") {
@@ -108,22 +113,81 @@ try {
     exit;
   }
 
-  // Permission: admin/records OR current holder (division)
-  $isPrivileged = in_array($role, ["admin", "records"], true);
-
-  if (!$isPrivileged) {
-    if ($mySectionId <= 0 || $holderSectionId <= 0 || $holderSectionId !== $mySectionId) {
-      $conn->rollback();
-      http_response_code(403);
-      echo json_encode(["ok" => false, "error" => "Forbidden: your section does not hold this document."]);
-      exit;
+  if ($branchMode) {
+    if ($routeIdReq > 0) {
+      $stmt = $conn->prepare("
+        SELECT r.id, r.branch_id, r.to_user_id, r.received_at, r.cancelled_at
+        FROM routes r
+        WHERE r.id = ?
+          AND r.document_id = ?
+        LIMIT 1
+      ");
+      $stmt->bind_param("ii", $routeIdReq, $docId);
+      $stmt->execute();
+      $routeRow = $stmt->get_result()->fetch_assoc();
+      if ($routeRow) {
+        $attachmentBranchId = (int)($routeRow["branch_id"] ?? 0);
+      }
     }
-    // If somehow still in transit, holder should not be attaching (prevents weirdness)
-    if ($hasOpenRoute) {
-      $conn->rollback();
-      http_response_code(409);
-      echo json_encode(["ok" => false, "error" => "Cannot attach while document is in transit."]);
-      exit;
+
+    if ($branchIdReq > 0) {
+      $stmt = $conn->prepare("
+        SELECT id
+        FROM document_branches
+        WHERE id = ? AND document_id = ?
+        LIMIT 1
+      ");
+      $stmt->bind_param("ii", $branchIdReq, $docId);
+      $stmt->execute();
+      $branchExists = (bool)$stmt->get_result()->fetch_assoc();
+      if ($branchExists) {
+        $attachmentBranchId = $branchIdReq;
+      }
+    }
+
+    if (!$isPrivileged) {
+      $actionableBranch = workflow_find_single_actionable_branch($conn, $docId, $userId, $attachmentBranchId > 0 ? $attachmentBranchId : null);
+      if (!$actionableBranch) {
+        $stmt = $conn->prepare("
+          SELECT COUNT(*) AS c
+          FROM document_branches
+          WHERE document_id = ?
+            AND branch_status = 'ACTIVE'
+            AND current_assignee_user_id = ?
+            AND is_reference = 0
+        ");
+        $stmt->bind_param("ii", $docId, $userId);
+        $stmt->execute();
+        $countAssigned = (int)($stmt->get_result()->fetch_assoc()["c"] ?? 0);
+
+        $conn->rollback();
+        http_response_code(409);
+        echo json_encode([
+          "ok" => false,
+          "error" => $countAssigned > 1
+            ? "Multiple active branches are assigned to you for this document. Select the correct branch before attaching a file."
+            : "You can only attach files in your active received branch.",
+        ]);
+        exit;
+      }
+
+      $attachmentBranchId = (int)($actionableBranch["id"] ?? 0);
+    }
+  } else {
+    if (!$isPrivileged) {
+      if ($mySectionId <= 0 || $holderSectionId <= 0 || $holderSectionId !== $mySectionId) {
+        $conn->rollback();
+        http_response_code(403);
+        echo json_encode(["ok" => false, "error" => "Forbidden: your section does not hold this document."]);
+        exit;
+      }
+      // If somehow still in transit, holder should not be attaching (prevents weirdness)
+      if ($hasOpenRoute) {
+        $conn->rollback();
+        http_response_code(409);
+        echo json_encode(["ok" => false, "error" => "Cannot attach while document is in transit."]);
+        exit;
+      }
     }
   }
 
@@ -264,6 +328,8 @@ try {
     "file" => $origName,
     "is_append" => $isAppend,
     "note" => $note,
+    "branch_id" => $attachmentBranchId > 0 ? $attachmentBranchId : null,
+    "route_id" => $routeIdReq > 0 ? $routeIdReq : null,
   ], JSON_UNESCAPED_UNICODE);
 
   $actorSectionId = $mySectionId > 0 ? $mySectionId : null;

@@ -19,24 +19,24 @@
 
   const elRemarks = document.getElementById("d_remarks");
   const elTimeline = document.getElementById("d_timeline");
+  const elBranchWrap = document.getElementById("d_branch_wrap");
+  const elBranchBar = document.getElementById("d_branch_bar");
+  const elBranchMeta = document.getElementById("d_branch_meta");
+  const elBranchHint = document.getElementById("d_branch_hint");
 
-  // Attachments (list + view)
   const elAttachments = document.getElementById("d_attachments");
   const btnViewDocument = document.getElementById("btnViewDocument");
 
-  // PPD Tracking Slip (PPD users only)
   const rowPpdSlip = document.getElementById("rowPpdSlip");
   const btnPpdSlipGenerate = document.getElementById("btnPpdSlipGenerate");
   const btnPpdSlipAttach = document.getElementById("btnPpdSlipAttach");
   const btnPpdSlipPrint = document.getElementById("btnPpdSlipPrint");
   let currentPpdSlipAttId = 0;
 
-  // Toggle buttons
   const btnToggleAttachments = document.getElementById("btnToggleAttachments");
   const btnToggleUpload = document.getElementById("btnToggleUpload");
   const btnToggleForward = document.getElementById("btnToggleForward");
 
-  // Upload form
   const attachForm = document.getElementById("attachForm");
   const attachFile = document.getElementById("attachFile");
   const attachType = document.getElementById("attachType");
@@ -44,13 +44,11 @@
   const btnAttachUpload = document.getElementById("btnAttachUpload");
   const attachMsg = document.getElementById("attachMsg");
 
-  // Drawer actions
   const btnUnderAction = document.getElementById("btnUnderAction");
   const btnAckReceived = document.getElementById("btnAckReceived");
   const btnRelease = document.getElementById("btnRelease");
   const btnArchive = document.getElementById("btnArchive");
 
-  // Forward box (CHECKBOX UI)
   const forwardBox = document.getElementById("forwardBox");
   const selForwardTo = document.getElementById("f_to_section");
   const elUserList = document.getElementById("f_user_list");
@@ -59,7 +57,6 @@
   const elRecipientsPreview = document.getElementById("forwardRecipientsPreview");
   const btnForward = document.getElementById("btnForward");
 
-  // Recipients modal
   const recModal = document.getElementById("recModal");
   const recModalBackdrop = document.getElementById("recModalBackdrop");
   const recClose = document.getElementById("recClose");
@@ -67,7 +64,6 @@
   const recTitle = document.getElementById("recTitle");
   const recSub = document.getElementById("recSub");
 
-  // Attachment preview modal elements
   const attModal = document.getElementById("attModal");
   const attModalBackdrop = document.getElementById("attModalBackdrop");
   const attClose = document.getElementById("attClose");
@@ -81,8 +77,11 @@
   const API = APP.api || "/document-tracker/api";
   const PUBLIC = APP.public || "/document-tracker/public";
 
-  // Forward permission cached per drawer-open
   let currentCanForward = false;
+  let currentPayload = null;
+  let currentBranchMode = false;
+  let currentBranches = [];
+  let currentBranchId = 0;
 
   function esc(s) {
     return (s ?? "").toString()
@@ -93,14 +92,36 @@
       .replaceAll("'", "&#039;");
   }
 
+  function clean(v) {
+    const s = (v ?? "").toString().trim();
+    if (!s) return "";
+    if (["-", "—", "n/a", "na", "null", "undefined"].includes(s.toLowerCase())) return "";
+    return s;
+  }
+
   function fmtBytes(n) {
     const b = Number(n || 0);
     if (!isFinite(b) || b <= 0) return "—";
     const units = ["B", "KB", "MB", "GB"];
     let i = 0;
     let v = b;
-    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    while (v >= 1024 && i < units.length - 1) {
+      v /= 1024;
+      i++;
+    }
     return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+  }
+
+  function fmt(dt) {
+    const d = new Date((dt || "").toString().replace(" ", "T"));
+    if (isNaN(d.getTime())) return dt || "";
+    return d.toLocaleString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).replace(",", "");
   }
 
   function prettyAction(a) {
@@ -121,6 +142,29 @@
       status_changed: "Status Changed",
     };
     return map[key] || (key ? key : "Updated");
+  }
+
+  function actionIcon(k) {
+    const key = (k || "updated").toString().trim().toLowerCase();
+    const map = {
+      created: "＋",
+      sent: "↗",
+      forwarded: "➜",
+      received: "✓",
+      attachment_added: "📎",
+      released: "⤴",
+      release_undone: "↩",
+      archived: "⧉",
+      archive_undone: "↩",
+      cancelled: "×",
+      status_changed: "⚑",
+      updated: "•",
+    };
+    return map[key] || "•";
+  }
+
+  function getKey(i) {
+    return (i?.action ?? "updated").toString().trim().toLowerCase() || "updated";
   }
 
   function fileExt(name) {
@@ -155,33 +199,337 @@
     }
   }
 
+  function getSelectedBranch() {
+    return currentBranches.find((b) => Number(b.id || 0) === Number(currentBranchId || 0)) || null;
+  }
+
+
+  function getBranchPrefStorageKey(docId) {
+    const id = Number(docId || currentPayload?.id || 0);
+    const ctx = window.__CTX__ || {};
+    const uid = Number(ctx.myUserId || 0);
+    return id > 0 ? `dt_selected_branch_u${uid}_d${id}` : '';
+  }
+  function savePreferredBranchId(docId, branchId) {
+    const key = getBranchPrefStorageKey(docId);
+    const bid = Number(branchId || 0);
+    if (!key) return;
+    try {
+      if (bid > 0) sessionStorage.setItem(key, String(bid));
+      else sessionStorage.removeItem(key);
+    } catch (_) {}
+  }
+
+  function loadPreferredBranchId(docId) {
+    const key = getBranchPrefStorageKey(docId);
+    if (!key) return 0;
+    try {
+      return Number(sessionStorage.getItem(key) || 0) || 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  function preferredBranchId(branches) {
+    const list = Array.isArray(branches) ? branches : [];
+    const pending = list.find((b) => Number(b.my_pending_route_id || 0) > 0);
+    if (pending) return Number(pending.id || 0);
+    const mine = list.find((b) => Number(b.can_forward || 0) === 1);
+    if (mine) return Number(mine.id || 0);
+    return Number(list[0]?.id || 0);
+  }
+
+  function branchLabel(branch) {
+    const raw = clean(branch?.branch_label);
+    if (raw) return raw;
+    const id = Number(branch?.id || 0);
+    return id > 0 ? `Branch ${id}` : "Branch";
+  }
+
+  function getBranchById(branchId) {
+    return currentBranches.find((b) => Number(b.id || 0) === Number(branchId || 0)) || null;
+  }
+
+  function getBranchLineageIds(branchId) {
+    const lineage = new Set();
+    let guard = 0;
+    let cursor = getBranchById(branchId);
+
+    while (cursor && guard < 100) {
+      const id = Number(cursor.id || 0);
+      if (id <= 0 || lineage.has(id)) break;
+      lineage.add(id);
+
+      const parentId = Number(cursor.parent_branch_id || 0);
+      if (parentId <= 0) break;
+      cursor = getBranchById(parentId);
+      guard += 1;
+    }
+
+    return lineage;
+  }
+
+  function getSwitcherActiveBranchId(branchIds) {
+    const ids = (Array.isArray(branchIds) ? branchIds : []).map((id) => Number(id || 0)).filter((id) => id > 0);
+    if (!ids.length) return 0;
+    if (ids.includes(Number(currentBranchId || 0))) return Number(currentBranchId || 0);
+
+    const lineage = Array.from(getBranchLineageIds(currentBranchId));
+    for (const lineageId of lineage) {
+      if (ids.includes(Number(lineageId || 0))) return Number(lineageId || 0);
+    }
+    return 0;
+  }
+
+  function syncInlineBranchSelection() {
+    const activeLineage = getBranchLineageIds(currentBranchId);
+    document.querySelectorAll(".inlineBranchBar").forEach((bar) => {
+      const branchIds = Array.from(bar.querySelectorAll(".inlineBranchPill")).map((btn) => Number(btn.dataset.branchId || 0));
+      const switcherActiveId = getSwitcherActiveBranchId(branchIds);
+      bar.querySelectorAll(".inlineBranchPill").forEach((btn) => {
+        const bid = Number(btn.dataset.branchId || 0);
+        btn.classList.toggle("isActive", bid > 0 && bid === switcherActiveId);
+        btn.classList.toggle("isLineActive", bid > 0 && activeLineage.has(bid));
+      });
+    });
+  }
+
+  function syncAttachmentButtonVisibility() {
+    if (!btnToggleUpload) return;
+
+    const ctx = window.__CTX__ || {};
+    const myRole = (ctx.myRole || "user").toString().toLowerCase();
+    const isPrivileged = myRole === "admin" || myRole === "records";
+    const docStatus = (currentPayload?.current_status || "ACTIVE").toString().toUpperCase();
+
+    let canAttach = false;
+    if (docStatus === "ACTIVE") {
+      if (currentBranchMode) {
+        const branch = getSelectedBranch();
+        canAttach = !!(isPrivileged || (branch && Number(branch.can_forward || 0) === 1));
+      } else {
+        const mySectionId = Number(ctx.mySectionId || 0);
+        const holderSectionId = Number.parseInt(currentPayload?.current_holder_section_id, 10) || 0;
+        const openFromSectionId = Number.parseInt(currentPayload?.open_from_section_id, 10) || 0;
+        const inTransit = currentPayload?.in_transit === 1 || currentPayload?.in_transit === "1" || currentPayload?.in_transit === true;
+        const holderStillSending = inTransit && holderSectionId > 0 && openFromSectionId > 0 && openFromSectionId === holderSectionId;
+
+        canAttach = !!(isPrivileged || (
+          holderSectionId > 0 &&
+          mySectionId > 0 &&
+          holderSectionId === mySectionId &&
+          !holderStillSending
+        ));
+      }
+    }
+
+    btnToggleUpload.style.display = canAttach ? "" : "none";
+  }
+
+  function applyBranchSelection(branchId) {
+    currentBranchId = Number(branchId || 0);
+    savePreferredBranchId(currentPayload?.id || 0, currentBranchId);
+    const branch = getSelectedBranch();
+
+    if (elBranchBar) {
+      if (!branch) {
+        elBranchBar.innerHTML = "";
+      } else {
+        elBranchBar.innerHTML = `
+          <div class="branchBar activeLaneBar">
+            <button type="button" class="${branchPillClassList(branch, currentBranchId).concat(["activeLanePill"]).join(" ")}" data-branch-id="${Number(branch.id || 0)}">${esc(branchLabel(branch))}${esc(branchPillSuffix(branch))}</button>
+          </div>
+        `;
+      }
+    }
+
+    syncInlineBranchSelection();
+
+    if (elBranchMeta) {
+      if (!branch) {
+        elBranchMeta.textContent = currentBranchMode ? "No branch selected." : "";
+      } else {
+        const bits = [];
+        bits.push(`${branchLabel(branch)} • ${(branch.branch_status || "ACTIVE").toString().toUpperCase()}`);
+        if (Number(branch.is_reference || 0) === 1) bits.push("Reference only");
+        if (Number(branch.my_pending_route_id || 0) > 0) bits.push("Pending receive by you");
+        else if (Number(branch.can_forward || 0) === 1) bits.push("Actionable by you");
+        if (clean(branch.current_assignee_name)) {
+          const sec = clean(branch.current_assignee_section_name);
+          bits.push(`Assignee: ${branch.current_assignee_name}${sec ? ` (${sec})` : ""}`);
+        }
+        elBranchMeta.textContent = bits.join(" • ");
+      }
+    }
+
+    currentCanForward = !!(branch && Number(branch.can_forward || 0) === 1);
+    syncAttachmentButtonVisibility();
+    updateForwardUI();
+
+    if (btnAckReceived) {
+      const canReceive = !!(
+        branch &&
+        Number(branch.my_pending_route_id || 0) > 0 &&
+        (currentPayload?.current_status || "ACTIVE").toString().toUpperCase() === "ACTIVE"
+      );
+      btnAckReceived.style.display = canReceive ? "" : "none";
+    }
+  }
+
+  function branchPillClassList(branch, activeBranchId) {
+    const cls = ["branchPill"];
+    if (Number(branch?.can_forward || 0) === 1) cls.push("isMine");
+    if (Number(branch?.my_pending_route_id || 0) > 0) cls.push("isPending");
+    if (((branch?.branch_status || "").toString().toUpperCase()) !== "ACTIVE") cls.push("isCompleted");
+    if (Number(branch?.id || 0) === Number(activeBranchId || 0)) cls.push("isActive");
+    return cls;
+  }
+
+  function branchPillSuffix(branch) {
+    if (Number(branch?.my_pending_route_id || 0) > 0) return " • Receive";
+    if (Number(branch?.can_forward || 0) === 1) return " • Your turn";
+    return "";
+  }
+
+  function renderStandaloneBranchSwitcher(rawBranchIds, opts = {}) {
+    if (!currentBranchMode) return "";
+    if (opts.hidden) return "";
+
+    const branchIds = Array.from(new Set((Array.isArray(rawBranchIds) ? rawBranchIds : [])
+      .map((id) => Number(id || 0))
+      .filter((id) => id > 0)));
+
+    if (branchIds.length <= 1) return "";
+
+    const branches = branchIds
+      .map((id) => currentBranches.find((b) => Number(b.id || 0) === id))
+      .filter(Boolean);
+
+    if (branches.length <= 1) return "";
+
+    const label = clean(opts.label) || "Branches";
+    const switcherActiveId = getSwitcherActiveBranchId(branchIds);
+    const activeLineage = getBranchLineageIds(currentBranchId);
+
+    return `
+      <div class="timelineSplitBar" data-inline-branch-root="1">
+        <div class="timelineSplitLabel">${esc(label)}</div>
+        <div class="branchBar inlineBranchBar splitBranchBar">
+          ${branches.map((branch) => `
+            <button
+              type="button"
+              class="${branchPillClassList(branch, switcherActiveId).concat(activeLineage.has(Number(branch.id || 0)) ? ["isLineActive"] : [], ["inlineBranchPill"]).join(" ")}"
+              data-branch-id="${Number(branch.id || 0)}"
+            >${esc(branchLabel(branch))}${esc(branchPillSuffix(branch))}</button>
+          `).join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  function resolveGroupBranchId(items) {
+    const lineage = getBranchLineageIds(currentBranchId);
+    for (const item of items) {
+      const bid = Number(item?.branch_id || 0);
+      if (bid > 0 && lineage.has(bid)) return bid;
+    }
+    for (const item of items) {
+      const bid = Number(item?.branch_id || item?.source_branch_id || 0);
+      if (bid > 0) return bid;
+    }
+    return 0;
+  }
+
+  function findSplitEventForBranch(items, branchId) {
+    const bid = Number(branchId || 0);
+    if (bid <= 0) return null;
+
+    let found = null;
+    let foundTs = 0;
+
+    items.forEach((item) => {
+      if (item?.viewer_redacted) return;
+
+      const newIds = Array.isArray(item?.new_branch_ids)
+        ? item.new_branch_ids.map((id) => Number(id || 0))
+        : [];
+
+      if (!newIds.includes(bid)) return;
+
+      const ts = new Date((item?.acted_at || "").toString().replace(" ", "T")).getTime() || 0;
+      if (!found || ts > foundTs) {
+        found = item;
+        foundTs = ts;
+      }
+    });
+
+    return found;
+  }
+
+  function renderBranchTabs(branches) {
+    currentBranches = Array.isArray(branches) ? branches : [];
+
+    if (!currentBranchMode) {
+      if (elBranchWrap) elBranchWrap.style.display = "none";
+      currentBranchId = 0;
+      savePreferredBranchId(currentPayload?.id || 0, 0);
+      return;
+    }
+
+    const savedBranchId = loadPreferredBranchId(currentPayload?.id || 0);
+    const savedBranchStillVisible =
+      savedBranchId > 0 &&
+      currentBranches.some((b) => Number(b.id || 0) === savedBranchId);
+
+    const myPending = currentBranches.find((b) => Number(b.my_pending_route_id || 0) > 0);
+    const myActionable = currentBranches.find((b) => Number(b.can_forward || 0) === 1);
+
+    if (myPending) {
+      currentBranchId = Number(myPending.id || 0);
+    } else if (myActionable) {
+      currentBranchId = Number(myActionable.id || 0);
+    } else if (savedBranchStillVisible) {
+      currentBranchId = savedBranchId;
+    } else {
+      currentBranchId = preferredBranchId(currentBranches);
+    }
+
+    if (elBranchWrap) elBranchWrap.style.display = "";
+    if (elBranchBar) elBranchBar.innerHTML = "";
+    if (elBranchHint) {
+      elBranchHint.textContent = currentBranches.length > 1
+        ? "Switch lanes from the split bars placed between timeline groups."
+        : "This document currently has one visible branch.";
+    }
+
+    applyBranchSelection(currentBranchId);
+  }
+
   function updateForwardUI() {
     if (!forwardBox) return;
+
     const isOpen = !forwardBox.classList.contains("collapsed");
 
     if (btnToggleForward) btnToggleForward.style.display = currentCanForward ? "" : "none";
     if (btnForward) btnForward.style.display = (currentCanForward && isOpen) ? "" : "none";
   }
 
-  // =========================
-  // Forward: Sections dropdown
-  // =========================
   function loadSectionsOptions() {
     if (!selForwardTo) return;
 
     const list = window.__SECTIONS__ || [];
     const grouped = {};
 
-    list.forEach(s => {
+    list.forEach((s) => {
       const div = (s.division_name || "Other").toString();
       if (!grouped[div]) grouped[div] = [];
       grouped[div].push(s);
     });
 
     let html = `<option value="">-- Select section --</option>`;
-    Object.keys(grouped).forEach(div => {
+    Object.keys(grouped).forEach((div) => {
       html += `<optgroup label="${esc(div)}">`;
-      grouped[div].forEach(s => {
+      grouped[div].forEach((s) => {
         html += `<option value="${Number(s.id)}">${esc(s.name)}</option>`;
       });
       html += `</optgroup>`;
@@ -191,9 +539,6 @@
   }
   loadSectionsOptions();
 
-  // =========================
-  // Forward: Checkbox recipients
-  // =========================
   function resetUsersUI(msg = "Select a section to load users…") {
     if (elUserList) elUserList.innerHTML = `<div style="opacity:.7;">${esc(msg)}</div>`;
     if (elRecipientsPreview) elRecipientsPreview.textContent = "Recipients: —";
@@ -205,18 +550,17 @@
   }
 
   function getSelectedRecipientIds() {
-    const all = getAllRecipientBoxes();
-    return all
-      .filter(b => b.checked)
-      .map(b => Number.parseInt(b.value || "0", 10))
-      .filter(n => Number.isFinite(n) && n > 0);
+    return getAllRecipientBoxes()
+      .filter((b) => b.checked)
+      .map((b) => Number.parseInt(b.value || "0", 10))
+      .filter((n) => Number.isFinite(n) && n > 0);
   }
 
   function updateRecipientsPreview() {
     if (!elRecipientsPreview) return;
 
     const allBoxes = getAllRecipientBoxes();
-    const selectedBoxes = allBoxes.filter(b => b.checked);
+    const selectedBoxes = allBoxes.filter((b) => b.checked);
 
     if (allBoxes.length === 0 || selectedBoxes.length === 0) {
       elRecipientsPreview.textContent = "Recipients: —";
@@ -228,14 +572,13 @@
       return;
     }
 
-    const labels = selectedBoxes.slice(0, 3).map(b => {
+    const labels = selectedBoxes.slice(0, 3).map((b) => {
       const text = b.closest("label")?.innerText?.trim() || `#${b.value}`;
       return text.replace(/\s+/g, " ");
     });
 
     const more = selectedBoxes.length - labels.length;
-    elRecipientsPreview.textContent =
-      `Recipients: ${labels.join(", ")}${more > 0 ? ` (+${more} more)` : ""}`;
+    elRecipientsPreview.textContent = `Recipients: ${labels.join(", ")}${more > 0 ? ` (+${more} more)` : ""}`;
   }
 
   async function loadUsersForSection(sectionId) {
@@ -245,7 +588,7 @@
 
     try {
       const res = await fetch(`${API}/users_by_section.php?section_id=${encodeURIComponent(sectionId)}`, {
-        headers: { "Accept": "application/json" }
+        headers: { Accept: "application/json" }
       });
 
       const data = await res.json().catch(() => null);
@@ -255,7 +598,7 @@
         return;
       }
 
-      elUserList.innerHTML = data.map(u => {
+      elUserList.innerHTML = data.map((u) => {
         const id = Number(u.id || 0);
         const name = (u.name || "").toString();
         return `
@@ -272,7 +615,6 @@
     }
   }
 
-  // initial state
   resetUsersUI();
 
   selForwardTo?.addEventListener("change", () => {
@@ -288,20 +630,15 @@
   });
 
   btnUserSelectAll?.addEventListener("click", () => {
-    const all = getAllRecipientBoxes();
-    all.forEach(b => b.checked = true);
+    getAllRecipientBoxes().forEach((b) => { b.checked = true; });
     updateRecipientsPreview();
   });
 
   btnUserClear?.addEventListener("click", () => {
-    const all = getAllRecipientBoxes();
-    all.forEach(b => b.checked = false);
+    getAllRecipientBoxes().forEach((b) => { b.checked = false; });
     updateRecipientsPreview();
   });
 
-  // =========================
-  // Recipients Modal
-  // =========================
   function openRecipientsModal({ docId, countHint }) {
     if (!recModal || !recBody) return;
 
@@ -311,12 +648,11 @@
       : "";
 
     recBody.innerHTML = `<div class="mini" style="opacity:.8;">Loading…</div>`;
-
     recModal.classList.add("open");
     recModal.setAttribute("aria-hidden", "false");
 
     fetch(`${API}/get_recipients.php?document_id=${encodeURIComponent(docId)}`, {
-      headers: { "Accept": "application/json" }
+      headers: { Accept: "application/json" }
     })
       .then(async (res) => {
         const data = await res.json().catch(() => null);
@@ -333,26 +669,21 @@
           return;
         }
 
-        // group by section
         const groups = new Map();
         items.forEach((r) => {
           const sec = (r.to_section_name || "—").toString();
           const user = (r.to_user_name || "").toString().trim() || "(No specific user)";
-
           if (!groups.has(sec)) groups.set(sec, []);
           groups.get(sec).push(user);
         });
 
-        // render
         recBody.innerHTML = `
           <div style="display:flex; flex-direction:column; gap:12px;">
             ${Array.from(groups.entries()).map(([sec, users]) => `
               <div style="border:1px solid rgba(0,0,0,.08); border-radius:12px; padding:10px 12px;">
                 <div style="font-weight:900; margin-bottom:6px;">${esc(sec)}</div>
                 <div style="display:flex; flex-direction:column; gap:6px;">
-                  ${users.map(u => `
-                    <div class="mini" style="opacity:.9;">• ${esc(u)}</div>
-                  `).join("")}
+                  ${users.map((u) => `<div class="mini" style="opacity:.9;">• ${esc(u)}</div>`).join("")}
                 </div>
               </div>
             `).join("")}
@@ -379,14 +710,10 @@
 
     const docId = Number.parseInt(elDestination.dataset.docId || "0", 10);
     const countHint = Number.parseInt(elDestination.dataset.count || "0", 10);
-
     if (!docId) return;
     openRecipientsModal({ docId, countHint });
   });
 
-  // =========================
-  // Attachment Modal
-  // =========================
   function openAttachmentModal({ viewUrl, dlUrl, mime, name }) {
     if (!attModal || !attBody) {
       if (dlUrl) window.open(dlUrl, "_blank");
@@ -445,109 +772,378 @@
     }
   });
 
-  // =========================
-  // Attachments list (click = preview)
-  // =========================
+  function renderAttachments(items) {
+    if (!elAttachments) return;
+
+    if (!Array.isArray(items) || items.length === 0) {
+      elAttachments.innerHTML = `<div class="mini" style="opacity:.7;">No files yet.</div>`;
+      return;
+    }
+
+    elAttachments.innerHTML = `
+      <div class="attachList" style="display:flex; flex-direction:column; gap:10px;">
+        ${items.map((a) => {
+          const name = a.original_name || a.filename || `Attachment #${a.id || ""}`;
+          const note = clean(a.note);
+          const meta = [
+            fmt(a.uploaded_at || a.created_at || ""),
+            clean(a.uploaded_by_name || a.actor || ""),
+            fmtBytes(a.size_bytes || a.size || 0),
+          ].filter(Boolean).join(" • ");
+
+          const viewUrl = `${PUBLIC}/view_attachment.php?id=${Number(a.id || 0)}`;
+          const dlUrl = `${PUBLIC}/download_attachment.php?id=${Number(a.id || 0)}`;
+
+          return `
+            <div class="attachCard" style="border:1px solid rgba(0,0,0,.08); border-radius:12px; padding:12px; background:#fff;">
+              <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start;">
+                <div style="min-width:0;">
+                  <div style="font-weight:900; line-height:1.25; word-break:break-word;">${esc(name)}</div>
+                  ${meta ? `<div class="mini" style="opacity:.7; margin-top:4px;">${esc(meta)}</div>` : ""}
+                  ${note ? `<div class="mini" style="margin-top:8px;"><strong>Note:</strong> ${esc(note)}</div>` : ""}
+                </div>
+                <div style="display:flex; gap:8px; flex-shrink:0;">
+                  <a href="#" class="attachLink btn btnSm" data-view-url="${esc(viewUrl)}" data-dl-url="${esc(dlUrl)}" data-mime="${esc(a.mime || "")}" data-name="${esc(name)}">View</a>
+                  <a href="${esc(dlUrl)}" class="btn btnSm btnGhost" target="_blank" rel="noopener">Download</a>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
   async function loadAttachments(docId) {
     if (!elAttachments) return;
 
     try {
       const url = `${API}/attachments_list.php?document_id=${encodeURIComponent(docId)}`;
-      const res = await fetch(url, { headers: { "Accept": "application/json" } });
-
+      const res = await fetch(url, { headers: { Accept: "application/json" } });
       const data = await res.json().catch(() => null);
+
       if (!res.ok || !data?.ok) {
         elAttachments.textContent = data?.error || `Failed to load attachments. (${res.status})`;
         return;
       }
 
-      const items = data.attachments || [];
-
+      const items = Array.isArray(data.attachments) ? data.attachments : [];
       currentPpdSlipAttId = 0;
+
       for (const a of items) {
-        const note = (a.note || "").toString();
-        if (note === "AUTO:PPD_TRACKING_SLIP") {
+        if ((a.note || "").toString() === "AUTO:PPD_TRACKING_SLIP") {
           currentPpdSlipAttId = Number(a.id || 0);
           break;
         }
       }
+
       if (btnPpdSlipPrint) {
         btnPpdSlipPrint.disabled = !(APP.isPPD && currentPpdSlipAttId > 0);
       }
 
-      if (items.length === 0) {
-        elAttachments.innerHTML = `<div class="mini" style="opacity:.7;">No files yet.</div>`;
-        return;
-      }
-
-      function fmt(dt) {
-        const d = new Date((dt || "").toString().replace(" ", "T"));
-        if (isNaN(d.getTime())) return dt || "";
-        return d.toLocaleString("en-GB", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        }).replace(",", "");
-      }
-
-      elAttachments.innerHTML = items.map((a) => {
-        const id = Number(a.id || 0);
-        const name = (a.original_name || "file").toString();
-        const mime = (a.mime || "").toString();
-
-        const isAppend = Number(a.is_append || 0) === 1;
-        const by = (a.uploaded_by || "—").toString();
-        const bySec = (a.uploaded_by_section || "").toString();
-        const who = bySec ? `${by} • ${bySec}` : by;
-        const note = (a.note || "").toString();
-        const when = fmt(a.uploaded_at);
-        const size = fmtBytes(a.size_bytes);
-
-        const viewUrl = `${PUBLIC}/view_attachment.php?id=${id}`;
-        const dlUrl = `${PUBLIC}/download_attachment.php?id=${id}`;
-
-        return `
-          <div class="attachItem">
-            <div class="attachTop">
-              <a class="attachLink"
-                 href="#"
-                 data-view-url="${esc(viewUrl)}"
-                 data-dl-url="${esc(dlUrl)}"
-                 data-mime="${esc(mime)}"
-                 data-name="${esc(name)}"
-              >${esc(name)}</a>
-              ${isAppend ? `<span class="chip action" style="margin-left:8px;">APPEND</span>` : ``}
-            </div>
-            <div class="attachMeta mini">${esc(who)} • ${esc(when)} • ${esc(size)}</div>
-            ${note ? `<div class="attachNote mini">${esc(note)}</div>` : ``}
-          </div>
-        `;
-      }).join("");
-
+      renderAttachments(items);
     } catch {
       elAttachments.textContent = "Failed to load attachments.";
     }
   }
 
-  document.addEventListener("click", (e) => {
-    const link = e.target?.closest?.("a.attachLink[data-view-url]");
-    if (!link) return;
+  function movementParts(i) {
+    const from = clean(i.from_section);
+    const to = clean(i.to_section);
+    if (from && to && from === to) return { from, to: "" };
+    return { from, to };
+  }
 
-    e.preventDefault();
+  function detailChips(i) {
+    const chips = [];
+    const rec = clean(i.recipient_summary);
+    const branch = clean(i.branch_label);
+    const actorSection = clean(i.actor_section);
+    if (branch && currentBranchMode) chips.push(`<span class="tChip">${esc(branch)}</span>`);
+    if (rec) chips.push(`<span class="tChip">Recipients: ${esc(rec)}</span>`);
+    if (actorSection) chips.push(`<span class="tChip">${esc(actorSection)}</span>`);
+    return chips.join("");
+  }
 
-    openAttachmentModal({
-      viewUrl: link.getAttribute("data-view-url") || "",
-      dlUrl: link.getAttribute("data-dl-url") || "",
-      mime: link.getAttribute("data-mime") || "",
-      name: link.getAttribute("data-name") || "Attachment",
+  function movementHtml(i) {
+    const move = movementParts(i);
+    const actionKey = getKey(i);
+    if (move.from && move.to) {
+      return `<div class="tMove"><span class="tChip">${esc(move.from)}</span><span class="tArrow">→</span><span class="tChip">${esc(move.to)}</span></div>`;
+    }
+    if (move.to) return `<div class="tMove"><span class="tChip">${esc(move.to)}</span></div>`;
+    if (move.from && ["sent", "forwarded", "received"].includes(actionKey)) {
+      return `<div class="tMove"><span class="tChip">${esc(move.from)}</span></div>`;
+    }
+    return "";
+  }
+
+  function groupTitleFor(i) {
+    const move = movementParts(i);
+    if (clean(i.actor_section)) return clean(i.actor_section);
+    if (move.to) return move.to;
+    if (move.from) return move.from;
+    return "General";
+  }
+
+  function renderEventsView(itemsNewestFirst) {
+    return `
+      <div class="timeline">
+        ${itemsNewestFirst.map((i, idx) => {
+          const actionKey = getKey(i);
+          const isCurrent = idx === 0;
+
+          const details = [];
+          const personMove = clean(i.person_movement);
+          const recipientSummary = clean(i.recipient_summary);
+          const branchLabelText = clean(i.branch_label);
+
+          if (
+            currentBranchMode &&
+            branchLabelText &&
+            !["sent", "forwarded", "received"].includes(actionKey)
+          ) {
+            details.push(`<span class="tChip">${esc(branchLabelText)}</span>`);
+          }
+          if (personMove && ["sent", "forwarded", "received"].includes(actionKey)) {
+            details.push(`<span class="tChip">${esc(personMove)}</span>`);
+          } else if (
+            ["sent", "forwarded"].includes(actionKey) &&
+            recipientSummary &&
+            !personMove
+          ) {
+            details.push(`<span class="tChip">Recipients: ${esc(recipientSummary)}</span>`);
+          }
+
+          return `
+            <div class="tItem action-${esc(actionKey)} ${isCurrent ? "isCurrent" : ""}">
+              <div class="tIcon" aria-hidden="true">
+                <span class="tGlyph">${esc(actionIcon(actionKey))}</span>
+              </div>
+
+              <div class="tContent">
+                <div class="tRow">
+                  <div class="tMeta tMetaLeft">
+                    ${esc(fmt(i.acted_at))}
+                    <br>
+                    ${esc(i.actor || "System")}
+                  </div>
+
+                  <div class="tRight">
+                    ${isCurrent ? `<span class="tBadge">LATEST</span>` : ``}
+                    <div class="tAction">${esc(prettyAction(actionKey).toUpperCase())}</div>
+                  </div>
+                </div>
+
+                ${i.title ? `<div class="tRemark">${esc(i.title)}</div>` : ""}
+
+                ${movementHtml(i)}
+
+                ${details.length ? `
+                  <div class="tMove" style="margin-top:8px; gap:6px; flex-wrap:wrap;">
+                    ${details.join("")}
+                  </div>
+                ` : ""}
+
+                ${i.remarks ? `<div class="tNote"><strong>Remarks:</strong> ${esc(i.remarks)}</div>` : ``}
+
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
+  function renderGroupedView(itemsNewestFirst) {
+    const byKey = new Map();
+
+    itemsNewestFirst.forEach((item) => {
+      const key = groupTitleFor(item);
+      if (!byKey.has(key)) {
+        byKey.set(key, { key, items: [] });
+      }
+      byKey.get(key).items.push(item);
     });
-  });
 
-  // =========================
-  // Upload attachment
-  // =========================
+    const groups = Array.from(byKey.values())
+      .map((group) => {
+        const newestFirst = [...group.items].sort((a, b) => {
+          const ta = new Date((a.acted_at || "").toString().replace(" ", "T")).getTime() || 0;
+          const tb = new Date((b.acted_at || "").toString().replace(" ", "T")).getTime() || 0;
+          return tb - ta;
+        });
+
+        return {
+          ...group,
+          items: newestFirst,
+          latestTs: new Date((newestFirst[0]?.acted_at || "").toString().replace(" ", "T")).getTime() || 0,
+        };
+      })
+      .sort((a, b) => b.latestTs - a.latestTs);
+
+    return `
+      <div class="tGrouped">
+        ${groups.map((group) => {
+          const latest = group.items[0];
+          const groupBranchId = resolveGroupBranchId(group.items);
+          const splitEvent = findSplitEventForBranch(itemsNewestFirst, groupBranchId);
+          const splitMarker = splitEvent
+            ? renderStandaloneBranchSwitcher(splitEvent.new_branch_ids, {
+                label: clean(splitEvent.actor_section) || "Branches"
+              })
+            : "";
+          return `
+            ${splitMarker}
+            <section class="tGroup">
+              <div class="tGroupHead">
+                <div class="tGroupTitle">${esc(group.key)}</div>
+                <div class="tGroupSub">
+                  ${group.items.length} action${group.items.length === 1 ? "" : "s"} • ${esc(fmt(latest?.acted_at || ""))}
+                </div>
+              </div>
+
+              <div class="tGroupBody">
+                ${group.items.map((i) => {
+                  const actionKey = getKey(i);
+                  const move = movementParts(i);
+
+                  const details = [];
+                  const personMove = clean(i.person_movement);
+                  const recipientSummary = clean(i.recipient_summary);
+                  const branchLabelText = clean(i.branch_label);
+
+                  if (
+                    currentBranchMode &&
+                    branchLabelText &&
+                    !["sent", "forwarded", "received"].includes(actionKey)
+                  ) {
+                    details.push(esc(branchLabelText));
+                  }
+
+                  if (personMove && ["sent", "forwarded", "received"].includes(actionKey)) {
+                    details.push(esc(personMove));
+                  } else if (
+                    ["sent", "forwarded"].includes(actionKey) &&
+                    recipientSummary &&
+                    !personMove
+                  ) {
+                    details.push(`Recipients: ${esc(recipientSummary)}`);
+                  }
+
+                  let movement = "";
+                  if (move.from && move.to) movement = `${esc(move.from)} → ${esc(move.to)}`;
+                  else if (move.to) movement = esc(move.to);
+                  else if (move.from && ["sent", "forwarded", "received"].includes(actionKey)) movement = esc(move.from);
+
+                  return `
+                    <div class="tLine action-${esc(actionKey)}">
+                      <div class="tLineLeft">
+                        <span class="tLineTime">${esc(fmt(i.acted_at))}</span>
+                        <span class="tLineTag">${esc(prettyAction(actionKey).toUpperCase())}</span>
+                      </div>
+
+                      <div class="tLineRight">
+                        <div class="tLineTitle">${esc(i.title || prettyAction(actionKey))}</div>
+                        ${movement ? `<div class="tLineMove">${movement}</div>` : ``}
+                        ${details.length ? `<div class="tLineMove">${details.join(" • ")}</div>` : ``}
+                        ${i.remarks ? `<div class="tLineNote">Remarks: ${esc(i.remarks)}</div>` : ``}
+
+                      </div>
+                    </div>
+                  `;
+                }).join("")}
+              </div>
+            </section>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
+  async function loadTimeline(docId, forcedBranchId = 0) {
+    if (!elTimeline) return;
+
+    try {
+      const qs = new URLSearchParams({ document_id: String(docId) });
+      const branchId = Number(forcedBranchId || currentBranchId || 0);
+      if (currentBranchMode && branchId > 0) qs.set("branch_id", String(branchId));
+
+      const res = await fetch(`${API}/get_history.php?${qs.toString()}`, {
+        headers: { Accept: "application/json" }
+      });
+
+      if (!res.ok) {
+        elTimeline.textContent = `Failed to load timeline. (${res.status})`;
+        return;
+      }
+
+      const data = await res.json().catch(() => null);
+      if (!data?.ok) {
+        elTimeline.textContent = data?.error || "No timeline.";
+        return;
+      }
+
+      currentBranchMode = !!data.branch_mode;
+      renderBranchTabs(data.branches || []);
+
+      if (currentBranchMode) {
+        const activeId = Number(forcedBranchId || currentBranchId || preferredBranchId(data.branches || []));
+        if (activeId > 0 && activeId !== Number(data.selected_branch_id || 0)) {
+          currentBranchId = activeId;
+          return loadTimeline(docId, activeId);
+        }
+      }
+
+      const items = Array.isArray(data.history) ? data.history : [];
+      if (items.length === 0) {
+        elTimeline.innerHTML = `<div class="mini" style="opacity:.7;">No timeline yet for this ${currentBranchMode ? "branch" : "document"}.</div>`;
+        return;
+      }
+
+      const LS_KEY = currentBranchMode ? "dt_timeline_view_branch" : "dt_timeline_view";
+      const saved = (localStorage.getItem(LS_KEY) || "events").toLowerCase();
+      let view = saved === "grouped" ? "grouped" : "events";
+
+      elTimeline.innerHTML = `
+        <div class="tToolbar">
+          <button type="button" class="tToggle ${view === "events" ? "isOn" : ""}" data-view="events">Events</button>
+          <button type="button" class="tToggle ${view === "grouped" ? "isOn" : ""}" data-view="grouped">By Section</button>
+        </div>
+        <div id="timelineBody"></div>`;
+
+      const body = elTimeline.querySelector("#timelineBody");
+      const buttons = elTimeline.querySelectorAll(".tToggle");
+
+      function paint() {
+        if (!body) return;
+        body.innerHTML = view === "grouped" ? renderGroupedView(items) : renderEventsView(items);
+        body.querySelectorAll(".inlineBranchPill").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const bid = Number(btn.dataset.branchId || 0);
+            if (bid <= 0) return;
+            applyBranchSelection(bid);
+            const docId = Number(elId?.value || 0);
+            if (docId > 0) loadTimeline(docId, bid);
+          });
+        });
+        buttons.forEach((b) => b.classList.toggle("isOn", b.dataset.view === view));
+        localStorage.setItem(LS_KEY, view);
+      }
+
+      buttons.forEach((b) => {
+        b.addEventListener("click", () => {
+          view = b.dataset.view === "grouped" ? "grouped" : "events";
+          paint();
+        });
+      });
+
+      paint();
+    } catch {
+      elTimeline.textContent = "Failed to load timeline.";
+    }
+  }
+
   async function uploadAttachment() {
     const docId = elId?.value;
     if (!docId) return;
@@ -571,6 +1167,14 @@
 
     const form = new FormData();
     form.append("document_id", docId);
+    const branch = currentBranchMode ? getSelectedBranch() : null;
+    const routeId = currentBranchMode
+      ? (Number.parseInt(branch?.my_pending_route_id || "0", 10) || 0)
+      : (Number.parseInt(currentPayload?.open_route_id || "0", 10) || 0);
+    if (routeId > 0) form.append("route_id", String(routeId));
+    if (currentBranchMode && branch && Number(branch.id || 0) > 0) {
+      form.append("branch_id", String(Number(branch.id || 0)));
+    }
     form.append("file", f0);
     form.append("is_append", (attachType?.value || "1") === "1" ? "1" : "0");
     form.append("note", attachNote ? attachNote.value : "");
@@ -580,7 +1184,7 @@
       const res = await fetch(`${API}/attachments_upload.php`, {
         method: "POST",
         body: form,
-        headers: { "Accept": "application/json" }
+        headers: { Accept: "application/json" }
       });
 
       const data = await res.json().catch(() => null);
@@ -596,7 +1200,6 @@
 
       await loadAttachments(docId);
       await loadTimeline(docId);
-
     } catch {
       if (attachMsg) attachMsg.textContent = "Upload failed (network error).";
       else alert("Upload failed (network error).");
@@ -605,16 +1208,13 @@
     }
   }
 
-  // =========================
-  // Drawer open/close
-  // =========================
   function openDrawer(payload) {
+    currentPayload = payload || null;
     setCollapsed(elAttachments, true);
     setCollapsed(attachForm, true);
     setCollapsed(forwardBox, true);
     syncToggleLabels();
 
-    // View document button
     if (btnViewDocument) {
       const docId = payload.id || "";
       if (docId) {
@@ -626,7 +1226,6 @@
       }
     }
 
-    // PPD tracking slip buttons
     if (rowPpdSlip) {
       const isPPD = !!APP.isPPD;
       const docId = payload.id || "";
@@ -643,14 +1242,13 @@
 
     if (elId) elId.value = payload.id || "";
     if (elTracking) elTracking.textContent = payload.tracking_no || "";
-
     if (elRequester) elRequester.textContent = payload.requester || "—";
     if (elDate) elDate.textContent = payload.document_date || "—";
     if (elSubject) elSubject.textContent = payload.subject || "—";
     if (elType) elType.textContent = payload.content_type || "—";
     if (elDays) elDays.textContent = payload.days_stuck ?? "0";
 
-    const inTransit = (payload.in_transit === 1 || payload.in_transit === "1" || payload.in_transit === true);
+    const inTransit = payload.in_transit === 1 || payload.in_transit === "1" || payload.in_transit === true;
     const docStatus = (payload.current_status || "ACTIVE").toString().toUpperCase();
 
     if (elStatus) {
@@ -663,19 +1261,14 @@
       elHolder.className = "chip incoming";
     }
 
-    // Destination + recipients viewer
     const openCount = Number.parseInt(payload.open_route_count, 10) || 0;
     const destText = payload.movement_text || "—";
-
     if (elDestinationText) elDestinationText.textContent = destText;
     else if (elDestination) elDestination.textContent = destText;
 
-    // Destination clickable ONLY if multiple pending recipients
     if (elDestination) {
       const clickable = !!inTransit && openCount > 1;
-
       elDestination.classList.toggle("destClickable", clickable);
-
       if (clickable) {
         elDestination.dataset.docId = String(payload.id || "");
         elDestination.dataset.count = String(openCount || 0);
@@ -688,11 +1281,9 @@
     if (elLastHolder) elLastHolder.textContent = payload.last_holder_text || "—";
     if (elRemarks) elRemarks.value = "";
 
-    // Open drawer
     backdrop?.classList.add("open");
     drawer?.classList.add("open");
 
-    // Load data
     if (attachMsg) attachMsg.textContent = "";
     if (elAttachments) elAttachments.textContent = "Loading attachments…";
     if (payload.id) loadAttachments(payload.id);
@@ -700,52 +1291,52 @@
     if (elTimeline) elTimeline.textContent = "Loading timeline…";
     if (payload.id) loadTimeline(payload.id);
 
-    // Permissions / button visibility
     const ctx = window.__CTX__ || {};
     const myRole = (ctx.myRole || "user").toString().toLowerCase();
     const mySectionId = Number(ctx.mySectionId || 0);
     const myUserId = Number(ctx.myUserId || 0);
     const isChief = !!ctx.isChief;
+    currentBranchMode = !!ctx.branchMode;
+    currentBranches = [];
+    currentBranchId = 0;
 
     const openToSectionId = Number.parseInt(payload.open_to_section_id, 10) || 0;
     const holderSectionId = Number.parseInt(payload.current_holder_section_id, 10) || 0;
     const openFromSectionId = Number.parseInt(payload.open_from_section_id, 10) || 0;
-
     const openToUserId = Number.parseInt(payload.open_to_user_id, 10) || 0;
+    const isPrivileged = myRole === "admin" || myRole === "records";
 
-    const canAckReceived = (
-      inTransit && (
-        (openToUserId > 0 && myUserId > 0 && openToUserId === myUserId) ||
-        (openToUserId === 0 && isChief && openToSectionId > 0 && mySectionId > 0 && openToSectionId === mySectionId)
-      )
-    );
-
-    const canAckReceivedPrivileged = (
-      inTransit && openToSectionId > 0 && mySectionId > 0 && openToSectionId === mySectionId
-    );
-
-    const isPrivileged = (myRole === "admin" || myRole === "records");
-
-    const holderStillSending = (
-      inTransit && holderSectionId > 0 && openFromSectionId > 0 && openFromSectionId === holderSectionId
-    );
-
-    const canAttach = (docStatus === "ACTIVE" && (
-      isPrivileged || (
-        holderSectionId > 0
-        && mySectionId > 0
-        && holderSectionId === mySectionId
-        && !holderStillSending
-      )
+    const canAckReceived = (!currentBranchMode && inTransit && (
+      (openToUserId > 0 && myUserId > 0 && openToUserId === myUserId) ||
+      (openToUserId === 0 && isChief && openToSectionId > 0 && mySectionId > 0 && openToSectionId === mySectionId)
     ));
 
-    const canForward = (
-      docStatus === "ACTIVE"
-      && holderSectionId > 0
-      && mySectionId > 0
-      && holderSectionId === mySectionId
-      && !holderStillSending
-    );
+    const canAckReceivedPrivileged = (!currentBranchMode && inTransit && openToSectionId > 0 && mySectionId > 0 && openToSectionId === mySectionId);
+
+    let canAttach = false;
+    let canForward = false;
+
+    if (currentBranchMode) {
+      canAttach = docStatus === "ACTIVE" && isPrivileged;
+      canForward = false;
+    } else {
+      const holderStillSending = inTransit && holderSectionId > 0 && openFromSectionId > 0 && openFromSectionId === holderSectionId;
+
+      canAttach = docStatus === "ACTIVE" && (
+        isPrivileged || (
+          holderSectionId > 0 &&
+          mySectionId > 0 &&
+          holderSectionId === mySectionId &&
+          !holderStillSending
+        )
+      );
+
+      canForward = docStatus === "ACTIVE" &&
+        holderSectionId > 0 &&
+        mySectionId > 0 &&
+        holderSectionId === mySectionId &&
+        !holderStillSending;
+    }
 
     currentCanForward = canForward;
 
@@ -753,14 +1344,12 @@
     if (btnToggleAttachments) btnToggleAttachments.style.display = "";
     updateForwardUI();
 
-    // Reset inputs (forward)
     if (attachFile) attachFile.value = "";
     if (attachNote) attachNote.value = "";
     if (attachType) attachType.value = "1";
     if (selForwardTo) selForwardTo.value = "";
     resetUsersUI();
 
-    // Action buttons visibility logic (yours)
     if (btnAckReceived) btnAckReceived.style.display = "none";
     if (btnRelease) btnRelease.style.display = "none";
     if (btnArchive) btnArchive.style.display = "none";
@@ -773,6 +1362,10 @@
     if (btnArchive) {
       btnArchive.textContent = "Archive";
       btnArchive.dataset.nextStatus = "ARCHIVED";
+    }
+
+    if (!currentBranchMode && btnAckReceived) {
+      btnAckReceived.style.display = canAckReceived ? "" : "none";
     }
 
     if (docStatus === "ARCHIVED") {
@@ -790,13 +1383,16 @@
         btnRelease.textContent = "Undo Release";
         btnRelease.dataset.nextStatus = "ACTIVE";
       }
+      if (isPrivileged || (!currentBranchMode && holderSectionId > 0 && mySectionId > 0 && holderSectionId === mySectionId)) {
+        if (btnRelease) btnRelease.style.display = "";
+      }
+      syncToggleLabels();
+      return;
     }
 
     if (isPrivileged) {
-      if (docStatus === "ACTIVE") {
-        if (canAckReceivedPrivileged) {
-          if (btnAckReceived) btnAckReceived.style.display = "";
-        }
+      if (!currentBranchMode && canAckReceivedPrivileged && btnAckReceived) {
+        btnAckReceived.style.display = "";
       }
       if (btnRelease) btnRelease.style.display = "";
       if (btnArchive) btnArchive.style.display = "";
@@ -804,24 +1400,16 @@
       return;
     }
 
-    if (docStatus === "RELEASED") {
+    if (!currentBranchMode) {
+      if (inTransit) {
+        if (canAckReceived && btnAckReceived) btnAckReceived.style.display = "";
+        syncToggleLabels();
+        return;
+      }
+
       if (holderSectionId > 0 && mySectionId > 0 && holderSectionId === mySectionId) {
         if (btnRelease) btnRelease.style.display = "";
       }
-      syncToggleLabels();
-      return;
-    }
-
-    if (inTransit) {
-      if (canAckReceived) {
-        if (btnAckReceived) btnAckReceived.style.display = "";
-      }
-      syncToggleLabels();
-      return;
-    }
-
-    if (holderSectionId > 0 && mySectionId > 0 && holderSectionId === mySectionId) {
-      if (btnRelease) btnRelease.style.display = "";
     }
 
     syncToggleLabels();
@@ -830,286 +1418,14 @@
   function closeDrawer() {
     drawer?.classList.remove("open");
     backdrop?.classList.remove("open");
-  }
-
-  // =========================
-  // Timeline loader (unchanged)
-  // =========================
-  async function loadTimeline(docId) {
-    if (!elTimeline) return;
-
-    try {
-      const url = `${API}/get_history.php?document_id=${encodeURIComponent(docId)}`;
-      const res = await fetch(url, { headers: { "Accept": "application/json" } });
-
-      if (!res.ok) {
-        elTimeline.textContent = `Failed to load timeline. (${res.status})`;
-        return;
-      }
-
-      const data = await res.json().catch(() => null);
-      if (!data?.ok) {
-        elTimeline.textContent = data?.error || "No timeline.";
-        return;
-      }
-
-      const items = data.history || [];
-      if (items.length === 0) {
-        elTimeline.textContent = "No history yet.";
-        return;
-      }
-
-      function fmt(dt) {
-        const d = new Date((dt || "").toString().replace(" ", "T"));
-        if (isNaN(d.getTime())) return dt || "";
-        return d.toLocaleString("en-GB", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        }).replace(",", "");
-      }
-
-      const actionIcon = (k) => {
-        const key = (k || "updated").toString().trim().toLowerCase();
-        const map = {
-          created: "＋",
-          sent: "↗",
-          forwarded: "➜",
-          received: "✓",
-          attachment_added: "📎",
-          released: "⤴",
-          release_undone: "↩",
-          archived: "⧉",
-          archive_undone: "↩",
-          cancelled: "×",
-          status_changed: "⚑",
-          updated: "•",
-        };
-        return map[key] || "•";
-      };
-
-      const getKey = (i) => (i.action ?? "updated").toString().trim().toLowerCase() || "updated";
-
-      function renderEventsView(itemsNewestFirst) {
-        return `
-          <div class="timeline">
-            ${itemsNewestFirst.map((i, idx) => {
-              const actionKey = getKey(i);
-              const isCurrent = idx === 0;
-
-              const from = (i.from_section || "").toString().trim();
-              const to = (i.to_section || "").toString().trim();
-
-              const moveHtml = (from || to)
-                ? `
-                  <div class="tMove">
-                    ${from ? `<span class="tChip">${esc(from)}</span>` : `<span class="tChip muted">—</span>`}
-                    <span class="tArrow">→</span>
-                    ${to ? `<span class="tChip">${esc(to)}</span>` : `<span class="tChip muted">—</span>`}
-                  </div>
-                `
-                : "";
-
-              return `
-                <div class="tItem action-${esc(actionKey)} ${isCurrent ? "isCurrent" : ""}">
-                  <div class="tIcon" aria-hidden="true">
-                    <span class="tGlyph">${esc(actionIcon(actionKey))}</span>
-                  </div>
-
-                  <div class="tContent">
-                    <div class="tRow">
-                      <div class="tMeta tMetaLeft">
-                        ${esc(fmt(i.acted_at))}<br>
-                        ${esc(i.actor || "System")}
-                      </div>
-
-                      <div class="tRight">
-                        ${isCurrent ? `<span class="tBadge">LATEST</span>` : ``}
-                        <div class="tAction">${esc(prettyAction(actionKey).toUpperCase())}</div>
-                      </div>
-                    </div>
-
-                    ${i.title ? `<div class="tRemark">${esc(i.title)}</div>` : ""}
-                    ${moveHtml}
-                    ${i.remarks ? `<div class="tNote">${esc(i.remarks)}</div>` : ``}
-                  </div>
-                </div>
-              `;
-            }).join("")}
-          </div>
-        `;
-      }
-
-      function renderGroupedView(itemsNewestFirst) {
-        const ts = (dt) => {
-          const t = new Date((dt || "").toString().replace(" ", "T")).getTime();
-          return isNaN(t) ? 0 : t;
-        };
-
-        const actionRank = (key) => {
-          const k = (key || "updated").toString().trim().toLowerCase();
-          const rank = {
-            created: 10,
-            sent: 20,
-            forwarded: 25,
-            received: 30,
-            attachment_added: 35,
-            released: 50,
-            release_undone: 55,
-            archived: 60,
-            archive_undone: 65,
-            cancelled: 70,
-            status_changed: 80,
-            updated: 90,
-          };
-          return rank[k] ?? 999;
-        };
-
-        const keyOf = (i) => (i.action ?? "updated").toString().trim().toLowerCase() || "updated";
-
-        const chrono = [...itemsNewestFirst].sort((a, b) => {
-          const da = ts(a.acted_at);
-          const db = ts(b.acted_at);
-          if (da !== db) return da - db;
-
-          const ra = actionRank(keyOf(a));
-          const rb = actionRank(keyOf(b));
-          if (ra !== rb) return ra - rb;
-
-          const ida = Number(a.event_id || 0);
-          const idb = Number(b.event_id || 0);
-          if (ida !== idb) return ida - idb;
-
-          return 0;
-        });
-
-        const stints = [];
-        const openBySection = new Map();
-
-        function openStint(sectionId, sectionName, ev) {
-          const key = sectionId > 0 ? `S:${sectionId}` : "SYS";
-          if (openBySection.has(key)) return;
-
-          const s = { sectionId, sectionName, startAt: ev.acted_at || "", endAt: "", events: [] };
-          stints.push(s);
-          openBySection.set(key, stints.length - 1);
-        }
-
-        function closeStint(sectionId, endEv) {
-          const key = sectionId > 0 ? `S:${sectionId}` : "SYS";
-          const idx = openBySection.get(key);
-          if (idx === undefined) return;
-          stints[idx].endAt = endEv.acted_at || "";
-          openBySection.delete(key);
-        }
-
-        for (const ev of chrono) {
-          const sid = Number(ev.actor_section_id || 0);
-          const secName = (ev.actor_section || "").toString().trim() || (sid > 0 ? `Section #${sid}` : "System");
-          const k = keyOf(ev);
-
-          if (k === "created" || k === "received") openStint(sid, secName, ev);
-
-          const skey = sid > 0 ? `S:${sid}` : "SYS";
-          const openIdx = openBySection.get(skey);
-          if (openIdx !== undefined) stints[openIdx].events.push(ev);
-
-          if (k === "sent" || k === "forwarded") closeStint(sid, ev);
-        }
-
-        const lastAt = chrono.length ? (chrono[chrono.length - 1].acted_at || "") : "";
-        for (const [, idx] of openBySection.entries()) {
-          stints[idx].endAt = lastAt;
-        }
-        openBySection.clear();
-
-        stints.sort((a, b) => ts(b.startAt) - ts(a.startAt));
-
-        const rendered = stints.map((s) => {
-          const eventsNewestFirst = [...s.events].reverse();
-
-          const headerMeta = (() => {
-            const count = s.events.length;
-            const start = s.startAt ? fmt(s.startAt) : "";
-            const end = s.endAt ? fmt(s.endAt) : "";
-            if (!start) return `${count} action${count === 1 ? "" : "s"}`;
-            if (end && end !== start) return `${count} actions • ${start} → ${end}`;
-            return `${count} actions • ${start}`;
-          })();
-
-          return `
-            <div class="tGroup">
-              <div class="tGroupHead">
-                <div class="tGroupTitle">${esc(s.sectionName)}</div>
-                <div class="tGroupSub">${esc(headerMeta)}</div>
-              </div>
-
-              <div class="tGroupBody">
-                ${eventsNewestFirst.map((ev) => {
-                  const k = keyOf(ev);
-                  const from = (ev.from_section || "").toString().trim();
-                  const to   = (ev.to_section || "").toString().trim();
-                  const moveText = (from || to) ? `${from || "—"} → ${to || "—"}` : "";
-
-                  return `
-                    <div class="tLine action-${esc(k)}">
-                      <div class="tLineLeft">
-                        <span class="tLineTime">${esc(fmt(ev.acted_at))}</span>
-                        <span class="tLineTag">${esc(prettyAction(k).toUpperCase())}</span>
-                      </div>
-
-                      <div class="tLineMain">
-                        <div class="tLineTitle">${esc(ev.title || `${(ev.actor || "System")} updated the document`)}</div>
-                        ${moveText ? `<div class="tLineMove">${esc(moveText)}</div>` : ``}
-                        ${ev.remarks ? `<div class="tLineNote">${esc(ev.remarks)}</div>` : ``}
-                      </div>
-                    </div>
-                  `;
-                }).join("")}
-              </div>
-            </div>
-          `;
-        }).join("");
-
-        return `<div class="tGrouped">${rendered || `<div class="mini" style="opacity:.7;">No timeline yet.</div>`}</div>`;
-      }
-
-      const LS_KEY = "dt_timeline_view";
-      const saved = (localStorage.getItem(LS_KEY) || "events").toLowerCase();
-      let view = (saved === "grouped") ? "grouped" : "events";
-
-      elTimeline.innerHTML = `
-        <div class="tToolbar">
-          <button type="button" class="tToggle ${view === "events" ? "isOn" : ""}" data-view="events">Events</button>
-          <button type="button" class="tToggle ${view === "grouped" ? "isOn" : ""}" data-view="grouped">By Section</button>
-        </div>
-        <div id="timelineBody"></div>
-      `;
-
-      const body = elTimeline.querySelector("#timelineBody");
-      const buttons = elTimeline.querySelectorAll(".tToggle");
-
-      function paint() {
-        if (!body) return;
-        body.innerHTML = (view === "grouped") ? renderGroupedView(items) : renderEventsView(items);
-        buttons.forEach(b => b.classList.toggle("isOn", b.dataset.view === view));
-        localStorage.setItem(LS_KEY, view);
-      }
-
-      buttons.forEach(b => {
-        b.addEventListener("click", () => {
-          view = (b.dataset.view === "grouped") ? "grouped" : "events";
-          paint();
-        });
-      });
-
-      paint();
-
-    } catch {
-      elTimeline.textContent = "Failed to load timeline.";
-    }
+    currentPayload = null;
+    currentBranchMode = false;
+    currentBranches = [];
+    currentBranchId = 0;
+    currentCanForward = false;
+    if (elBranchWrap) elBranchWrap.style.display = "none";
+    if (elBranchBar) elBranchBar.innerHTML = "";
+    if (elBranchMeta) elBranchMeta.textContent = "";
   }
 
   async function updateStatus(newStatus) {
@@ -1118,6 +1434,8 @@
 
     const form = new FormData();
     form.append("document_id", docId);
+    const routeId = Number.parseInt(currentPayload?.open_route_id || "0", 10) || 0;
+    if (routeId > 0) form.append("route_id", String(routeId));
     form.append("new_status", newStatus);
     form.append("remarks", elRemarks ? elRemarks.value : "");
     form.append("csrf_token", window.__CSRF__ || "");
@@ -1126,7 +1444,7 @@
       const res = await fetch(`${API}/update_status.php`, {
         method: "POST",
         body: form,
-        headers: { "Accept": "application/json" }
+        headers: { Accept: "application/json" }
       });
 
       const data = await res.json().catch(() => null);
@@ -1146,6 +1464,11 @@
 
     const form = new FormData();
     form.append("document_id", docId);
+    const branch = currentBranchMode ? getSelectedBranch() : null;
+    const routeId = currentBranchMode
+      ? (Number.parseInt(branch?.my_pending_route_id || "0", 10) || 0)
+      : (Number.parseInt(currentPayload?.open_route_id || "0", 10) || 0);
+    if (routeId > 0) form.append("route_id", String(routeId));
     form.append("remarks", elRemarks ? elRemarks.value : "");
     form.append("csrf_token", window.__CSRF__ || "");
 
@@ -1153,7 +1476,7 @@
       const res = await fetch(`${API}/ack_received.php`, {
         method: "POST",
         body: form,
-        headers: { "Accept": "application/json" }
+        headers: { Accept: "application/json" }
       });
 
       const data = await res.json().catch(() => null);
@@ -1169,6 +1492,7 @@
 
   async function forwardDoc() {
     const docId = elId?.value;
+    const branchBeforeForward = currentBranchMode ? getSelectedBranch() : null;
     if (!docId) return;
 
     const toSectionId = Number.parseInt(selForwardTo?.value || "0", 10) || 0;
@@ -1177,16 +1501,21 @@
       return;
     }
 
-    const selected = getSelectedRecipientIds(); // ✅ from checkboxes
-
+    const selected = getSelectedRecipientIds();
     const form = new FormData();
     form.append("document_id", docId);
+    const branch = currentBranchMode ? getSelectedBranch() : null;
+    const routeId = currentBranchMode
+      ? (Number.parseInt(branch?.my_pending_route_id || "0", 10) || 0)
+      : (Number.parseInt(currentPayload?.open_route_id || "0", 10) || 0);
+    if (routeId > 0) form.append("route_id", String(routeId));
+    if (currentBranchMode && Number(branch?.id || 0) > 0) form.append("branch_id", String(Number(branch.id || 0)));
     form.append("to_section_id", String(toSectionId));
 
     if (selected.length === 1) {
       form.append("to_user_id", String(selected[0]));
     } else if (selected.length > 1) {
-      selected.forEach(id => form.append("to_user_ids[]", String(id)));
+      selected.forEach((id) => form.append("to_user_ids[]", String(id)));
     }
 
     form.append("remarks", elRemarks ? elRemarks.value : "");
@@ -1196,7 +1525,7 @@
       const res = await fetch(`${API}/forward.php`, {
         method: "POST",
         body: form,
-        headers: { "Accept": "application/json" }
+        headers: { Accept: "application/json" }
       });
 
       const data = await res.json().catch(() => null);
@@ -1204,11 +1533,27 @@
         alert(data?.error || `Failed to forward. (${res.status})`);
         return;
       }
+      if (currentBranchMode && Number(branchBeforeForward?.id || 0) > 0) {
+        savePreferredBranchId(docId, Number(branchBeforeForward.id || 0));
+      }
       location.reload();
     } catch {
       alert("Failed to forward (network error).");
     }
   }
+
+  document.addEventListener("click", (e) => {
+    const link = e.target?.closest?.("a.attachLink[data-view-url]");
+    if (!link) return;
+
+    e.preventDefault();
+    openAttachmentModal({
+      viewUrl: link.getAttribute("data-view-url") || "",
+      dlUrl: link.getAttribute("data-dl-url") || "",
+      mime: link.getAttribute("data-mime") || "",
+      name: link.getAttribute("data-name") || "Attachment",
+    });
+  });
 
   closeBtn?.addEventListener("click", closeDrawer);
   backdrop?.addEventListener("click", closeDrawer);
@@ -1236,33 +1581,19 @@
 
   btnToggleForward?.addEventListener("click", () => {
     if (!forwardBox) return;
-
     forwardBox.classList.toggle("collapsed");
     syncToggleLabels();
     updateForwardUI();
-
-    if (!forwardBox.classList.contains("collapsed")) {
-      selForwardTo?.focus();
-    }
+    if (!forwardBox.classList.contains("collapsed")) selForwardTo?.focus();
   });
 
   btnAckReceived?.addEventListener("click", ackReceived);
   btnUnderAction?.addEventListener("click", () => updateStatus("ACTIVE"));
-
-  btnRelease?.addEventListener("click", () => {
-    const next = (btnRelease.dataset.nextStatus || "RELEASED").toUpperCase();
-    updateStatus(next);
-  });
-
-  btnArchive?.addEventListener("click", () => {
-    const next = (btnArchive.dataset.nextStatus || "ARCHIVED").toUpperCase();
-    updateStatus(next);
-  });
-
+  btnRelease?.addEventListener("click", () => updateStatus((btnRelease.dataset.nextStatus || "RELEASED").toUpperCase()));
+  btnArchive?.addEventListener("click", () => updateStatus((btnArchive.dataset.nextStatus || "ARCHIVED").toUpperCase()));
   btnForward?.addEventListener("click", forwardDoc);
   btnAttachUpload?.addEventListener("click", uploadAttachment);
 
-  // PPD tracking slip actions
   btnPpdSlipGenerate?.addEventListener("click", async () => {
     const docId = btnPpdSlipGenerate.dataset.docId || elId?.value || "";
     if (!docId) return;
@@ -1276,7 +1607,7 @@
       const res = await fetch(`${API}/ppd_tracking_slip_generate.php`, {
         method: "POST",
         body: form,
-        headers: { "Accept": "application/json" }
+        headers: { Accept: "application/json" }
       });
 
       const data = await res.json().catch(() => null);
@@ -1287,7 +1618,6 @@
 
       const attId = Number(data.attachment_id || 0);
       await loadAttachments(docId);
-
       if (attId > 0) {
         window.open(`${PUBLIC}/view_attachment.php?id=${attId}`, "_blank", "noopener");
       }
@@ -1311,7 +1641,6 @@
     attachFile?.focus();
   });
 
-  // View document hook
   btnViewDocument?.addEventListener("click", () => {
     const docId = btnViewDocument.dataset.docId || elId?.value || "";
     if (!docId) return;
@@ -1324,7 +1653,6 @@
     document.dispatchEvent(new CustomEvent("dt:view_document", { detail: { documentId: docId } }));
   });
 
-  // initial label sync
   syncToggleLabels();
   updateForwardUI();
 })();

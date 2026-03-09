@@ -14,29 +14,18 @@ if ($docId <= 0) {
 }
 
 try {
-  // ✅ Centralized permission (chief-only section inbox included)
   if (!can_view_document($conn, $docId)) {
     http_response_code(403);
     echo json_encode(["ok" => false, "error" => "Forbidden"]);
     exit;
   }
 
-  // ✅ Pending recipients = open routes
-  $stmt = $conn->prepare("
-    SELECT
-      r.id AS route_id,
-      r.to_section_id,
-      s.name AS to_section_name,
-      r.to_user_id,
-      u.full_name AS to_user_name,
-      r.sent_at
-    FROM routes r
-    LEFT JOIN sections s ON s.id = r.to_section_id
-    LEFT JOIN users u ON u.id = r.to_user_id
-    WHERE r.document_id = ?
-      AND r.received_at IS NULL AND r.cancelled_at IS NULL
-    ORDER BY r.sent_at DESC, r.id DESC
-  ");
+  $branchMode = workflow_branch_mode_enabled($conn);
+  if ($branchMode) {
+    $stmt = $conn->prepare("\n      SELECT\n        r.id AS route_id,\n        r.branch_id,\n        b.branch_label,\n        r.to_section_id,\n        s.name AS to_section_name,\n        r.to_user_id,\n        u.full_name AS to_user_name,\n        r.sent_at\n      FROM routes r\n      LEFT JOIN document_branches b ON b.id = r.branch_id\n      LEFT JOIN sections s ON s.id = r.to_section_id\n      LEFT JOIN users u ON u.id = r.to_user_id\n      WHERE r.document_id = ?\n        AND r.received_at IS NULL\n        AND r.cancelled_at IS NULL\n        AND r.route_kind = 'ACTION'\n      ORDER BY r.sent_at DESC, r.id DESC\n    ");
+  } else {
+    $stmt = $conn->prepare("\n      SELECT\n        r.id AS route_id,\n        NULL AS branch_id,\n        NULL AS branch_label,\n        r.to_section_id,\n        s.name AS to_section_name,\n        r.to_user_id,\n        u.full_name AS to_user_name,\n        r.sent_at\n      FROM routes r\n      LEFT JOIN sections s ON s.id = r.to_section_id\n      LEFT JOIN users u ON u.id = r.to_user_id\n      WHERE r.document_id = ?\n        AND r.received_at IS NULL\n        AND r.cancelled_at IS NULL\n      ORDER BY r.sent_at DESC, r.id DESC\n    ");
+  }
   $stmt->bind_param("i", $docId);
   $stmt->execute();
   $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -44,10 +33,13 @@ try {
   echo json_encode([
     "ok" => true,
     "document_id" => $docId,
+    "branch_mode" => $branchMode,
     "count" => count($rows),
     "recipients" => array_map(static function (array $r): array {
       return [
         "route_id" => (int)($r["route_id"] ?? 0),
+        "branch_id" => ($r["branch_id"] !== null ? (int)$r["branch_id"] : null),
+        "branch_label" => (string)($r["branch_label"] ?? ""),
         "to_section_id" => (int)($r["to_section_id"] ?? 0),
         "to_section_name" => (string)($r["to_section_name"] ?? ""),
         "to_user_id" => ($r["to_user_id"] !== null ? (int)$r["to_user_id"] : null),
@@ -60,6 +52,6 @@ try {
 
 } catch (Throwable $e) {
   http_response_code(500);
-  echo json_encode(["ok" => false, "error" => "Server error"]);
+  echo json_encode(["ok" => false, "error" => "Server error", "debug" => $e->getMessage()]);
   exit;
 }

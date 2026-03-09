@@ -18,39 +18,26 @@ $docId     = (int)($_POST["document_id"] ?? 0);
 $newStatus = strtoupper(trim((string)($_POST["new_status"] ?? "")));
 $remarks   = trim((string)($_POST["remarks"] ?? ""));
 
-$allowed = ["ACTIVE", "RELEASED", "ARCHIVED"];
-
-if ($docId <= 0 || !in_array($newStatus, $allowed, true)) {
+if ($docId <= 0 || $newStatus === "") {
   http_response_code(400);
   echo json_encode(["ok" => false, "error" => "Bad request"]);
   exit;
 }
 
-$role        = $_SESSION["role"] ?? "user";
+$role        = (string)($_SESSION["role"] ?? "user");
 $mySectionId = (int)($_SESSION["section_id"] ?? 0);
 $userId      = (int)($_SESSION["user_id"] ?? 0);
-
-if ($mySectionId <= 0) {
-  http_response_code(400);
-  echo json_encode(["ok" => false, "error" => "Missing section assignment"]);
-  exit;
-}
+$isPrivileged = ($role === 'admin');
 
 try {
   $conn->begin_transaction();
 
-  $stmt = $conn->prepare("
-    SELECT
-      d.current_status,
-      d.current_holder_section_id,
-      EXISTS (
-        SELECT 1 FROM routes r
-        WHERE r.document_id = d.id AND r.received_at IS NULL AND r.cancelled_at IS NULL
-      ) AS has_open_route
-    FROM documents d
-    WHERE d.id = ?
-    LIMIT 1
-  ");
+  $branchMode = workflow_branch_mode_enabled($conn);
+  if ($branchMode) {
+    $stmt = $conn->prepare("\n      SELECT\n        d.current_status,\n        d.current_holder_section_id,\n        EXISTS (\n          SELECT 1 FROM routes r\n          WHERE r.document_id = d.id\n            AND r.received_at IS NULL\n            AND r.cancelled_at IS NULL\n            AND r.route_kind = 'ACTION'\n        ) AS has_open_route,\n        EXISTS (\n          SELECT 1 FROM document_branches b\n          WHERE b.document_id = d.id\n            AND b.branch_status = 'ACTIVE'\n            AND b.is_reference = 0\n        ) AS has_active_branch\n      FROM documents d\n      WHERE d.id = ?\n      LIMIT 1\n    ");
+  } else {
+    $stmt = $conn->prepare("\n      SELECT\n        d.current_status,\n        d.current_holder_section_id,\n        EXISTS (\n          SELECT 1 FROM routes r\n          WHERE r.document_id = d.id\n            AND r.received_at IS NULL\n            AND r.cancelled_at IS NULL\n        ) AS has_open_route,\n        0 AS has_active_branch\n      FROM documents d\n      WHERE d.id = ?\n      LIMIT 1\n    ");
+  }
   $stmt->bind_param("i", $docId);
   $stmt->execute();
   $doc = $stmt->get_result()->fetch_assoc();
@@ -62,31 +49,29 @@ try {
     exit;
   }
 
-  $oldStatus       = strtoupper((string)$doc["current_status"]);
+  $oldStatus = strtoupper((string)$doc["current_status"]);
   $holderSectionId = (int)$doc["current_holder_section_id"];
-  $hasOpenRoute    = (int)$doc["has_open_route"] === 1;
+  $hasOpenRoute = ((int)($doc["has_open_route"] ?? 0) === 1);
+  $hasActiveBranch = ((int)($doc["has_active_branch"] ?? 0) === 1);
 
-  // ✅ Only holder can act (physical holder rule; no bypass)
-  if ($holderSectionId !== $mySectionId) {
+  if (!$isPrivileged && $holderSectionId !== $mySectionId) {
     $conn->rollback();
     http_response_code(403);
-    echo json_encode(["ok" => false, "error" => "Forbidden: your section does not hold this document"]);
+    echo json_encode(["ok" => false, "error" => "Only the current holder may change document lifecycle status."]);
     exit;
   }
 
-  // ✅ Block any status change while in transit
-  if ($hasOpenRoute) {
+  if ($hasOpenRoute || ($branchMode && $hasActiveBranch)) {
     $conn->rollback();
     http_response_code(409);
-    echo json_encode(["ok" => false, "error" => "Cannot change root status while document still has pending routes."]);
+    echo json_encode(["ok" => false, "error" => "Cannot change root status while document still has active workflow branches or pending routes."]);
     exit;
   }
 
-  // ✅ Allowed transitions (supports undo)
   $allowedTransitions = [
     "ACTIVE"   => ["RELEASED", "ARCHIVED"],
-    "RELEASED" => ["ACTIVE", "ARCHIVED"],   // ACTIVE = Undo Release
-    "ARCHIVED" => ["RELEASED"],             // RELEASED = Undo Archive
+    "RELEASED" => ["ACTIVE", "ARCHIVED"],
+    "ARCHIVED" => ["RELEASED"],
   ];
 
   if (!isset($allowedTransitions[$oldStatus]) || !in_array($newStatus, $allowedTransitions[$oldStatus], true)) {
@@ -98,42 +83,28 @@ try {
 
   if ($newStatus === $oldStatus) {
     $conn->rollback();
-    echo json_encode([
-      "ok" => true,
-      "document_id" => $docId,
-      "old_status" => $oldStatus,
-      "new_status" => $newStatus
-    ]);
+    echo json_encode(["ok" => true, "document_id" => $docId, "old_status" => $oldStatus, "new_status" => $newStatus]);
     exit;
   }
 
-  // ✅ Update status
-  $stmt = $conn->prepare("
-    UPDATE documents
-    SET current_status = ?
-    WHERE id = ?
-  ");
+  $stmt = $conn->prepare("UPDATE documents SET current_status = ?, updated_at = NOW() WHERE id = ?");
   $stmt->bind_param("si", $newStatus, $docId);
   $stmt->execute();
 
-  // ✅ Enum-safe event type:
   $eventType = "updated";
   if ($oldStatus === "ACTIVE" && $newStatus === "RELEASED") $eventType = "released";
-  if ($oldStatus === "RELEASED" && $newStatus === "ACTIVE") $eventType = "released";   // undo release
+  if ($oldStatus === "RELEASED" && $newStatus === "ACTIVE") $eventType = "released";
   if (($oldStatus === "ACTIVE" || $oldStatus === "RELEASED") && $newStatus === "ARCHIVED") $eventType = "archived";
-  if ($oldStatus === "ARCHIVED" && $newStatus === "RELEASED") $eventType = "archived"; // undo archive
+  if ($oldStatus === "ARCHIVED" && $newStatus === "RELEASED") $eventType = "archived";
 
   $payload = json_encode([
     "old_status" => $oldStatus,
     "new_status" => $newStatus,
-    "remarks" => $remarks
+    "remarks" => $remarks,
+    "branch_mode" => $branchMode,
   ], JSON_UNESCAPED_UNICODE);
 
-  $stmt = $conn->prepare("
-    INSERT INTO document_events
-      (document_id, event_type, actor_user_id, actor_section_id, payload_json)
-    VALUES (?, ?, ?, ?, ?)
-  ");
+  $stmt = $conn->prepare("\n    INSERT INTO document_events\n      (document_id, event_type, actor_user_id, actor_section_id, payload_json)\n    VALUES (?, ?, ?, ?, ?)\n  ");
   $stmt->bind_param("isiis", $docId, $eventType, $userId, $mySectionId, $payload);
   $stmt->execute();
 
@@ -144,13 +115,14 @@ try {
     "document_id" => $docId,
     "event_type" => $eventType,
     "old_status" => $oldStatus,
-    "new_status" => $newStatus
+    "new_status" => $newStatus,
+    "branch_mode" => $branchMode,
   ]);
   exit;
 
 } catch (Throwable $e) {
   $conn->rollback();
   http_response_code(500);
-  echo json_encode(["ok" => false, "error" => "Server error"]);
+  echo json_encode(["ok" => false, "error" => "Server error", "debug" => $e->getMessage()]);
   exit;
 }

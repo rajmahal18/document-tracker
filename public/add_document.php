@@ -265,6 +265,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         $stmt->execute();
         $docId = (int)$conn->insert_id;
 
+        $branchMode = workflow_branch_mode_enabled($conn);
+        if ($branchMode) {
+          workflow_grant_visibility($conn, $docId, $userId, 'CREATOR', null, $userId);
+        }
+
         // 2) participants: origin
         $stmt = $conn->prepare("
           INSERT IGNORE INTO document_participants
@@ -287,6 +292,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         }
 
         // 3.5) Validate selected users per destination section
+        $validatedRecipients = [];
         foreach ($finalRecipientMap as $destSectionId => $destUserIds) {
           $destSectionId = (int)$destSectionId;
           if (count($destUserIds) === 0) {
@@ -298,7 +304,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           $params = array_merge([$destSectionId], array_values($destUserIds));
 
           $sql = "
-            SELECT id
+            SELECT id, full_name
             FROM users
             WHERE section_id = ?
               AND is_active = 1
@@ -311,8 +317,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           $res = $stmt->get_result();
 
           $found = [];
+          $validatedRecipients[$destSectionId] = [];
           while ($r = $res->fetch_assoc()) {
-            $found[] = (int)$r["id"];
+            $rid = (int)$r["id"];
+            $found[] = $rid;
+            $validatedRecipients[$destSectionId][$rid] = [
+              "id" => $rid,
+              "full_name" => (string)($r["full_name"] ?? "User #" . $rid),
+            ];
           }
 
           sort($found);
@@ -326,20 +338,94 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
 
         // 4) routes: multi-section per-user routing
         $remarks = "Initial forward on creation";
+        $routeBranchMap = [];
+        $createdBranchIds = [];
+        $totalActionableRecipients = 0;
+        foreach ($finalRecipientMap as $tmpUserIds) {
+          $totalActionableRecipients += count($tmpUserIds);
+        }
 
-        $stmt = $conn->prepare("
-          INSERT INTO routes
-            (document_id, from_section_id, to_section_id, to_user_id, send_batch_id, received_at, sent_by_user_id, remarks)
-          VALUES
-            (?, ?, ?, ?, ?, NULL, ?, ?)
-        ");
+        $singleBranchId = 0;
+        $rootBranchId = 0;
+        if ($branchMode && $totalActionableRecipients > 1) {
+          $rootBranchId = workflow_create_branch($conn, [
+            'document_id' => $docId,
+            'parent_branch_id' => null,
+            'branch_label' => 'Origin',
+            'current_assignee_user_id' => null,
+            'current_assignee_section_id' => null,
+            'branch_status' => 'COMPLETED',
+            'is_reference' => 0,
+            'created_by_user_id' => $userId,
+          ]);
+        }
+
+        if ($branchMode) {
+          $stmt = $conn->prepare("
+            INSERT INTO routes
+              (document_id, branch_id, from_section_id, to_section_id, from_user_id, to_user_id, route_kind, send_batch_id, received_at, sent_by_user_id, remarks)
+            VALUES
+              (?, ?, ?, ?, ?, ?, 'ACTION', ?, NULL, ?, ?)
+          ");
+        } else {
+          $stmt = $conn->prepare("
+            INSERT INTO routes
+              (document_id, from_section_id, to_section_id, to_user_id, send_batch_id, received_at, sent_by_user_id, remarks)
+            VALUES
+              (?, ?, ?, ?, ?, NULL, ?, ?)
+          ");
+        }
 
         foreach ($finalRecipientMap as $destSectionId => $destUserIds) {
           $destSectionId = (int)$destSectionId;
 
           foreach ($destUserIds as $rid) {
             $rid = (int)$rid;
-            $stmt->bind_param("iiiisis", $docId, $fromSectionId, $destSectionId, $rid, $sendBatchId, $userId, $remarks);
+            $branchId = 0;
+
+            if ($branchMode) {
+              if ($totalActionableRecipients === 1) {
+                if ($singleBranchId <= 0) {
+                  $labelUser = (string)($validatedRecipients[$destSectionId][$rid]['full_name'] ?? ('User #' . $rid));
+                  $singleBranchId = workflow_create_branch($conn, [
+                    'document_id' => $docId,
+                    'parent_branch_id' => null,
+                    'branch_label' => $labelUser,
+                    'current_assignee_user_id' => $rid,
+                    'current_assignee_section_id' => $destSectionId,
+                    'branch_status' => 'ACTIVE',
+                    'is_reference' => 0,
+                    'created_by_user_id' => $userId,
+                  ]);
+                }
+                $branchId = $singleBranchId;
+              } else {
+                $labelUser = (string)($validatedRecipients[$destSectionId][$rid]['full_name'] ?? ('User #' . $rid));
+                $branchId = workflow_create_branch($conn, [
+                  'document_id' => $docId,
+                  'parent_branch_id' => $rootBranchId > 0 ? $rootBranchId : null,
+                  'branch_label' => $labelUser,
+                  'current_assignee_user_id' => $rid,
+                  'current_assignee_section_id' => $destSectionId,
+                  'branch_status' => 'ACTIVE',
+                  'is_reference' => 0,
+                  'created_by_user_id' => $userId,
+                ]);
+              }
+
+              $createdBranchIds[] = $branchId;
+              $routeBranchMap[] = [
+                'branch_id' => $branchId,
+                'to_user_id' => $rid,
+                'to_section_id' => $destSectionId,
+              ];
+
+              workflow_grant_visibility($conn, $docId, $rid, 'PARTICIPANT', $branchId, $userId);
+
+              $stmt->bind_param("iiiiiisis", $docId, $branchId, $fromSectionId, $destSectionId, $userId, $rid, $sendBatchId, $userId, $remarks);
+            } else {
+              $stmt->bind_param("iiiisis", $docId, $fromSectionId, $destSectionId, $rid, $sendBatchId, $userId, $remarks);
+            }
             $stmt->execute();
           }
         }
@@ -363,6 +449,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           "recipient_map" => $finalRecipientMap,
           "destination_mode_map" => $destinationModeMap,
           "send_batch_id" => $sendBatchId,
+          "branch_mode" => $branchMode,
+          "branch_ids" => array_values(array_unique(array_filter($createdBranchIds))),
+          "route_branch_map" => $routeBranchMap,
         ], JSON_UNESCAPED_UNICODE);
 
         $stmt = $conn->prepare("

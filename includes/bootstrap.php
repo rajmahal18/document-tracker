@@ -13,6 +13,7 @@ const API_PATH    = BASE_PATH . "/api";
 const ASSETS_PATH = BASE_PATH . "/assets";
 
 require_once __DIR__ . "/../core/db.php";
+require_once __DIR__ . "/../core/workflow.php";
 require_once __DIR__ . "/constants.php";
 
 function redirect(string $path): void {

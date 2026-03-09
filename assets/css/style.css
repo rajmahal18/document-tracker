@@ -1569,3 +1569,179 @@ body.modalOpen{
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+
+
+.inlineBranchBlock {
+  margin-top: 10px;
+  padding: 10px 10px 8px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.inlineBranchHead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+
+.inlineBranchTitle {
+  font-size: 12px;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.inlineBranchSub {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.inlineBranchBar {
+  display: flex;
+  width: 100%;
+  margin: 0;
+  gap: 8px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 2px 4px;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+.inlineBranchBar::-webkit-scrollbar {
+  height: 6px;
+}
+
+.inlineBranchBar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, .65);
+  border-radius: 999px;
+}
+
+.branchBar {
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin:8px 0 6px;
+}
+
+.branchPill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border:1px solid #d0d5dd;
+  background:#fff;
+  color:#344054;
+  border-radius:999px;
+  padding:8px 12px;
+  font-size:12px;
+  font-weight:800;
+  cursor:pointer;
+  transition:.15s ease;
+  flex: 0 0 auto;
+  min-width: max-content;
+  white-space: nowrap;
+}
+
+.inlineBranchPill {
+  min-height: 40px;
+}
+
+.branchPill:hover {
+  border-color:#98a2b3;
+  transform:translateY(-1px);
+}
+
+.branchPill.isLineActive:not(.isActive) {
+  border-color:#94a3b8;
+  box-shadow:0 0 0 2px rgba(148,163,184,.14);
+}
+
+.branchPill.isActive {
+  border-color:#1570ef;
+  box-shadow:0 0 0 3px rgba(21,112,239,.14);
+  color:#0b3a66;
+}
+
+.branchPill.isMine {
+  background:#eff8ff;
+}
+
+.branchPill.isPending {
+  background:#fff7ed;
+  border-color:#fdba74;
+  color:#9a3412;
+}
+
+.branchPill.isCompleted {
+  background:#f8fafc;
+  color:#667085;
+}
+
+.branchMeta {
+  background:#f8fafc;
+  border:1px solid #e4e7ec;
+  border-radius:12px;
+  padding:10px 12px;
+  color:#475467;
+}
+
+
+#d_branch_wrap {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  background: #fff;
+  padding-bottom: 10px;
+}
+
+.activeLaneBar {
+  margin: 6px 0 4px;
+}
+
+.activeLanePill {
+  width: 100%;
+  justify-content: flex-start;
+  padding: 10px 14px;
+}
+
+.timelineSplitBar {
+  margin: 10px 2px 12px;
+  padding: 0 4px;
+}
+
+.timelineSplitLabel {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .02em;
+  color: #667085;
+  text-transform: uppercase;
+}
+
+.splitBranchBar {
+  width: 100%;
+  gap: 10px;
+  margin: 0;
+  padding: 2px 0 6px;
+  flex-wrap: nowrap !important;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.splitBranchBar .branchPill {
+  min-width: max-content;
+  min-height: 42px;
+  padding: 9px 16px;
+}
+
+.splitBranchBar::-webkit-scrollbar {
+  height: 7px;
+}
+
+.splitBranchBar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, .8);
+  border-radius: 999px;
+}
