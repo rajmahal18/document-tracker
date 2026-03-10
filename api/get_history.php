@@ -62,23 +62,59 @@ try {
   $viewerDivisionName = trim((string)($_SESSION["division_name"] ?? ""));
   $viewerRole = strtolower(trim((string)($_SESSION["role"] ?? "")));
   $viewerIsAdmin = ($viewerRole === "admin");
-  $branches = $branchMode ? workflow_get_branch_state($conn, $docId, $viewerUserId) : [];
-  $selectedLineageIds = [];
-  if ($branchMode && $selectedBranchId > 0 && is_array($branches)) {
-    $branchById = [];
-    foreach ($branches as $branchRow) {
-      $bid = (int)($branchRow['id'] ?? 0);
-      if ($bid > 0) $branchById[$bid] = $branchRow;
-    }
 
+  $branches = $branchMode ? workflow_get_branch_state($conn, $docId, $viewerUserId) : [];
+
+  // Build full branch tree for strict selected-lane lineage filtering.
+  $allBranchesById = [];
+  if ($branchMode) {
+    $stmtAllBranches = $conn->prepare("
+      SELECT id, parent_branch_id, branch_label, is_reference
+      FROM document_branches
+      WHERE document_id = ?
+      ORDER BY id ASC
+    ");
+    $stmtAllBranches->bind_param("i", $docId);
+    $stmtAllBranches->execute();
+    $allBranchRows = $stmtAllBranches->get_result()->fetch_all(MYSQLI_ASSOC);
+
+    foreach ($allBranchRows as $branchRow) {
+      $bid = (int)($branchRow['id'] ?? 0);
+      if ($bid <= 0) continue;
+
+      $branchRow['id'] = $bid;
+      $branchRow['parent_branch_id'] = (int)($branchRow['parent_branch_id'] ?? 0);
+      $branchRow['is_reference'] = ((int)($branchRow['is_reference'] ?? 0) === 1) ? 1 : 0;
+      $allBranchesById[$bid] = $branchRow;
+    }
+  }
+
+  // Hide only synthetic/root/origin branches from UI tabs.
+  // Reference branches must stay visible when they are the viewer's actual lane.
+  if ($branchMode && is_array($branches)) {
+    $branches = array_values(array_filter($branches, static function ($branchRow) {
+      $label = strtolower(trim((string)($branchRow['branch_label'] ?? '')));
+      $parentId = (int)($branchRow['parent_branch_id'] ?? 0);
+
+      if ($label === 'origin') return false;
+      if ($label === '' && $parentId <= 0) return false;
+
+      return true;
+    }));
+  }
+
+  $selectedBranchScopeIds = [];
+  if ($branchMode && $selectedBranchId > 0 && isset($allBranchesById[$selectedBranchId])) {
     $cursorId = $selectedBranchId;
     $guard = 0;
-    while ($cursorId > 0 && $guard < 100) {
-      if (in_array($cursorId, $selectedLineageIds, true)) break;
-      $selectedLineageIds[] = $cursorId;
-      $parentId = (int)($branchById[$cursorId]['parent_branch_id'] ?? 0);
-      if ($parentId <= 0) break;
-      $cursorId = $parentId;
+
+    while ($cursorId > 0 && isset($allBranchesById[$cursorId]) && $guard < 100) {
+      if (in_array($cursorId, $selectedBranchScopeIds, true)) {
+        break;
+      }
+
+      $selectedBranchScopeIds[] = $cursorId;
+      $cursorId = (int)($allBranchesById[$cursorId]['parent_branch_id'] ?? 0);
       $guard++;
     }
   }
@@ -296,23 +332,35 @@ try {
 
     if ($selectedBranchId > 0) {
       $candidateBranchIds = [];
-      if ($resolvedBranchId !== null && $resolvedBranchId > 0) $candidateBranchIds[] = (int)$resolvedBranchId;
-      if ($sourceBranchId > 0) $candidateBranchIds[] = $sourceBranchId;
+
+      if ($resolvedBranchId !== null && $resolvedBranchId > 0) {
+        $candidateBranchIds[] = (int)$resolvedBranchId;
+      }
+
+      if ($sourceBranchId > 0) {
+        $candidateBranchIds[] = $sourceBranchId;
+      }
+
       foreach ($newBranchIds as $newBid) {
         $newBid = (int)$newBid;
-        if ($newBid > 0) $candidateBranchIds[] = $newBid;
+        if ($newBid > 0) {
+          $candidateBranchIds[] = $newBid;
+        }
       }
+
       $candidateBranchIds = array_values(array_unique($candidateBranchIds));
 
       $belongsToSelected = false;
+
       if ($candidateBranchIds !== []) {
         foreach ($candidateBranchIds as $candidateBid) {
-          if ($candidateBid === $selectedBranchId || in_array($candidateBid, $selectedLineageIds, true)) {
+          if (in_array($candidateBid, $selectedBranchScopeIds, true)) {
             $belongsToSelected = true;
             break;
           }
         }
       } elseif ($resolvedBranchId === null && $sourceBranchId === 0 && count($newBranchIds) === 0) {
+        // For single-recipient / non-branch docs, keep the event visible.
         $belongsToSelected = true;
       }
 

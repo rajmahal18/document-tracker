@@ -90,6 +90,7 @@ $stmt = $conn->prepare("
     d.tracking_no,
     d.requester,
     d.document_date,
+    d.deadline_at,
     d.subject,
     d.origin_section_id,
     d.current_holder_section_id
@@ -111,6 +112,7 @@ $trackingNo = (string)($doc["tracking_no"] ?? "");
 $safeTracking = preg_replace('/[^A-Za-z0-9._-]+/', '_', $trackingNo) ?: "document";
 
 $documentDate = (string)($doc["document_date"] ?? "");
+$deadlineAt = trim((string)($doc["deadline_at"] ?? ""));
 $subject = (string)($doc["subject"] ?? "");
 
 // Resolve FROM label (origin division / section)
@@ -171,6 +173,8 @@ PPDTrackingSlip::generateA4([
   "document_date" => $documentDate,
   "received_by" => $receivedBy,
   "received_datetime" => $receivedDT,
+  "deadline_date" => $deadlineAt !== "" ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("m/d/Y") : "",
+  "deadline_time" => $deadlineAt !== "" ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("g:i A") : "",
   "subject" => $subject,
 ], $abs);
 

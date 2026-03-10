@@ -44,6 +44,7 @@ $statusGet = trim($_GET["status"] ?? "");
 $date_from = trim($_GET["from"] ?? "");
 $date_to   = trim($_GET["to"] ?? "");
 $quick = strtolower(trim($_GET["quick"] ?? "")); // active | overdue | released_today | archived
+$sort = strtolower(trim($_GET["sort"] ?? "")); // workflow | newest | urgent | overdue_longest | oldest
 
 // Pagination
 $page = (int)($_GET["page"] ?? 1);
@@ -61,6 +62,11 @@ $isChief     = ((int)($_SESSION["is_chief"] ?? 0) === 1);
 $where  = [];
 $params = [];
 $types  = "";
+
+$allowedSorts = ["", "workflow", "newest", "urgent", "overdue_longest", "oldest"];
+if (!in_array($sort, $allowedSorts, true)) {
+  $sort = "";
+}
 
 /**
  * ✅ VISIBILITY RULE
@@ -192,7 +198,7 @@ if ($quick !== "") {
   } elseif ($quick === "released_today") {
     $where[] = "d.current_status = 'RELEASED' AND DATE(d.updated_at) = CURDATE()";
   } elseif ($quick === "overdue") {
-    $where[] = "d.current_status = 'ACTIVE' AND TIMESTAMPDIFF(DAY, d.updated_at, NOW()) >= 7";
+    $where[] = "d.current_status = 'ACTIVE' AND d.deadline_at IS NOT NULL AND d.deadline_at < NOW()";
   }
 }
 // -------------------------
@@ -228,6 +234,7 @@ $sql = "
     d.tracking_no,
     d.requester,
     d.document_date,
+    d.deadline_at,
     d.subject,
     d.content_type,
     d.comm_type,
@@ -282,7 +289,7 @@ $sql = "
 
 if ($where) $sql .= " WHERE " . implode(" AND ", $where);
 
-$sql .= "
+$orderBySql = "
   ORDER BY
     CASE
       WHEN d.current_status='ACTIVE'
@@ -308,6 +315,36 @@ $sql .= "
     TIMESTAMPDIFF(DAY, d.updated_at, NOW()) DESC,
     d.document_date DESC,
     d.id DESC
+";
+
+if ($sort === "newest") {
+  $orderBySql = "
+    ORDER BY d.document_date DESC, d.id DESC
+  ";
+} elseif ($sort === "oldest") {
+  $orderBySql = "
+    ORDER BY d.document_date ASC, d.id ASC
+  ";
+} elseif ($sort === "urgent") {
+  $orderBySql = "
+    ORDER BY
+      CASE WHEN d.deadline_at IS NULL THEN 1 ELSE 0 END ASC,
+      d.deadline_at ASC,
+      d.document_date DESC,
+      d.id DESC
+  ";
+} elseif ($sort === "overdue_longest") {
+  $orderBySql = "
+    ORDER BY
+      CASE WHEN d.deadline_at IS NOT NULL AND d.deadline_at < NOW() THEN 0 ELSE 1 END ASC,
+      CASE WHEN d.deadline_at IS NULL THEN 1 ELSE 0 END ASC,
+      d.deadline_at ASC,
+      d.document_date DESC,
+      d.id DESC
+  ";
+}
+
+$sql .= $orderBySql . "
   LIMIT ? OFFSET ?
 ";
 
@@ -393,7 +430,7 @@ $statSql = "
     SUM(d.current_status='ACTIVE') AS active,
     SUM(d.current_status='ARCHIVED') AS archived,
     SUM(d.current_status='RELEASED' AND DATE(d.updated_at)=CURDATE()) AS released_today,
-    SUM(d.current_status='ACTIVE' AND TIMESTAMPDIFF(DAY, d.updated_at, NOW()) >= 7) AS overdue
+    SUM(d.current_status='ACTIVE' AND d.deadline_at IS NOT NULL AND d.deadline_at < NOW()) AS overdue
   FROM documents d
 ";
 if ($statWhere) $statSql .= " WHERE " . implode(" AND ", $statWhere);
@@ -453,7 +490,7 @@ function quickUrl(string $target): string {
      href="<?= htmlspecialchars(quickUrl('overdue')) ?>">
     <div class="statTop">
       <div class="statTitle">Overdue</div>
-      <div class="chip overdue">Stuck ≥ 7d</div>
+      <div class="chip overdue">Deadline passed</div>
     </div>
     <div class="statValue"><?= $stats["overdue"] ?></div>
   </a>
@@ -486,6 +523,7 @@ function quickUrl(string $target): string {
 
     <!-- (optional but recommended) preserve search too, if filters form doesn't include it -->
     <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
+    <input type="hidden" name="sort" value="<?= htmlspecialchars($sort) ?>">
 
     <div class="control">
       <label>Status</label>
@@ -521,6 +559,17 @@ function quickUrl(string $target): string {
       <input class="search" type="text" name="q" style="margin-bottom:0px"
              placeholder="Search tracking no, requester, subject, holder..."
              value="<?= htmlspecialchars($search) ?>">
+    </div>
+
+    <div class="control">
+      <label>Sort</label>
+      <select class="select" name="sort">
+        <option value="workflow" <?= ($sort === "" || $sort === "workflow") ? "selected" : "" ?>>Workflow priority</option>
+        <option value="newest" <?= $sort === "newest" ? "selected" : "" ?>>Newest first</option>
+        <option value="urgent" <?= $sort === "urgent" ? "selected" : "" ?>>Most urgent first</option>
+        <option value="overdue_longest" <?= $sort === "overdue_longest" ? "selected" : "" ?>>Longest overdue first</option>
+        <option value="oldest" <?= $sort === "oldest" ? "selected" : "" ?>>Oldest first</option>
+      </select>
     </div>
 
     <button type="submit" class="btnSecondary">Search</button>
@@ -619,6 +668,7 @@ function quickUrl(string $target): string {
               "tracking_no" => $d["tracking_no"],
               "requester" => $d["requester"],
               "document_date" => $d["document_date"],
+              "deadline_at" => $d["deadline_at"],
               "subject" => $d["subject"],
               "content_type" => $d["content_type"],
               "comm_type" => $d["comm_type"],
@@ -768,6 +818,8 @@ $end   = min($totalPages, $page + 2);
 
     <div class="kv"><div class="k">Requester</div><div class="v" id="d_requester"></div></div>
     <div class="kv"><div class="k">Doc Date</div><div class="v" id="d_date"></div></div>
+    <div class="kv"><div class="k">Deadline</div><div class="v" id="d_deadline">—</div></div>
+    <div class="kv"><div class="k">Countdown</div><div class="v" id="d_deadline_countdown">—</div></div>
     <div class="kv"><div class="k">Subject</div><div class="v" id="d_subject"></div></div>
     <div class="kv"><div class="k">Type</div><div class="v" id="d_type"></div></div>
     <div class="kv"><div class="k">Days stuck</div><div class="v" id="d_days"></div></div>

@@ -203,22 +203,28 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
 
   if ($branchMode) {
     $sourceBranchId = (int)$sourceBranch["id"];
-    $sourceParentId = (int)($sourceBranch["parent_branch_id"] ?? 0);
 
     $stmtRoute = $conn->prepare("\n      INSERT INTO routes\n        (document_id, branch_id, from_section_id, to_section_id, from_user_id, to_user_id, route_kind, send_batch_id, received_at, sent_by_user_id, remarks)\n      VALUES\n        (?, ?, ?, ?, ?, ?, 'ACTION', ?, NULL, ?, ?)\n    ");
 
     if (count($recipients) === 1) {
+      // Single forward inside a branch keeps the same lane.
       $rid = (int)$recipients[0];
+
       $stmt = $conn->prepare("\n        UPDATE document_branches\n        SET current_assignee_user_id = ?,\n            current_assignee_section_id = ?,\n            updated_at = NOW()\n        WHERE id = ?\n      ");
       $stmt->bind_param("iii", $rid, $toSectionId, $sourceBranchId);
       $stmt->execute();
 
       workflow_grant_visibility($conn, $docId, $rid, 'PARTICIPANT', $sourceBranchId, $userId);
+
       $stmtRoute->bind_param("iiiiiisis", $docId, $sourceBranchId, $mySectionId, $toSectionId, $userId, $rid, $sendBatchId, $userId, $remarks);
       $stmtRoute->execute();
       $routeIds[] = (int)$conn->insert_id;
       $newBranchIds[] = $sourceBranchId;
+
     } else {
+      // Multi-forward inside an existing branch creates receive-only child branches.
+      // Original branch is completed, child branches are reference-only so they can receive
+      // but can never become forward/action lanes.
       $stmt = $conn->prepare("\n        UPDATE document_branches\n        SET branch_status = 'COMPLETED',\n            current_assignee_user_id = NULL,\n            current_assignee_section_id = NULL,\n            updated_at = NOW()\n        WHERE id = ?\n      ");
       $stmt->bind_param("i", $sourceBranchId);
       $stmt->execute();
@@ -226,6 +232,7 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
       foreach ($recipients as $rid) {
         $rid = (int)$rid;
         $branchLabel = (string)($recipientInfo[$rid] ?? ("User #" . $rid));
+
         $childBranchId = workflow_create_branch($conn, [
           'document_id' => $docId,
           'parent_branch_id' => $sourceBranchId,
@@ -233,10 +240,12 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
           'current_assignee_user_id' => $rid,
           'current_assignee_section_id' => $toSectionId,
           'branch_status' => 'ACTIVE',
-          'is_reference' => 0,
+          'is_reference' => 1,
           'created_by_user_id' => $userId,
         ]);
+
         workflow_grant_visibility($conn, $docId, $rid, 'PARTICIPANT', $childBranchId, $userId);
+
         $stmtRoute->bind_param("iiiiiisis", $docId, $childBranchId, $mySectionId, $toSectionId, $userId, $rid, $sendBatchId, $userId, $remarks);
         $stmtRoute->execute();
         $routeIds[] = (int)$conn->insert_id;

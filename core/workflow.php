@@ -100,7 +100,6 @@ function workflow_create_branch(mysqli $conn, array $data): int
     return (int)$conn->insert_id;
 }
 
-
 function workflow_get_branch_state(mysqli $conn, int $documentId, int $viewerUserId = 0): array
 {
     if ($documentId <= 0 || !workflow_has_table($conn, 'document_branches')) {
@@ -159,12 +158,14 @@ function workflow_get_branch_state(mysqli $conn, int $documentId, int $viewerUse
 
     foreach ($rows as &$row) {
         $row['id'] = (int)($row['id'] ?? 0);
+        $row['document_id'] = (int)($row['document_id'] ?? 0);
         $row['parent_branch_id'] = (int)($row['parent_branch_id'] ?? 0);
         $row['is_reference'] = ((int)($row['is_reference'] ?? 0) === 1) ? 1 : 0;
         $row['current_assignee_user_id'] = (int)($row['current_assignee_user_id'] ?? 0);
         $row['current_assignee_section_id'] = (int)($row['current_assignee_section_id'] ?? 0);
         $row['open_action_route_count'] = (int)($row['open_action_route_count'] ?? 0);
         $row['my_pending_route_id'] = (int)($row['my_pending_route_id'] ?? 0);
+
         $row['can_forward'] = (
             strtoupper((string)($row['branch_status'] ?? '')) === 'ACTIVE'
             && (int)$row['is_reference'] === 0
@@ -175,5 +176,38 @@ function workflow_get_branch_state(mysqli $conn, int $documentId, int $viewerUse
     }
     unset($row);
 
-    return $rows;
+    if ($viewerUserId <= 0) {
+        return $rows;
+    }
+
+    $viewerBranches = [];
+
+    foreach ($rows as $row) {
+        $bid = (int)($row['id'] ?? 0);
+        if ($bid <= 0) continue;
+
+        if (
+            (int)($row['current_assignee_user_id'] ?? 0) === $viewerUserId
+            || (int)($row['my_pending_route_id'] ?? 0) > 0
+            || (int)($row['can_forward'] ?? 0) === 1
+        ) {
+            $viewerBranches[$bid] = true;
+        }
+    }
+
+    // No directly-owned/pending/actionable branch: keep the full list
+    // for sender/admin/general viewers.
+    if ($viewerBranches === []) {
+        return $rows;
+    }
+
+    $filtered = [];
+    foreach ($rows as $row) {
+        $bid = (int)($row['id'] ?? 0);
+        if ($bid > 0 && isset($viewerBranches[$bid])) {
+            $filtered[] = $row;
+        }
+    }
+
+    return $filtered;
 }

@@ -113,6 +113,21 @@ foreach ($sections as $s) {
 $phNow = new DateTime("now", new DateTimeZone("Asia/Manila"));
 $defaultDocDate = $phNow->format("Y-m-d");
 
+function normalize_deadline_input(?string $raw): ?string
+{
+  $raw = trim((string)$raw);
+  if ($raw === "") {
+    return null;
+  }
+
+  $dt = DateTime::createFromFormat("Y-m-d\TH:i", $raw, new DateTimeZone("Asia/Manila"));
+  if (!$dt) {
+    return null;
+  }
+
+  return $dt->format("Y-m-d H:i:s");
+}
+
 if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   $tracking_no   = "TRK-" . time();
   $requester     = trim((string)($_POST["requester"] ?? ""));
@@ -120,6 +135,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   $subject       = trim((string)($_POST["subject"] ?? ""));
   $content_type  = trim((string)($_POST["content_type"] ?? ""));
   $comm_type     = trim((string)($_POST["comm_type"] ?? "internal"));
+  $deadlineAtRaw  = trim((string)($_POST["deadline_at"] ?? ""));
+  $deadlineAt     = normalize_deadline_input($deadlineAtRaw);
   $selectedSectionId = (int)($_POST["to_section_id"] ?? 0); // picker only
 
   // ✅ Destination mode map
@@ -182,6 +199,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
     $error = "Please fill in all required fields (including Forward To).";
   } elseif ($fromSectionId <= 0) {
     $error = "Your account has no section assigned. Ask admin to set your section_id.";
+  } elseif ($deadlineAtRaw !== "" && $deadlineAt === null) {
+    $error = "Deadline must be a valid date and time.";
   } else {
     $userId = (int)($_SESSION["user_id"] ?? 0);
 
@@ -237,24 +256,29 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
     }
 
     if ($error === "") {
+      $txStarted = false;
+      $txCommitted = false;
+
       try {
         $conn->begin_transaction();
+        $txStarted = true;
 
         // 1) documents
         $stmt = $conn->prepare("
           INSERT INTO documents (
-            tracking_no, requester, document_date, subject, content_type, comm_type,
+            tracking_no, requester, document_date, deadline_at, subject, content_type, comm_type,
             current_status,
             origin_section_id, current_holder_section_id,
             created_by_user_id
           )
-          VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?)
         ");
         $stmt->bind_param(
-          "ssssssiii",
+          "sssssssiii",
           $tracking_no,
           $requester,
           $document_date,
+          $deadlineAt,
           $subject,
           $content_type,
           $comm_type,
@@ -266,6 +290,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         $docId = (int)$conn->insert_id;
 
         $branchMode = workflow_branch_mode_enabled($conn);
+
+        $totalActionableRecipients = 0;
+        foreach ($finalRecipientMap as $tmpUserIds) {
+          $totalActionableRecipients += count($tmpUserIds);
+        }
+
+        $useBranchModeForThisDocument = ($branchMode && $totalActionableRecipients > 1);
+
         if ($branchMode) {
           workflow_grant_visibility($conn, $docId, $userId, 'CREATOR', null, $userId);
         }
@@ -340,14 +372,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         $remarks = "Initial forward on creation";
         $routeBranchMap = [];
         $createdBranchIds = [];
-        $totalActionableRecipients = 0;
-        foreach ($finalRecipientMap as $tmpUserIds) {
-          $totalActionableRecipients += count($tmpUserIds);
-        }
 
-        $singleBranchId = 0;
         $rootBranchId = 0;
-        if ($branchMode && $totalActionableRecipients > 1) {
+        if ($useBranchModeForThisDocument) {
           $rootBranchId = workflow_create_branch($conn, [
             'document_id' => $docId,
             'parent_branch_id' => null,
@@ -360,7 +387,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           ]);
         }
 
-        if ($branchMode) {
+        if ($useBranchModeForThisDocument) {
           $stmt = $conn->prepare("
             INSERT INTO routes
               (document_id, branch_id, from_section_id, to_section_id, from_user_id, to_user_id, route_kind, send_batch_id, received_at, sent_by_user_id, remarks)
@@ -381,37 +408,19 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
 
           foreach ($destUserIds as $rid) {
             $rid = (int)$rid;
-            $branchId = 0;
 
-            if ($branchMode) {
-              if ($totalActionableRecipients === 1) {
-                if ($singleBranchId <= 0) {
-                  $labelUser = (string)($validatedRecipients[$destSectionId][$rid]['full_name'] ?? ('User #' . $rid));
-                  $singleBranchId = workflow_create_branch($conn, [
-                    'document_id' => $docId,
-                    'parent_branch_id' => null,
-                    'branch_label' => $labelUser,
-                    'current_assignee_user_id' => $rid,
-                    'current_assignee_section_id' => $destSectionId,
-                    'branch_status' => 'ACTIVE',
-                    'is_reference' => 0,
-                    'created_by_user_id' => $userId,
-                  ]);
-                }
-                $branchId = $singleBranchId;
-              } else {
-                $labelUser = (string)($validatedRecipients[$destSectionId][$rid]['full_name'] ?? ('User #' . $rid));
-                $branchId = workflow_create_branch($conn, [
-                  'document_id' => $docId,
-                  'parent_branch_id' => $rootBranchId > 0 ? $rootBranchId : null,
-                  'branch_label' => $labelUser,
-                  'current_assignee_user_id' => $rid,
-                  'current_assignee_section_id' => $destSectionId,
-                  'branch_status' => 'ACTIVE',
-                  'is_reference' => 0,
-                  'created_by_user_id' => $userId,
-                ]);
-              }
+            if ($useBranchModeForThisDocument) {
+              $labelUser = (string)($validatedRecipients[$destSectionId][$rid]['full_name'] ?? ('User #' . $rid));
+              $branchId = workflow_create_branch($conn, [
+                'document_id' => $docId,
+                'parent_branch_id' => $rootBranchId > 0 ? $rootBranchId : null,
+                'branch_label' => $labelUser,
+                'current_assignee_user_id' => $rid,
+                'current_assignee_section_id' => $destSectionId,
+                'branch_status' => 'ACTIVE',
+                'is_reference' => 0,
+                'created_by_user_id' => $userId,
+              ]);
 
               $createdBranchIds[] = $branchId;
               $routeBranchMap[] = [
@@ -424,8 +433,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
 
               $stmt->bind_param("iiiiiisis", $docId, $branchId, $fromSectionId, $destSectionId, $userId, $rid, $sendBatchId, $userId, $remarks);
             } else {
+              workflow_grant_visibility($conn, $docId, $rid, 'PARTICIPANT', null, $userId);
               $stmt->bind_param("iiiisis", $docId, $fromSectionId, $destSectionId, $rid, $sendBatchId, $userId, $remarks);
             }
+
             $stmt->execute();
           }
         }
@@ -449,7 +460,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           "recipient_map" => $finalRecipientMap,
           "destination_mode_map" => $destinationModeMap,
           "send_batch_id" => $sendBatchId,
-          "branch_mode" => $branchMode,
+          "branch_mode" => $useBranchModeForThisDocument,
           "branch_ids" => array_values(array_unique(array_filter($createdBranchIds))),
           "route_branch_map" => $routeBranchMap,
         ], JSON_UNESCAPED_UNICODE);
@@ -553,6 +564,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         }
 
         $conn->commit();
+        $txCommitted = true;
 
         // ========= AFTER COMMIT: generate chosen PDF and attach =========
         $transAttachId = 0;
@@ -747,8 +759,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             "mpw_tracking_no"   => "",
             "received_by"       => "",
             "received_datetime" => "",
-            "deadline_date"     => "",
-            "deadline_time"     => "",
+            "deadline_date"     => $deadlineAt ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("m/d/Y") : "",
+            "deadline_time"     => $deadlineAt ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("g:i A") : "",
             "qr_url"            => $qrUrl,
             "logo_left_abs"     => realpath(__DIR__ . "/../assets/mpwlogo1.png") ?: "",
             "logo_right_abs"    => realpath(__DIR__ . "/../assets/ocmlogo.png") ?: "",
@@ -796,7 +808,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         redirect(PUBLIC_PATH . "/documents.php");
 
       } catch (Throwable $e) {
-        $conn->rollback();
+        try {
+          if ($txStarted && !$txCommitted && isset($conn) && $conn instanceof mysqli && @$conn->ping()) {
+            $conn->rollback();
+          }
+        } catch (Throwable $rollbackError) {
+          // Ignore rollback failure
+        }
+
         $error = "Failed to add document: " . $e->getMessage();
       }
     }
@@ -842,6 +861,16 @@ require __DIR__ . "/../includes/layout.php";
         required
         value="<?= htmlspecialchars($_POST["document_date"] ?? $defaultDocDate) ?>"
       >
+    </div>
+
+    <div class="authField">
+      <label>Deadline</label>
+      <input
+        type="datetime-local"
+        name="deadline_at"
+        value="<?= htmlspecialchars($_POST["deadline_at"] ?? "") ?>"
+      >
+      <div class="mini" style="margin-top:6px;">Optional. Used for countdown + urgency sorting.</div>
     </div>
 
     <div class="authField span2">

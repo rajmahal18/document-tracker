@@ -7,6 +7,8 @@
   const elTracking = document.getElementById("d_tracking");
   const elRequester = document.getElementById("d_requester");
   const elDate = document.getElementById("d_date");
+  const elDeadline = document.getElementById("d_deadline");
+  const elDeadlineCountdown = document.getElementById("d_deadline_countdown");
   const elSubject = document.getElementById("d_subject");
   const elType = document.getElementById("d_type");
   const elDays = document.getElementById("d_days");
@@ -82,6 +84,7 @@
   let currentBranchMode = false;
   let currentBranches = [];
   let currentBranchId = 0;
+  let deadlineTicker = null;
 
   function esc(s) {
     return (s ?? "").toString()
@@ -122,6 +125,51 @@
       hour: "2-digit",
       minute: "2-digit",
     }).replace(",", "");
+  }
+
+  function formatCountdown(ms) {
+    const totalMinutes = Math.max(0, Math.floor(ms / 60000));
+    const days = Math.floor(totalMinutes / (60 * 24));
+    const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+    const minutes = totalMinutes % 60;
+
+    if (days > 0) return `${days}d ${hours}h`;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    return `${minutes}m`;
+  }
+
+  function renderDeadline(deadlineAt) {
+    const raw = (deadlineAt || "").toString().trim();
+    if (elDeadline) elDeadline.textContent = raw ? fmt(raw) : "—";
+
+    if (deadlineTicker) {
+      clearInterval(deadlineTicker);
+      deadlineTicker = null;
+    }
+
+    if (!elDeadlineCountdown) return;
+    if (!raw) {
+      elDeadlineCountdown.textContent = "—";
+      return;
+    }
+
+    const deadlineDate = new Date(raw.replace(" ", "T"));
+    if (Number.isNaN(deadlineDate.getTime())) {
+      elDeadlineCountdown.textContent = "—";
+      return;
+    }
+
+    const tick = () => {
+      const diff = deadlineDate.getTime() - Date.now();
+      if (diff >= 0) {
+        elDeadlineCountdown.textContent = `Due in ${formatCountdown(diff)}`;
+      } else {
+        elDeadlineCountdown.textContent = `Overdue by ${formatCountdown(Math.abs(diff))}`;
+      }
+    };
+
+    tick();
+    deadlineTicker = window.setInterval(tick, 60000);
   }
 
   function prettyAction(a) {
@@ -469,7 +517,9 @@
   function renderBranchTabs(branches) {
     currentBranches = Array.isArray(branches) ? branches : [];
 
-    if (!currentBranchMode) {
+    const visibleBranches = currentBranches.filter((b) => Number(b.id || 0) > 0);
+
+    if (!currentBranchMode || visibleBranches.length === 0) {
       if (elBranchWrap) elBranchWrap.style.display = "none";
       currentBranchId = 0;
       savePreferredBranchId(currentPayload?.id || 0, 0);
@@ -479,10 +529,10 @@
     const savedBranchId = loadPreferredBranchId(currentPayload?.id || 0);
     const savedBranchStillVisible =
       savedBranchId > 0 &&
-      currentBranches.some((b) => Number(b.id || 0) === savedBranchId);
+      visibleBranches.some((b) => Number(b.id || 0) === savedBranchId);
 
-    const myPending = currentBranches.find((b) => Number(b.my_pending_route_id || 0) > 0);
-    const myActionable = currentBranches.find((b) => Number(b.can_forward || 0) === 1);
+    const myPending = visibleBranches.find((b) => Number(b.my_pending_route_id || 0) > 0);
+    const myActionable = visibleBranches.find((b) => Number(b.can_forward || 0) === 1);
 
     if (myPending) {
       currentBranchId = Number(myPending.id || 0);
@@ -491,15 +541,15 @@
     } else if (savedBranchStillVisible) {
       currentBranchId = savedBranchId;
     } else {
-      currentBranchId = preferredBranchId(currentBranches);
+      currentBranchId = preferredBranchId(visibleBranches);
     }
 
-    if (elBranchWrap) elBranchWrap.style.display = "";
+    if (elBranchWrap) elBranchWrap.style.display = visibleBranches.length > 1 ? "" : "none";
     if (elBranchBar) elBranchBar.innerHTML = "";
     if (elBranchHint) {
-      elBranchHint.textContent = currentBranches.length > 1
+      elBranchHint.textContent = visibleBranches.length > 1
         ? "Switch lanes from the split bars placed between timeline groups."
-        : "This document currently has one visible branch.";
+        : "";
     }
 
     applyBranchSelection(currentBranchId);
@@ -957,6 +1007,7 @@
 
   function renderGroupedView(itemsNewestFirst) {
     const byKey = new Map();
+    const renderedSplitEventIds = new Set();
 
     itemsNewestFirst.forEach((item) => {
       const key = groupTitleFor(item);
@@ -988,11 +1039,17 @@
           const latest = group.items[0];
           const groupBranchId = resolveGroupBranchId(group.items);
           const splitEvent = findSplitEventForBranch(itemsNewestFirst, groupBranchId);
-          const splitMarker = splitEvent
-            ? renderStandaloneBranchSwitcher(splitEvent.new_branch_ids, {
-                label: clean(splitEvent.actor_section) || "Branches"
-              })
-            : "";
+
+          let splitMarker = "";
+          const splitEventId = Number(splitEvent?.event_id || 0);
+
+          if (splitEvent && splitEventId > 0 && !renderedSplitEventIds.has(splitEventId)) {
+            renderedSplitEventIds.add(splitEventId);
+            splitMarker = renderStandaloneBranchSwitcher(splitEvent.new_branch_ids, {
+              label: clean(splitEvent.actor_section) || "Branches"
+            });
+          }
+
           return `
             ${splitMarker}
             <section class="tGroup">
@@ -1048,7 +1105,6 @@
                         ${movement ? `<div class="tLineMove">${movement}</div>` : ``}
                         ${details.length ? `<div class="tLineMove">${details.join(" • ")}</div>` : ``}
                         ${i.remarks ? `<div class="tLineNote">Remarks: ${esc(i.remarks)}</div>` : ``}
-
                       </div>
                     </div>
                   `;
@@ -1244,6 +1300,7 @@
     if (elTracking) elTracking.textContent = payload.tracking_no || "";
     if (elRequester) elRequester.textContent = payload.requester || "—";
     if (elDate) elDate.textContent = payload.document_date || "—";
+    renderDeadline(payload.deadline_at || "");
     if (elSubject) elSubject.textContent = payload.subject || "—";
     if (elType) elType.textContent = payload.content_type || "—";
     if (elDays) elDays.textContent = payload.days_stuck ?? "0";
@@ -1423,6 +1480,12 @@
     currentBranches = [];
     currentBranchId = 0;
     currentCanForward = false;
+    if (deadlineTicker) {
+      clearInterval(deadlineTicker);
+      deadlineTicker = null;
+    }
+    if (elDeadline) elDeadline.textContent = "—";
+    if (elDeadlineCountdown) elDeadlineCountdown.textContent = "—";
     if (elBranchWrap) elBranchWrap.style.display = "none";
     if (elBranchBar) elBranchBar.innerHTML = "";
     if (elBranchMeta) elBranchMeta.textContent = "";
