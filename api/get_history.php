@@ -118,7 +118,130 @@ try {
       $guard++;
     }
   }
-  $stmt = $conn->prepare("\n    SELECT\n      e.id AS event_id,\n      e.event_type,\n      e.created_at,\n      e.payload_json,\n      e.actor_section_id,\n      s_actor.name AS actor_section_name,\n      d_actor.name AS actor_division_name,\n      u.full_name AS actor,\n      s_from.name AS from_section,\n      d_from.name AS from_division_name,\n      s_to.name AS to_section,\n      d_to.name AS to_division_name\n    FROM document_events e\n    LEFT JOIN users u ON u.id = e.actor_user_id\n    LEFT JOIN sections s_actor ON s_actor.id = e.actor_section_id\n    LEFT JOIN divisions d_actor ON d_actor.id = s_actor.division_id\n    LEFT JOIN sections s_from ON s_from.id = e.from_section_id\n    LEFT JOIN divisions d_from ON d_from.id = s_from.division_id\n    LEFT JOIN sections s_to   ON s_to.id = e.to_section_id\n    LEFT JOIN divisions d_to ON d_to.id = s_to.division_id\n    WHERE e.document_id = ?\n    ORDER BY e.created_at DESC, e.id DESC\n    LIMIT 100\n  ");
+
+  $ackSummaryCache = [];
+
+  $buildAckSummary = static function (array $branchIds) use ($conn, $docId, &$ackSummaryCache, $allBranchesById): ?array {
+    $branchIds = array_values(array_unique(array_filter(
+      array_map('intval', $branchIds),
+      static fn($id) => $id > 0 && isset($allBranchesById[$id])
+    )));
+
+    if ($branchIds === []) {
+      return null;
+    }
+
+    sort($branchIds);
+    $cacheKey = implode(',', $branchIds);
+    if (array_key_exists($cacheKey, $ackSummaryCache)) {
+      return $ackSummaryCache[$cacheKey];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($branchIds), '?'));
+    $types = 'i' . str_repeat('i', count($branchIds));
+
+    $sql = "
+      SELECT
+        b.id,
+        b.parent_branch_id,
+        b.branch_label,
+        b.is_reference,
+        b.current_assignee_user_id,
+        b.current_assignee_section_id,
+        u.full_name AS assignee_name,
+        s.name AS assignee_section_name,
+        (
+          SELECT MAX(CASE WHEN r_recv.received_at IS NOT NULL THEN 1 ELSE 0 END)
+          FROM routes r_recv
+          WHERE r_recv.document_id = ?
+            AND r_recv.branch_id = b.id
+            AND r_recv.route_kind = 'ACTION'
+            AND r_recv.cancelled_at IS NULL
+        ) AS has_received
+      FROM document_branches b
+      LEFT JOIN users u ON u.id = b.current_assignee_user_id
+      LEFT JOIN sections s ON s.id = b.current_assignee_section_id
+      WHERE b.id IN ($placeholders)
+      ORDER BY b.id ASC
+    ";
+
+    $stmtAck = $conn->prepare($sql);
+    $params = array_merge([$docId], $branchIds);
+    $bind = [$types];
+    foreach ($params as $k => $v) {
+      $bind[] = &$params[$k];
+    }
+    call_user_func_array([$stmtAck, 'bind_param'], $bind);
+    $stmtAck->execute();
+    $rowsAck = $stmtAck->get_result()->fetch_all(MYSQLI_ASSOC);
+
+    $summary = [
+      "enabled" => true,
+      "total" => 0,
+      "received_count" => 0,
+      "pending_count" => 0,
+      "show_names" => true,
+      "received_users" => [],
+      "pending_users" => [],
+      "scope_branch_ids" => $branchIds,
+    ];
+
+    foreach ($rowsAck as $rowAck) {
+      $bid = (int)($rowAck['id'] ?? 0);
+      if ($bid <= 0) continue;
+
+      $entry = [
+        "branch_id" => $bid,
+        "parent_branch_id" => (int)($rowAck['parent_branch_id'] ?? 0),
+        "branch_label" => trim((string)($rowAck['branch_label'] ?? ($allBranchesById[$bid]['branch_label'] ?? ''))),
+        "user_id" => (int)($rowAck['current_assignee_user_id'] ?? 0),
+        "name" => trim((string)($rowAck['assignee_name'] ?? '')),
+        "section_name" => trim((string)($rowAck['assignee_section_name'] ?? '')),
+        "is_reference" => ((int)($rowAck['is_reference'] ?? 0) === 1) ? 1 : 0,
+      ];
+
+      $summary["total"]++;
+
+      $hasReceived = (int)($rowAck['has_received'] ?? 0) === 1;
+      if ($hasReceived) {
+        $summary["received_count"]++;
+        $summary["received_users"][] = $entry;
+      } else {
+        $summary["pending_count"]++;
+        $summary["pending_users"][] = $entry;
+      }
+    }
+
+    $ackSummaryCache[$cacheKey] = $summary["total"] > 0 ? $summary : null;
+    return $ackSummaryCache[$cacheKey];
+  };
+
+  $stmt = $conn->prepare("
+    SELECT
+      e.id AS event_id,
+      e.event_type,
+      e.created_at,
+      e.payload_json,
+      e.actor_section_id,
+      s_actor.name AS actor_section_name,
+      d_actor.name AS actor_division_name,
+      u.full_name AS actor,
+      s_from.name AS from_section,
+      d_from.name AS from_division_name,
+      s_to.name AS to_section,
+      d_to.name AS to_division_name
+    FROM document_events e
+    LEFT JOIN users u ON u.id = e.actor_user_id
+    LEFT JOIN sections s_actor ON s_actor.id = e.actor_section_id
+    LEFT JOIN divisions d_actor ON d_actor.id = s_actor.division_id
+    LEFT JOIN sections s_from ON s_from.id = e.from_section_id
+    LEFT JOIN divisions d_from ON d_from.id = s_from.division_id
+    LEFT JOIN sections s_to   ON s_to.id = e.to_section_id
+    LEFT JOIN divisions d_to ON d_to.id = s_to.division_id
+    WHERE e.document_id = ?
+    ORDER BY e.created_at DESC, e.id DESC
+    LIMIT 100
+  ");
   $stmt->bind_param("i", $docId);
   $stmt->execute();
   $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -186,7 +309,7 @@ try {
     // Event-aware normalization
     if ($eventKey === "received") {
       $payloadToUser = $firstNonEmpty([
-        $actor, // receiver is usually the actor
+        $actor,
         $payload["received_by_name"] ?? "",
         $payloadToUser,
       ]);
@@ -200,7 +323,7 @@ try {
 
     if (in_array($eventKey, ["sent", "forwarded"], true)) {
       $payloadFromUser = $firstNonEmpty([
-        $actor, // sender/forwarder is usually the actor
+        $actor,
         $payload["from_user_name"] ?? "",
         $payload["source_user_name"] ?? "",
         $payload["sent_by_name"] ?? "",
@@ -215,7 +338,6 @@ try {
       ]);
     }
 
-
     $payloadFrom = $firstNonEmpty([
       $payload["from_section_name"] ?? "",
       $payload["source_section_name"] ?? "",
@@ -229,6 +351,11 @@ try {
     ]);
     $payloadRecipientSummary = $summarizeList(array_unique(array_merge($payloadToSections, $payloadToUsers)));
     $branchSplitCount = count($newBranchIds);
+
+    $ackSummary = null;
+    if ($branchMode && in_array($eventKey, ["sent", "forwarded"], true) && $branchSplitCount > 1) {
+      $ackSummary = $buildAckSummary($newBranchIds);
+    }
 
     $title = "";
     switch ($eventKey) {
@@ -400,6 +527,12 @@ try {
         $newBranchIds = [];
       }
 
+      if (is_array($ackSummary)) {
+        $ackSummary["show_names"] = false;
+        $ackSummary["received_users"] = [];
+        $ackSummary["pending_users"] = [];
+      }
+
       switch ($eventKey) {
         case 'created':
           $title = "{$safeDivision} created the document";
@@ -457,6 +590,7 @@ try {
       "person_movement" => $personMovementLabel,
       "from_user_name" => $payloadFromUser,
       "to_user_name" => $payloadToUser,
+      "ack_summary" => $ackSummary,
     ];
   }
 

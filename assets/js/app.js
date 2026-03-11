@@ -57,6 +57,9 @@
   const btnUserSelectAll = document.getElementById("btnUserSelectAll");
   const btnUserClear = document.getElementById("btnUserClear");
   const elRecipientsPreview = document.getElementById("forwardRecipientsPreview");
+  const elForwardModeWrap = document.getElementById("forwardModeWrap");
+  const cbReceiveOnly = document.getElementById("f_receive_only");
+  const elReceiveOnlyHint = document.getElementById("f_receive_only_hint");
   const btnForward = document.getElementById("btnForward");
 
   const recModal = document.getElementById("recModal");
@@ -100,6 +103,11 @@
     if (!s) return "";
     if (["-", "—", "n/a", "na", "null", "undefined"].includes(s.toLowerCase())) return "";
     return s;
+  }
+
+  function normalizedRemarksValue() {
+    const raw = (elRemarks?.value ?? "").toString().trim();
+    return raw ? raw : "none";
   }
 
   function fmtBytes(n) {
@@ -520,6 +528,7 @@
     const visibleBranches = currentBranches.filter((b) => Number(b.id || 0) > 0);
 
     if (!currentBranchMode || visibleBranches.length === 0) {
+      currentBranchMode = false;
       if (elBranchWrap) elBranchWrap.style.display = "none";
       currentBranchId = 0;
       savePreferredBranchId(currentPayload?.id || 0, 0);
@@ -562,6 +571,9 @@
 
     if (btnToggleForward) btnToggleForward.style.display = currentCanForward ? "" : "none";
     if (btnForward) btnForward.style.display = (currentCanForward && isOpen) ? "" : "none";
+    if (elForwardModeWrap) elForwardModeWrap.style.display = (currentCanForward && isOpen) ? "" : "none";
+
+    updateForwardModeUI();
   }
 
   function loadSectionsOptions() {
@@ -592,6 +604,13 @@
   function resetUsersUI(msg = "Select a section to load users…") {
     if (elUserList) elUserList.innerHTML = `<div style="opacity:.7;">${esc(msg)}</div>`;
     if (elRecipientsPreview) elRecipientsPreview.textContent = "Recipients: —";
+    if (cbReceiveOnly) {
+      cbReceiveOnly.checked = false;
+      cbReceiveOnly.disabled = false;
+    }
+    if (elReceiveOnlyHint) {
+      elReceiveOnlyHint.textContent = "Recipient can acknowledge receive, but cannot forward or act further.";
+    }
   }
 
   function getAllRecipientBoxes() {
@@ -631,6 +650,27 @@
     elRecipientsPreview.textContent = `Recipients: ${labels.join(", ")}${more > 0 ? ` (+${more} more)` : ""}`;
   }
 
+  function updateForwardModeUI() {
+    if (!elForwardModeWrap || !cbReceiveOnly || !elReceiveOnlyHint) return;
+
+    const selectedCount = getSelectedRecipientIds().length;
+    const isMulti = selectedCount > 1;
+
+    elForwardModeWrap.style.display = currentCanForward ? "" : "none";
+
+    if (isMulti) {
+      cbReceiveOnly.checked = true;
+      cbReceiveOnly.disabled = true;
+      elReceiveOnlyHint.textContent = "Multiple recipients are always receive-only in the current workflow.";
+      return;
+    }
+
+    cbReceiveOnly.disabled = false;
+    elReceiveOnlyHint.textContent = cbReceiveOnly.checked
+      ? "Recipient can acknowledge receive, but cannot forward or act further."
+      : "Recipient will receive the normal actionable lane if allowed by workflow rules.";
+  }
+
   async function loadUsersForSection(sectionId) {
     if (!elUserList) return;
 
@@ -667,6 +707,10 @@
 
   resetUsersUI();
 
+  cbReceiveOnly?.addEventListener("change", () => {
+    updateForwardModeUI();
+  });
+
   selForwardTo?.addEventListener("change", () => {
     const sectionId = Number.parseInt(selForwardTo.value || "0", 10) || 0;
     resetUsersUI();
@@ -676,17 +720,20 @@
   elUserList?.addEventListener("change", (e) => {
     if (e.target && e.target.classList.contains("f_user_cb")) {
       updateRecipientsPreview();
+      updateForwardModeUI();
     }
   });
 
   btnUserSelectAll?.addEventListener("click", () => {
     getAllRecipientBoxes().forEach((b) => { b.checked = true; });
     updateRecipientsPreview();
+    updateForwardModeUI();
   });
 
   btnUserClear?.addEventListener("click", () => {
     getAllRecipientBoxes().forEach((b) => { b.checked = false; });
     updateRecipientsPreview();
+    updateForwardModeUI();
   });
 
   function openRecipientsModal({ docId, countHint }) {
@@ -928,6 +975,204 @@
     return "";
   }
 
+  function ackSummaryListHtml(items, emptyLabel, opts = {}) {
+    const rows = Array.isArray(items) ? items : [];
+    const compact = !!opts.compact;
+
+    if (!rows.length) {
+      return `<div class="ackSummaryEmpty">${esc(emptyLabel)}</div>`;
+    }
+
+    if (compact) {
+      return `
+        <div class="ackSummaryChipList">
+          ${rows.map((row) => {
+            const name = clean(row?.branch_label) || clean(row?.name) || `Branch ${Number(row?.branch_id || 0)}`;
+            return `<span class="ackSummaryChip">${esc(name)}</span>`;
+          }).join("")}
+        </div>
+      `;
+    }
+
+    return `
+      <div class="ackSummaryList">
+        ${rows.map((row) => {
+          const name = clean(row?.branch_label) || clean(row?.name) || `Branch ${Number(row?.branch_id || 0)}`;
+          const section = clean(row?.section_name);
+          return `
+            <div class="ackSummaryPerson">
+              <span class="ackSummaryPersonName">${esc(name)}</span>
+              ${section ? `<span class="ackSummaryPersonSection">${esc(section)}</span>` : ``}
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
+  function renderAckSummary(i, opts = {}) {
+    const summary = i?.ack_summary;
+    if (!summary || summary.enabled !== true) return "";
+
+    const compact = !!opts.compact;
+    const receivedCount = Number(summary.received_count || 0);
+    const pendingCount = Number(summary.pending_count || 0);
+    const totalCount = Number(summary.total || 0);
+    const showNames = summary.show_names === true;
+
+    if (totalCount <= 0) return "";
+
+    const receivedUsers = Array.isArray(summary.received_users) ? summary.received_users : [];
+    const pendingUsers = Array.isArray(summary.pending_users) ? summary.pending_users : [];
+
+    return `
+      <div class="ackSummary ${compact ? "ackSummary--compact" : ""}" data-ack-summary-root="1">
+        <div class="ackSummaryHead">
+          <div class="ackSummaryTitle">${compact ? "Ack" : "Acknowledgements"}</div>
+          <div class="ackSummaryCounts">${receivedCount}/${totalCount} received</div>
+        </div>
+
+        <div class="ackSummaryTabs">
+          <button
+            type="button"
+            class="ackSummaryTab"
+            data-ack-tab="received"
+            aria-expanded="false"
+          >
+            Received (${receivedCount})
+          </button>
+          <button
+            type="button"
+            class="ackSummaryTab"
+            data-ack-tab="pending"
+            aria-expanded="false"
+          >
+            Not yet received (${pendingCount})
+          </button>
+        </div>
+
+        <div class="ackSummaryPanels">
+          <div class="ackSummaryPanel" data-ack-panel="received">
+            ${showNames
+              ? ackSummaryListHtml(receivedUsers, "No one has received this yet.", { compact })
+              : `<div class="ackSummaryEmpty">Received count: ${receivedCount}</div>`
+            }
+          </div>
+
+          <div class="ackSummaryPanel" data-ack-panel="pending">
+            ${showNames
+              ? ackSummaryListHtml(pendingUsers, "Everyone has already received this.", { compact })
+              : `<div class="ackSummaryEmpty">Not yet received count: ${pendingCount}</div>`
+            }
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function bindAckSummaryToggles(root) {
+    if (!root) return;
+
+    root.querySelectorAll("[data-ack-summary-root]").forEach((wrap) => {
+      const tabs = wrap.querySelectorAll(".ackSummaryTab");
+      const panels = wrap.querySelectorAll(".ackSummaryPanel");
+
+      tabs.forEach((tab) => {
+        tab.addEventListener("click", () => {
+          const target = (tab.dataset.ackTab || "received").toString();
+          const wasActive = tab.classList.contains("isActive");
+
+          tabs.forEach((btn) => {
+            btn.classList.remove("isActive");
+            btn.setAttribute("aria-expanded", "false");
+          });
+
+          panels.forEach((panel) => {
+            panel.classList.remove("isActive");
+          });
+
+          if (wasActive) return;
+
+          tab.classList.add("isActive");
+          tab.setAttribute("aria-expanded", "true");
+
+          panels.forEach((panel) => {
+            panel.classList.toggle("isActive", panel.dataset.ackPanel === target);
+          });
+        });
+      });
+    });
+  }
+
+  function sameText(a, b) {
+    return clean(a).toLowerCase() === clean(b).toLowerCase();
+  }
+
+  function groupDivisionFor(items) {
+    const rows = Array.isArray(items) ? items : [];
+    for (const row of rows) {
+      const div = clean(row?.actor_division);
+      if (div) return div;
+    }
+    return "";
+  }
+
+  function getTimelineGroupStorageKey(groupKey) {
+    const ctx = window.__CTX__ || {};
+    const uid = Number(ctx.myUserId || 0);
+    const docId = Number(currentPayload?.id || elId?.value || 0);
+    const safeGroupKey = (groupKey || "")
+      .toString()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "group";
+    return `dt_group_collapsed_u${uid}_d${docId}_${safeGroupKey}`;
+  }
+
+  function isTimelineGroupCollapsed(groupKey, groupDivision) {
+    const key = getTimelineGroupStorageKey(groupKey);
+    try {
+      const saved = sessionStorage.getItem(key);
+      if (saved === "1") return true;
+      if (saved === "0") return false;
+    } catch (_) {}
+
+    const ctx = window.__CTX__ || {};
+    const myDivisionName = clean(ctx.myDivisionName);
+
+    if (!myDivisionName || !clean(groupDivision)) {
+      return false;
+    }
+
+    return !sameText(myDivisionName, groupDivision);
+  }
+
+  function saveTimelineGroupCollapsed(groupKey, collapsed) {
+    const key = getTimelineGroupStorageKey(groupKey);
+    try {
+      sessionStorage.setItem(key, collapsed ? "1" : "0");
+    } catch (_) {}
+  }
+
+  function bindTimelineGroupToggles(root) {
+    if (!root) return;
+
+    root.querySelectorAll("[data-group-toggle]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const groupKey = (btn.dataset.groupKey || "").toString();
+        const groupEl = btn.closest(".tGroup");
+        if (!groupEl || !groupKey) return;
+
+        const nextCollapsed = !groupEl.classList.contains("isCollapsed");
+        groupEl.classList.toggle("isCollapsed", nextCollapsed);
+        btn.setAttribute("aria-expanded", nextCollapsed ? "false" : "true");
+        btn.textContent = nextCollapsed ? "Show" : "Hide";
+
+        saveTimelineGroupCollapsed(groupKey, nextCollapsed);
+      });
+    });
+  }
+
   function groupTitleFor(i) {
     const move = movementParts(i);
     if (clean(i.actor_section)) return clean(i.actor_section);
@@ -947,6 +1192,7 @@
           const personMove = clean(i.person_movement);
           const recipientSummary = clean(i.recipient_summary);
           const branchLabelText = clean(i.branch_label);
+          const ackSummaryHtml = renderAckSummary(i);
 
           if (
             currentBranchMode &&
@@ -995,6 +1241,8 @@
                   </div>
                 ` : ""}
 
+                ${ackSummaryHtml}
+
                 ${i.remarks ? `<div class="tNote"><strong>Remarks:</strong> ${esc(i.remarks)}</div>` : ``}
 
               </div>
@@ -1008,6 +1256,8 @@
   function renderGroupedView(itemsNewestFirst) {
     const byKey = new Map();
     const renderedSplitEventIds = new Set();
+    const ctx = window.__CTX__ || {};
+    const myDivisionName = clean(ctx.myDivisionName);
 
     itemsNewestFirst.forEach((item) => {
       const key = groupTitleFor(item);
@@ -1029,6 +1279,7 @@
           ...group,
           items: newestFirst,
           latestTs: new Date((newestFirst[0]?.acted_at || "").toString().replace(" ", "T")).getTime() || 0,
+          divisionName: groupDivisionFor(newestFirst),
         };
       })
       .sort((a, b) => b.latestTs - a.latestTs);
@@ -1039,6 +1290,8 @@
           const latest = group.items[0];
           const groupBranchId = resolveGroupBranchId(group.items);
           const splitEvent = findSplitEventForBranch(itemsNewestFirst, groupBranchId);
+          const isMineDivision = !!(myDivisionName && group.divisionName && sameText(myDivisionName, group.divisionName));
+          const isCollapsed = isTimelineGroupCollapsed(group.key, group.divisionName);
 
           let splitMarker = "";
           const splitEventId = Number(splitEvent?.event_id || 0);
@@ -1052,12 +1305,31 @@
 
           return `
             ${splitMarker}
-            <section class="tGroup">
+            <section class="tGroup ${isCollapsed ? "isCollapsed" : ""}">
               <div class="tGroupHead">
-                <div class="tGroupTitle">${esc(group.key)}</div>
-                <div class="tGroupSub">
-                  ${group.items.length} action${group.items.length === 1 ? "" : "s"} • ${esc(fmt(latest?.acted_at || ""))}
+                <div class="tGroupHeadMain">
+                  <div class="tGroupTitleRow">
+                    <div class="tGroupTitle">${esc(group.key)}</div>
+                    ${group.divisionName ? `
+                      <span class="tGroupDivisionBadge ${isMineDivision ? "isMine" : "isOther"}">
+                        ${isMineDivision ? "Your division" : esc(group.divisionName)}
+                      </span>
+                    ` : ``}
+                  </div>
+                  <div class="tGroupSub">
+                    ${group.items.length} action${group.items.length === 1 ? "" : "s"} • ${esc(fmt(latest?.acted_at || ""))}
+                  </div>
                 </div>
+
+                <button
+                  type="button"
+                  class="tGroupToggle"
+                  data-group-toggle="1"
+                  data-group-key="${esc(group.key)}"
+                  aria-expanded="${isCollapsed ? "false" : "true"}"
+                >
+                  ${isCollapsed ? "Show" : "Hide"}
+                </button>
               </div>
 
               <div class="tGroupBody">
@@ -1069,6 +1341,7 @@
                   const personMove = clean(i.person_movement);
                   const recipientSummary = clean(i.recipient_summary);
                   const branchLabelText = clean(i.branch_label);
+                  const ackSummaryHtml = renderAckSummary(i, { compact: true });
 
                   if (
                     currentBranchMode &&
@@ -1104,6 +1377,7 @@
                         <div class="tLineTitle">${esc(i.title || prettyAction(actionKey))}</div>
                         ${movement ? `<div class="tLineMove">${movement}</div>` : ``}
                         ${details.length ? `<div class="tLineMove">${details.join(" • ")}</div>` : ``}
+                        ${ackSummaryHtml}
                         ${i.remarks ? `<div class="tLineNote">Remarks: ${esc(i.remarks)}</div>` : ``}
                       </div>
                     </div>
@@ -1140,11 +1414,14 @@
         return;
       }
 
-      currentBranchMode = !!data.branch_mode;
-      renderBranchTabs(data.branches || []);
+      const branchRows = Array.isArray(data.branches) ? data.branches : [];
+      const hasRealBranches = branchRows.some((b) => Number(b.id || 0) > 0);
+
+      currentBranchMode = !!data.branch_mode && hasRealBranches;
+      renderBranchTabs(branchRows);
 
       if (currentBranchMode) {
-        const activeId = Number(forcedBranchId || currentBranchId || preferredBranchId(data.branches || []));
+        const activeId = Number(forcedBranchId || currentBranchId || preferredBranchId(branchRows));
         if (activeId > 0 && activeId !== Number(data.selected_branch_id || 0)) {
           currentBranchId = activeId;
           return loadTimeline(docId, activeId);
@@ -1174,6 +1451,7 @@
       function paint() {
         if (!body) return;
         body.innerHTML = view === "grouped" ? renderGroupedView(items) : renderEventsView(items);
+
         body.querySelectorAll(".inlineBranchPill").forEach((btn) => {
           btn.addEventListener("click", () => {
             const bid = Number(btn.dataset.branchId || 0);
@@ -1183,6 +1461,10 @@
             if (docId > 0) loadTimeline(docId, bid);
           });
         });
+
+        bindAckSummaryToggles(body);
+        bindTimelineGroupToggles(body);
+
         buttons.forEach((b) => b.classList.toggle("isOn", b.dataset.view === view));
         localStorage.setItem(LS_KEY, view);
       }
@@ -1336,26 +1618,31 @@
     }
 
     if (elLastHolder) elLastHolder.textContent = payload.last_holder_text || "—";
-    if (elRemarks) elRemarks.value = "";
+    if (elRemarks) elRemarks.value = "none";
 
     backdrop?.classList.add("open");
     drawer?.classList.add("open");
 
     if (attachMsg) attachMsg.textContent = "";
-    if (elAttachments) elAttachments.textContent = "Loading attachments…";
-    if (payload.id) loadAttachments(payload.id);
-
-    if (elTimeline) elTimeline.textContent = "Loading timeline…";
-    if (payload.id) loadTimeline(payload.id);
 
     const ctx = window.__CTX__ || {};
     const myRole = (ctx.myRole || "user").toString().toLowerCase();
     const mySectionId = Number(ctx.mySectionId || 0);
     const myUserId = Number(ctx.myUserId || 0);
     const isChief = !!ctx.isChief;
-    currentBranchMode = !!ctx.branchMode;
+
+    // Important:
+    // branch mode here must mean actual branch context for this document,
+    // not just globally-enabled branch feature.
+    currentBranchMode = false;
     currentBranches = [];
     currentBranchId = 0;
+
+    if (elAttachments) elAttachments.textContent = "Loading attachments…";
+    if (payload.id) loadAttachments(payload.id);
+
+    if (elTimeline) elTimeline.textContent = "Loading timeline…";
+    if (payload.id) loadTimeline(payload.id);
 
     const openToSectionId = Number.parseInt(payload.open_to_section_id, 10) || 0;
     const holderSectionId = Number.parseInt(payload.current_holder_section_id, 10) || 0;
@@ -1406,6 +1693,7 @@
     if (attachType) attachType.value = "1";
     if (selForwardTo) selForwardTo.value = "";
     resetUsersUI();
+    updateForwardModeUI();
 
     if (btnAckReceived) btnAckReceived.style.display = "none";
     if (btnRelease) btnRelease.style.display = "none";
@@ -1581,7 +1869,10 @@
       selected.forEach((id) => form.append("to_user_ids[]", String(id)));
     }
 
-    form.append("remarks", elRemarks ? elRemarks.value : "");
+    const receiveOnly = selected.length > 1 || !!cbReceiveOnly?.checked;
+    form.append("receive_only", receiveOnly ? "1" : "0");
+
+    form.append("remarks", normalizedRemarksValue());
     form.append("csrf_token", window.__CSRF__ || "");
 
     try {

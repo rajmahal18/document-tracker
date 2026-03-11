@@ -135,8 +135,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   $subject       = trim((string)($_POST["subject"] ?? ""));
   $content_type  = trim((string)($_POST["content_type"] ?? ""));
   $comm_type     = trim((string)($_POST["comm_type"] ?? "internal"));
-  $deadlineAtRaw  = trim((string)($_POST["deadline_at"] ?? ""));
-  $deadlineAt     = normalize_deadline_input($deadlineAtRaw);
+  $deadlineAtRaw = trim((string)($_POST["deadline_at"] ?? ""));
+  $deadlineAt    = normalize_deadline_input($deadlineAtRaw);
+  $remarks       = trim((string)($_POST["remarks"] ?? "none"));
+  if ($remarks === "") {
+    $remarks = "none";
+  }
   $selectedSectionId = (int)($_POST["to_section_id"] ?? 0); // picker only
 
   // ✅ Destination mode map
@@ -369,7 +373,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         }
 
         // 4) routes: multi-section per-user routing
-        $remarks = "Initial forward on creation";
         $routeBranchMap = [];
         $createdBranchIds = [];
 
@@ -1018,13 +1021,27 @@ require __DIR__ . "/../includes/layout.php";
     <div class="docDivider span2"></div>
 
     <div class="authField span2">
+      <label>Remarks <span class="req">*</span></label>
+      <input
+        type="text"
+        name="remarks"
+        required
+        placeholder="none"
+        value="<?= htmlspecialchars($_POST["remarks"] ?? "none") ?>"
+      >
+      <div class="mini" style="margin-top:6px;">
+        Required for initial send. Default value is <b>none</b>.
+      </div>
+    </div>
+
+    <div class="authField span2">
       <label>Attachment (optional)</label>
       <div class="attachRow">
         <input class="fileInput" type="file" name="attach_file" accept=".pdf,.jpg,.jpeg,.png">
         <input
           type="text"
           name="attach_note"
-          placeholder="Note (optional)"
+          placeholder="File description (optional)"
           value="<?= htmlspecialchars($_POST["attach_note"] ?? "") ?>"
         >
       </div>

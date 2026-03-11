@@ -18,7 +18,11 @@ $docId       = (int)($_POST["document_id"] ?? 0);
 $toSectionId = (int)($_POST["to_section_id"] ?? 0);
 $toUserId    = (int)($_POST["to_user_id"] ?? 0);
 $branchIdReq = (int)($_POST["branch_id"] ?? 0);
-$remarks     = trim((string)($_POST["remarks"] ?? ""));
+$receiveOnly = ((int)($_POST["receive_only"] ?? 0) === 1);
+$remarks     = trim((string)($_POST["remarks"] ?? "none"));
+if ($remarks === "") {
+  $remarks = "none";
+}
 
 $toUserIds = $_POST["to_user_ids"] ?? [];
 if (!is_array($toUserIds)) $toUserIds = [];
@@ -141,6 +145,47 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
     exit;
   }
 
+  // Prevent duplicate active inbound responsibility for the same document.
+  // Back-and-forth is still allowed later because only OPEN routes are blocked here.
+  $dupPlaceholders = implode(",", array_fill(0, count($recipients), "?"));
+  $dupTypes = "i" . str_repeat("i", count($recipients));
+  $dupParams = array_merge([$docId], $recipients);
+
+  $dupSql = "
+    SELECT DISTINCT
+      r.to_user_id,
+      u.full_name
+    FROM routes r
+    JOIN users u ON u.id = r.to_user_id
+    WHERE r.document_id = ?
+      AND r.received_at IS NULL
+      AND r.cancelled_at IS NULL
+      AND r.to_user_id IN ($dupPlaceholders)
+  ";
+
+  $stmtDup = $conn->prepare($dupSql);
+  $stmtDup->bind_param($dupTypes, ...$dupParams);
+  $stmtDup->execute();
+  $dupRows = $stmtDup->get_result()->fetch_all(MYSQLI_ASSOC);
+
+  if (!empty($dupRows)) {
+    $dupNames = array_values(array_filter(array_map(
+      static fn($row) => trim((string)($row["full_name"] ?? "")),
+      $dupRows
+    )));
+    $dupNames = array_values(array_unique($dupNames));
+
+    $conn->rollback();
+    http_response_code(409);
+    echo json_encode([
+      "ok" => false,
+      "error" => count($dupNames) > 0
+        ? "Forward blocked. Already has an active incoming copy: " . implode(", ", $dupNames) . "."
+        : "Forward blocked. One or more selected users already have an active incoming copy of this document.",
+    ]);
+    exit;
+  }
+
   $branchMode = workflow_branch_mode_enabled($conn);
 
   $stmt = $conn->prepare("SELECT id, current_status, current_holder_section_id FROM documents WHERE id = ? LIMIT 1");
@@ -206,8 +251,10 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
 
     $stmtRoute = $conn->prepare("\n      INSERT INTO routes\n        (document_id, branch_id, from_section_id, to_section_id, from_user_id, to_user_id, route_kind, send_batch_id, received_at, sent_by_user_id, remarks)\n      VALUES\n        (?, ?, ?, ?, ?, ?, 'ACTION', ?, NULL, ?, ?)\n    ");
 
-    if (count($recipients) === 1) {
-      // Single forward inside a branch keeps the same lane.
+    $forceReceiveOnly = $receiveOnly || count($recipients) > 1;
+
+    if (!$forceReceiveOnly && count($recipients) === 1) {
+      // Normal single forward keeps the same actionable lane.
       $rid = (int)$recipients[0];
 
       $stmt = $conn->prepare("\n        UPDATE document_branches\n        SET current_assignee_user_id = ?,\n            current_assignee_section_id = ?,\n            updated_at = NOW()\n        WHERE id = ?\n      ");
@@ -222,9 +269,7 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
       $newBranchIds[] = $sourceBranchId;
 
     } else {
-      // Multi-forward inside an existing branch creates receive-only child branches.
-      // Original branch is completed, child branches are reference-only so they can receive
-      // but can never become forward/action lanes.
+      // Receive-only forward: original branch is completed, recipient branches are reference-only.
       $stmt = $conn->prepare("\n        UPDATE document_branches\n        SET branch_status = 'COMPLETED',\n            current_assignee_user_id = NULL,\n            current_assignee_section_id = NULL,\n            updated_at = NOW()\n        WHERE id = ?\n      ");
       $stmt->bind_param("i", $sourceBranchId);
       $stmt->execute();
@@ -274,6 +319,7 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
     "remarks" => $remarks,
     "send_batch_id" => $sendBatchId,
     "branch_mode" => $branchMode,
+    "receive_only" => $branchMode ? ($receiveOnly || count($recipients) > 1) : false,
 
     "from_section_name" => $fromSectionName,
     "to_section_name" => $toSectionName,

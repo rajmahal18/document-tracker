@@ -786,8 +786,8 @@ $end   = min($totalPages, $page + 2);
     <input type="hidden" id="d_id" value="">
 
     <div style="margin: 10px 0 14px;">
-      <label style="font-size:12px;font-weight:900;">Remarks (optional)</label>
-      <input id="d_remarks" type="text" class="search" style="min-width:100%;" placeholder="Add a quick note for history...">
+      <label style="font-size:12px;font-weight:900;">Remarks</label>
+      <input id="d_remarks" type="text" class="search" style="min-width:100%;" placeholder="none" value="none">
     </div>
 
     <div class="kv">
@@ -908,6 +908,18 @@ $end   = min($totalPages, $page + 2);
 
     <div id="forwardRecipientsPreview" class="mini" style="opacity:.75; margin-top:6px;">
       Recipients: —
+    </div>
+
+    <div id="forwardModeWrap" style="margin-top:10px; padding:10px; border:1px solid rgba(0,0,0,.10); border-radius:12px; background:#f8fafc;">
+      <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer;">
+        <input id="f_receive_only" type="checkbox" style="margin-top:3px;">
+        <span>
+          <span style="display:block; font-size:12px; font-weight:900;">Forward as receive-only</span>
+          <span class="mini" id="f_receive_only_hint" style="opacity:.75;">
+            Recipient can acknowledge receive, but cannot forward or act further.
+          </span>
+        </span>
+      </label>
     </div>
 
     <button id="btnForward" type="button" class="btnSecondary" style="margin-top:10px; margin-bottom:10px; margin-left:10px; display:none;">
