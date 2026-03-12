@@ -40,10 +40,11 @@ try {
   $conn->begin_transaction();
 
   $branchMode = workflow_branch_mode_enabled($conn);
+  $docHasRealBranches = ($branchMode && workflow_document_has_real_branches($conn, $docId));
   $row = null;
   $receiveMode = "user";
 
-  if ($branchMode) {
+  if ($docHasRealBranches) {
     if ($routeId > 0) {
       $stmt = $conn->prepare("\n        SELECT\n          r.id AS route_id,\n          r.branch_id,\n          r.from_section_id,\n          r.to_section_id,\n          r.to_user_id,\n          r.send_batch_id,\n          d.current_status\n        FROM routes r\n        JOIN documents d ON d.id = r.document_id\n        WHERE r.id = ?\n          AND r.document_id = ?\n          AND r.received_at IS NULL\n          AND r.cancelled_at IS NULL\n          AND r.route_kind = 'ACTION'\n          AND r.to_user_id = ?\n        LIMIT 1\n      ");
       $stmt->bind_param("iii", $routeId, $docId, $userId);
@@ -114,7 +115,7 @@ try {
     exit;
   }
 
-  if ($branchMode && ($toUserId === null || $toUserId !== $userId)) {
+  if ($docHasRealBranches && ($toUserId === null || $toUserId !== $userId)) {
     $conn->rollback();
     http_response_code(403);
     echo json_encode(["ok" => false, "error" => "Forbidden: this route is addressed to a different user."]);
@@ -143,7 +144,7 @@ try {
   $stmt->bind_param("ii", $toSectionId, $docId);
   $stmt->execute();
 
-  if ($branchMode && $branchId > 0) {
+  if ($docHasRealBranches && $branchId > 0) {
     workflow_grant_visibility($conn, $docId, $userId, 'PARTICIPANT', $branchId, $userId);
   } else {
     $stmt = $conn->prepare("\n      INSERT IGNORE INTO document_participants\n        (document_id, section_id, added_via, added_by_user_id)\n      VALUES (?, ?, 'movement', ?)\n    ");
@@ -158,7 +159,7 @@ try {
 
   $payload = json_encode([
     "remarks" => $remarks,
-    "receive_mode" => $branchMode ? 'user' : $receiveMode,
+    "receive_mode" => $docHasRealBranches ? 'user' : $receiveMode,
     "to_user_id" => $toUserId,
     "branch_id" => $branchId > 0 ? $branchId : null,
     "open_remaining_after_receive" => $openRemaining,
@@ -177,7 +178,7 @@ try {
     "branch_id" => $branchId,
     "from_section_id" => $fromSectionId,
     "to_section_id" => $toSectionId,
-    "receive_mode" => $branchMode ? 'user' : $receiveMode,
+    "receive_mode" => $docHasRealBranches ? 'user' : $receiveMode,
     "open_remaining" => $openRemaining,
     "holder_updated" => true,
   ]);

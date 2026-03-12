@@ -112,51 +112,94 @@ function can_view_document(mysqli $conn, int $docId): bool {
   $userId = (int)($_SESSION["user_id"] ?? 0);
   $sectionId = (int)($_SESSION["section_id"] ?? 0);
   $isChief = is_chief_user() ? 1 : 0;
+  $branchMode = workflow_branch_mode_enabled($conn);
 
-  $sql = "
-  SELECT 1
-  FROM documents d
-  LEFT JOIN routes r ON r.document_id = d.id
-  WHERE d.id = ?
-  AND (
+  if ($userId <= 0) {
+    return false;
+  }
+
+  if ($branchMode) {
+    $sql = "
+    SELECT 1
+    FROM documents d
+    WHERE d.id = ?
+      AND (
         d.created_by_user_id = ?
-        OR r.to_user_id = ?
-        OR r.sent_by_user_id = ?
-        OR r.received_by_user_id = ?
-        OR (
-              r.to_user_id IS NULL
-              AND r.to_section_id = ?
-              AND ? = 1
-           )
-        OR (
-              d.current_holder_section_id = ?
-              AND ? = 1
-              AND NOT EXISTS (
-                SELECT 1
-                FROM routes rr
-                WHERE rr.document_id = d.id
-                  AND rr.received_at IS NULL
-                  AND rr.cancelled_at IS NULL
-              )
-           )
+        OR EXISTS (
+          SELECT 1
+          FROM document_user_visibility duv
+          WHERE duv.document_id = d.id
+            AND duv.user_id = ?
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM routes r
+          WHERE r.document_id = d.id
+            AND (
+              r.to_user_id = ?
+              OR r.sent_by_user_id = ?
+              OR r.received_by_user_id = ?
+            )
+        )
       )
-  LIMIT 1
-  ";
+    LIMIT 1
+    ";
 
-  $stmt = $conn->prepare($sql);
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param(
+      "iiiiii",
+      $docId,
+      $userId,
+      $userId,
+      $userId,
+      $userId,
+      $userId
+    );
+  } else {
+    $sql = "
+    SELECT 1
+    FROM documents d
+    LEFT JOIN routes r ON r.document_id = d.id
+    WHERE d.id = ?
+    AND (
+          d.created_by_user_id = ?
+          OR r.to_user_id = ?
+          OR r.sent_by_user_id = ?
+          OR r.received_by_user_id = ?
+          OR (
+                r.to_user_id IS NULL
+                AND r.to_section_id = ?
+                AND ? = 1
+             )
+          OR (
+                d.current_holder_section_id = ?
+                AND ? = 1
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM routes rr
+                  WHERE rr.document_id = d.id
+                    AND rr.received_at IS NULL
+                    AND rr.cancelled_at IS NULL
+                )
+             )
+        )
+    LIMIT 1
+    ";
 
-  $stmt->bind_param(
-    "iiiiiiiii",
-    $docId,
-    $userId,
-    $userId,
-    $userId,
-    $userId,
-    $sectionId,
-    $isChief,
-    $sectionId,
-    $isChief
-  );
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param(
+      "iiiiiiiii",
+      $docId,
+      $userId,
+      $userId,
+      $userId,
+      $userId,
+      $sectionId,
+      $isChief,
+      $sectionId,
+      $isChief
+    );
+  }
 
   $stmt->execute();
 

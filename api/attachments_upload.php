@@ -102,6 +102,7 @@ try {
   $holderSectionId = (int)($doc["current_holder_section_id"] ?? 0);
   $hasOpenRoute = ((int)($doc["has_open_route"] ?? 0) === 1);
   $branchMode = workflow_branch_mode_enabled($conn);
+  $docHasRealBranches = ($branchMode && workflow_document_has_real_branches($conn, $docId));
   $isPrivileged = in_array($role, ["admin", "records"], true);
   $attachmentBranchId = 0;
 
@@ -113,7 +114,7 @@ try {
     exit;
   }
 
-  if ($branchMode) {
+  if ($docHasRealBranches) {
     if ($routeIdReq > 0) {
       $stmt = $conn->prepare("
         SELECT r.id, r.branch_id, r.to_user_id, r.received_at, r.cancelled_at

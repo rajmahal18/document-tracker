@@ -58,16 +58,17 @@ try {
   }
 
   $branchMode = workflow_branch_mode_enabled($conn);
+  $docHasRealBranches = ($branchMode && workflow_document_has_real_branches($conn, $docId));
   $viewerUserId = (int)($_SESSION["user_id"] ?? 0);
   $viewerDivisionName = trim((string)($_SESSION["division_name"] ?? ""));
   $viewerRole = strtolower(trim((string)($_SESSION["role"] ?? "")));
   $viewerIsAdmin = ($viewerRole === "admin");
 
-  $branches = $branchMode ? workflow_get_branch_state($conn, $docId, $viewerUserId) : [];
+  $branches = $docHasRealBranches ? workflow_get_branch_state($conn, $docId, $viewerUserId) : [];
 
   // Build full branch tree for strict selected-lane lineage filtering.
   $allBranchesById = [];
-  if ($branchMode) {
+  if ($docHasRealBranches) {
     $stmtAllBranches = $conn->prepare("
       SELECT id, parent_branch_id, branch_label, is_reference
       FROM document_branches
@@ -91,7 +92,7 @@ try {
 
   // Hide only synthetic/root/origin branches from UI tabs.
   // Reference branches must stay visible when they are the viewer's actual lane.
-  if ($branchMode && is_array($branches)) {
+  if ($docHasRealBranches && is_array($branches)) {
     $branches = array_values(array_filter($branches, static function ($branchRow) {
       $label = strtolower(trim((string)($branchRow['branch_label'] ?? '')));
       $parentId = (int)($branchRow['parent_branch_id'] ?? 0);
@@ -104,7 +105,7 @@ try {
   }
 
   $selectedBranchScopeIds = [];
-  if ($branchMode && $selectedBranchId > 0 && isset($allBranchesById[$selectedBranchId])) {
+  if ($docHasRealBranches && $selectedBranchId > 0 && isset($allBranchesById[$selectedBranchId])) {
     $cursorId = $selectedBranchId;
     $guard = 0;
 
@@ -596,7 +597,7 @@ try {
 
   echo json_encode([
     "ok" => true,
-    "branch_mode" => $branchMode,
+    "branch_mode" => $docHasRealBranches,
     "branches" => $branches,
     "selected_branch_id" => $selectedBranchId > 0 ? $selectedBranchId : null,
     "history" => $history

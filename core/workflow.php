@@ -42,6 +42,27 @@ function workflow_branch_mode_enabled(mysqli $conn): bool
         && workflow_has_column($conn, 'routes', 'route_kind');
 }
 
+
+function workflow_document_has_real_branches(mysqli $conn, int $documentId): bool
+{
+    static $cache = [];
+
+    if ($documentId <= 0 || !workflow_has_table($conn, 'document_branches')) {
+        return false;
+    }
+
+    if (array_key_exists($documentId, $cache)) {
+        return $cache[$documentId];
+    }
+
+    $stmt = $conn->prepare("SELECT 1 FROM document_branches WHERE document_id = ? LIMIT 1");
+    $stmt->bind_param('i', $documentId);
+    $stmt->execute();
+    $exists = (bool)$stmt->get_result()->fetch_row();
+    $cache[$documentId] = $exists;
+    return $exists;
+}
+
 function workflow_grant_visibility(mysqli $conn, int $documentId, int $userId, string $source, ?int $branchId = null, ?int $grantedByUserId = null): void
 {
     if ($documentId <= 0 || $userId <= 0 || !workflow_has_table($conn, 'document_user_visibility')) {

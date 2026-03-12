@@ -227,6 +227,9 @@ if ($page > $totalPages) {
 // Main list query (NEW SCHEMA)
 // -------------------------
 $mySid = (int)$mySectionId;
+$myUid = (int)$myUserId;
+$myChiefInt = $isChief ? 1 : 0;
+$branchModeInt = $branchMode ? 1 : 0;
 
 $sql = "
   SELECT
@@ -257,7 +260,164 @@ $sql = "
     -- last holder (fallback when not in transit)
     sf_last.name AS last_holder_name,
 
-    TIMESTAMPDIFF(DAY, d.updated_at, NOW()) AS days_stuck
+    TIMESTAMPDIFF(DAY, d.updated_at, NOW()) AS days_stuck,
+
+    CASE
+      WHEN EXISTS (
+        SELECT 1
+        FROM document_branches b_chk
+        WHERE b_chk.document_id = d.id
+      ) THEN 1
+      ELSE 0
+    END AS has_real_branches,
+
+    CASE
+      WHEN d.created_by_user_id = {$myUid} THEN 1
+      ELSE 0
+    END AS my_is_origin,
+
+    CASE
+      WHEN EXISTS (
+        SELECT 1
+        FROM routes r_in
+        WHERE r_in.document_id = d.id
+          AND r_in.received_at IS NULL
+          AND r_in.cancelled_at IS NULL
+          AND (
+            (
+              EXISTS (
+                SELECT 1
+                FROM document_branches b_chk
+                WHERE b_chk.document_id = d.id
+              )
+              AND r_in.route_kind = 'ACTION'
+              AND r_in.to_user_id = {$myUid}
+            )
+            OR
+            (
+              NOT EXISTS (
+                SELECT 1
+                FROM document_branches b_chk2
+                WHERE b_chk2.document_id = d.id
+              )
+              AND (
+                r_in.to_user_id = {$myUid}
+                OR ({$myChiefInt} = 1 AND r_in.to_user_id IS NULL AND r_in.to_section_id = {$mySid})
+              )
+            )
+          )
+      ) THEN 1
+      ELSE 0
+    END AS my_has_open_inbound,
+
+    CASE
+      WHEN EXISTS (
+        SELECT 1
+        FROM document_branches b_act
+        WHERE b_act.document_id = d.id
+      ) AND EXISTS (
+        SELECT 1
+        FROM document_branches b_act2
+        WHERE b_act2.document_id = d.id
+          AND b_act2.branch_status = 'ACTIVE'
+          AND b_act2.current_assignee_user_id = {$myUid}
+          AND b_act2.is_reference = 0
+          AND NOT EXISTS (
+            SELECT 1
+            FROM routes r_act
+            WHERE r_act.branch_id = b_act2.id
+              AND r_act.route_kind = 'ACTION'
+              AND r_act.received_at IS NULL
+              AND r_act.cancelled_at IS NULL
+          )
+      ) THEN 1
+
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM document_branches b_flat
+        WHERE b_flat.document_id = d.id
+      )
+      AND d.current_status = 'ACTIVE'
+      AND d.current_holder_section_id = {$mySid}
+      AND NOT EXISTS (
+        SELECT 1
+        FROM routes r_act_legacy
+        WHERE r_act_legacy.document_id = d.id
+          AND r_act_legacy.received_at IS NULL
+          AND r_act_legacy.cancelled_at IS NULL
+      ) THEN 1
+
+      ELSE 0
+    END AS my_has_actionable_role,
+
+    CASE
+      WHEN d.created_by_user_id = {$myUid} THEN 1
+      WHEN EXISTS (
+        SELECT 1
+        FROM routes r_part
+        WHERE r_part.document_id = d.id
+          AND (
+            r_part.to_user_id = {$myUid}
+            OR r_part.sent_by_user_id = {$myUid}
+            OR r_part.received_by_user_id = {$myUid}
+          )
+      ) THEN 1
+      ELSE 0
+    END AS my_has_participation,
+
+    CASE
+      WHEN {$branchModeInt} = 1 AND EXISTS (
+        SELECT 1
+        FROM document_user_visibility duv_vis
+        WHERE duv_vis.document_id = d.id
+          AND duv_vis.user_id = {$myUid}
+      ) THEN 1
+      ELSE 0
+    END AS my_is_visible_only,
+
+    CASE
+      WHEN EXISTS (
+        SELECT 1
+        FROM document_branches b_any_ref
+        WHERE b_any_ref.document_id = d.id
+      ) AND EXISTS (
+        SELECT 1
+        FROM document_branches b_ref
+        WHERE b_ref.document_id = d.id
+          AND b_ref.is_reference = 1
+          AND (
+            b_ref.current_assignee_user_id = {$myUid}
+            OR EXISTS (
+              SELECT 1
+              FROM routes r_ref
+              WHERE r_ref.document_id = d.id
+                AND r_ref.branch_id = b_ref.id
+                AND (
+                  r_ref.to_user_id = {$myUid}
+                  OR r_ref.sent_by_user_id = {$myUid}
+                  OR r_ref.received_by_user_id = {$myUid}
+                )
+            )
+          )
+      ) THEN 1
+      ELSE 0
+    END AS my_is_for_reference,
+
+    CASE
+      WHEN EXISTS (
+        SELECT 1
+        FROM document_branches b_any_ro
+        WHERE b_any_ro.document_id = d.id
+      ) AND EXISTS (
+        SELECT 1
+        FROM document_branches b_ro
+        WHERE b_ro.document_id = d.id
+          AND b_ro.branch_status = 'ACTIVE'
+          AND b_ro.current_assignee_user_id = {$myUid}
+          AND b_ro.is_reference = 1
+      ) THEN 1
+      ELSE 0
+    END AS my_is_receive_only
   FROM documents d
   LEFT JOIN sections sh ON sh.id = d.current_holder_section_id
 
@@ -369,59 +529,92 @@ if (!$isPrivileged) {
   if ($myUserId <= 0) {
     $statWhere[] = "1=0";
   } else {
-    $statWhere[] = "(
-      d.created_by_user_id = ?
+    if ($branchMode) {
+      $statWhere[] = "(
+        d.created_by_user_id = ?
+        OR EXISTS (
+          SELECT 1
+          FROM document_user_visibility duv
+          WHERE duv.document_id = d.id
+            AND duv.user_id = ?
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM routes r
+          WHERE r.document_id = d.id
+            AND (
+              r.to_user_id = ?
+              OR r.sent_by_user_id = ?
+              OR r.received_by_user_id = ?
+            )
+        )
+      )";
 
-      OR EXISTS (
-        SELECT 1
-        FROM routes r
-        WHERE r.document_id = d.id
-          AND (
-            r.to_user_id = ?
-            OR r.sent_by_user_id = ?
-            OR r.received_by_user_id = ?
+      array_push(
+        $statParams,
+        $myUserId,
+        $myUserId,
+        $myUserId,
+        $myUserId,
+        $myUserId
+      );
+
+      $statTypes .= "iiiii";
+    } else {
+      $statWhere[] = "(
+        d.created_by_user_id = ?
+
+        OR EXISTS (
+          SELECT 1
+          FROM routes r
+          WHERE r.document_id = d.id
+            AND (
+              r.to_user_id = ?
+              OR r.sent_by_user_id = ?
+              OR r.received_by_user_id = ?
+            )
+        )
+
+        OR (
+          ? = 1
+          AND EXISTS (
+            SELECT 1
+            FROM routes r
+            WHERE r.document_id = d.id
+              AND r.received_at IS NULL
+              AND r.cancelled_at IS NULL
+              AND r.to_section_id = ?
+              AND r.to_user_id IS NULL
           )
-      )
-
-      OR (
-        ? = 1
-        AND EXISTS (
-          SELECT 1
-          FROM routes r
-          WHERE r.document_id = d.id
-            AND r.received_at IS NULL
-            AND r.cancelled_at IS NULL
-            AND r.to_section_id = ?
-            AND r.to_user_id IS NULL
         )
-      )
 
-      OR (
-        ? = 1
-        AND d.current_holder_section_id = ?
-        AND NOT EXISTS (
-          SELECT 1
-          FROM routes r
-          WHERE r.document_id = d.id
-            AND r.received_at IS NULL
-            AND r.cancelled_at IS NULL
+        OR (
+          ? = 1
+          AND d.current_holder_section_id = ?
+          AND NOT EXISTS (
+            SELECT 1
+            FROM routes r
+            WHERE r.document_id = d.id
+              AND r.received_at IS NULL
+              AND r.cancelled_at IS NULL
+          )
         )
-      )
-    )";
+      )";
 
-    array_push(
-      $statParams,
-      $myUserId,
-      $myUserId,
-      $myUserId,
-      $myUserId,
-      $isChief ? 1 : 0,
-      $mySectionId,
-      $isChief ? 1 : 0,
-      $mySectionId
-    );
+      array_push(
+        $statParams,
+        $myUserId,
+        $myUserId,
+        $myUserId,
+        $myUserId,
+        $isChief ? 1 : 0,
+        $mySectionId,
+        $isChief ? 1 : 0,
+        $mySectionId
+      );
 
-    $statTypes .= "iiiiiiii";
+      $statTypes .= "iiiiiiii";
+    }
   }
 }
 
@@ -469,258 +662,442 @@ function quickUrl(string $target): string {
 }
 ?>
 
-<div style="display:flex;justify-content:space-between;align-items:center;">
-  <h1>Document List</h1>
-  <a href="<?= PUBLIC_PATH ?>/add_document.php" class="btnComp" style="text-decoration:none;">
-    + Add Document
-  </a>
-</div>
-
-<div class="stats">
-  <a class="statCard statCardLink <?= $quick === 'active' ? 'isActive' : '' ?>"
-     href="<?= htmlspecialchars(quickUrl('active')) ?>">
-    <div class="statTop">
-      <div class="statTitle">Active</div>
-      <div class="chip incoming">Ongoing</div>
-    </div>
-    <div class="statValue"><?= $stats["active"] ?></div>
-  </a>
-
-  <a class="statCard statCardLink <?= $quick === 'overdue' ? 'isActive' : '' ?>"
-     href="<?= htmlspecialchars(quickUrl('overdue')) ?>">
-    <div class="statTop">
-      <div class="statTitle">Overdue</div>
-      <div class="chip overdue">Deadline passed</div>
-    </div>
-    <div class="statValue"><?= $stats["overdue"] ?></div>
-  </a>
-
-  <a class="statCard statCardLink <?= $quick === 'released_today' ? 'isActive' : '' ?>"
-     href="<?= htmlspecialchars(quickUrl('released_today')) ?>">
-    <div class="statTop">
-      <div class="statTitle">Released Today</div>
-      <div class="chip released">Done</div>
-    </div>
-    <div class="statValue"><?= $stats["released_today"] ?></div>
-  </a>
-
-  <a class="statCard statCardLink <?= $quick === 'archived' ? 'isActive' : '' ?>"
-     href="<?= htmlspecialchars(quickUrl('archived')) ?>">
-    <div class="statTop">
-      <div class="statTitle">Archived</div>
-      <div class="chip archived">Filed</div>
-    </div>
-    <div class="statValue"><?= $stats["archived"] ?></div>
-  </a>
-</div>
-
-<!-- ✅ Split toolbar into 2 forms (predictable + modern) -->
-<div class="toolbarWrap">
-  <!-- Filters -->
-  <form class="toolbar toolbarFilters" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
-     <!-- ✅ preserve quick card filter -->
-    <input type="hidden" name="quick" value="<?= htmlspecialchars($quick) ?>">
-
-    <!-- (optional but recommended) preserve search too, if filters form doesn't include it -->
-    <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
-    <input type="hidden" name="sort" value="<?= htmlspecialchars($sort) ?>">
-
-    <div class="control">
-      <label>Status</label>
-      <select class="select" name="status">
-        <option value="">All</option>
-        <option value="ACTIVE" <?= strtoupper($statusGet)==="ACTIVE" ? "selected" : "" ?>>ACTIVE</option>
-        <option value="RELEASED" <?= strtoupper($statusGet)==="RELEASED" ? "selected" : "" ?>>RELEASED</option>
-        <option value="ARCHIVED" <?= strtoupper($statusGet)==="ARCHIVED" ? "selected" : "" ?>>ARCHIVED</option>
-      </select>
+<div class="docsPageShell">
+  <section class="docsHero">
+    <div class="docsHeroCopy">
+      <div class="docsEyebrow">Workflow dashboard</div>
+      <h1 class="docsTitle">Document List</h1>
+      <p class="docsLead">Track movement, spot pending work fast, and open any row for complete routing details.</p>
     </div>
 
-    <div class="control">
-      <label>Date from</label>
-      <input class="date" type="date" name="from" value="<?= htmlspecialchars($date_from) ?>">
+    <div class="docsHeroActions">
+      <div class="docsSummaryPill">
+        <span class="docsSummaryValue"><?= (int)$total ?></span>
+        <span class="docsSummaryLabel">visible documents</span>
+      </div>
+
+      <a href="<?= PUBLIC_PATH ?>/add_document.php" class="btnComp docsAddBtn" style="text-decoration:none;">
+        + Add Document
+      </a>
     </div>
+  </section>
 
-    <div class="control">
-      <label>Date to</label>
-      <input class="date" type="date" name="to" value="<?= htmlspecialchars($date_to) ?>">
-    </div>
+  <div class="stats docsStatsGrid">
+    <a class="statCard statCardLink docsStatCard <?= $quick === 'active' ? 'isActive' : '' ?>"
+       href="<?= htmlspecialchars(quickUrl('active')) ?>">
+      <div class="docsStatHeader">
+        <div>
+          <div class="statTitle">Active</div>
+          <div class="docsStatHint">Still moving in workflow</div>
+        </div>
+        <div class="chip incoming">Ongoing</div>
+      </div>
+      <div class="statValue"><?= $stats["active"] ?></div>
+    </a>
 
-    <button type="submit" class="btnSecondary">Apply</button>
-  </form>
+    <a class="statCard statCardLink docsStatCard <?= $quick === 'overdue' ? 'isActive' : '' ?>"
+       href="<?= htmlspecialchars(quickUrl('overdue')) ?>">
+      <div class="docsStatHeader">
+        <div>
+          <div class="statTitle">Overdue</div>
+          <div class="docsStatHint">Needs attention soonest</div>
+        </div>
+        <div class="chip overdue">Deadline passed</div>
+      </div>
+      <div class="statValue"><?= $stats["overdue"] ?></div>
+    </a>
 
-  <!-- Search -->
-  <form class="toolbar toolbarSearch" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
-    <input type="hidden" name="status" value="<?= htmlspecialchars($statusGet) ?>">
-    <input type="hidden" name="from" value="<?= htmlspecialchars($date_from) ?>">
-    <input type="hidden" name="to" value="<?= htmlspecialchars($date_to) ?>">
+    <a class="statCard statCardLink docsStatCard <?= $quick === 'released_today' ? 'isActive' : '' ?>"
+       href="<?= htmlspecialchars(quickUrl('released_today')) ?>">
+      <div class="docsStatHeader">
+        <div>
+          <div class="statTitle">Released Today</div>
+          <div class="docsStatHint">Closed out today</div>
+        </div>
+        <div class="chip released">Done</div>
+      </div>
+      <div class="statValue"><?= $stats["released_today"] ?></div>
+    </a>
 
-    <div class="control">
-      <label>Search Documents</label>
-      <input class="search" type="text" name="q" style="margin-bottom:0px"
-             placeholder="Search tracking no, requester, subject, holder..."
-             value="<?= htmlspecialchars($search) ?>">
-    </div>
+    <a class="statCard statCardLink docsStatCard <?= $quick === 'archived' ? 'isActive' : '' ?>"
+       href="<?= htmlspecialchars(quickUrl('archived')) ?>">
+      <div class="docsStatHeader">
+        <div>
+          <div class="statTitle">Archived</div>
+          <div class="docsStatHint">Filed records</div>
+        </div>
+        <div class="chip archived">Filed</div>
+      </div>
+      <div class="statValue"><?= $stats["archived"] ?></div>
+    </a>
+  </div>
 
-    <div class="control">
-      <label>Sort</label>
-      <select class="select" name="sort">
-        <option value="workflow" <?= ($sort === "" || $sort === "workflow") ? "selected" : "" ?>>Workflow priority</option>
-        <option value="newest" <?= $sort === "newest" ? "selected" : "" ?>>Newest first</option>
-        <option value="urgent" <?= $sort === "urgent" ? "selected" : "" ?>>Most urgent first</option>
-        <option value="overdue_longest" <?= $sort === "overdue_longest" ? "selected" : "" ?>>Longest overdue first</option>
-        <option value="oldest" <?= $sort === "oldest" ? "selected" : "" ?>>Oldest first</option>
-      </select>
-    </div>
+  <section class="docsControlsCard">
+    <div class="docsControlsTop">
+      <div>
+        <div class="docsSectionTitle">Find documents quickly</div>
+        <div class="docsSectionSub">Search, filter, and sort without leaving the workflow view.</div>
+      </div>
 
-    <button type="submit" class="btnSecondary">Search</button>
-  </form>
-</div>
-
-<div class="tableWrap">
-  <table class="docTable">
-    <thead>
-      <tr>
-        <th>Status</th>
-        <th>Current Holder</th>
-        <th>Tracking No.</th>
-        <th>Subject</th>
-        <th>Destination</th>
-        <th>Days</th>
-        <th>Requester</th>
-        <th>Document Date</th>
-        <th>Type</th>
-        <th>Last Holder</th>
-      </tr>
-    </thead>
-    <tbody>
-      <?php if (!$docs): ?>
-        <tr>
-          <td colspan="10" class="mini" style="padding:18px;">No documents found.</td>
-        </tr>
+      <?php if ($search !== "" || $statusGet !== "" || $date_from !== "" || $date_to !== "" || $quick !== "" || ($sort !== "" && $sort !== "workflow")): ?>
+        <a class="docsClearFilters" href="<?= PUBLIC_PATH ?>/documents.php">Reset filters</a>
       <?php endif; ?>
+    </div>
 
-      <?php foreach ($docs as $d): ?>
-        <?php
-          $days = (int)($d["days_stuck"] ?? 0);
-          $warn = ($days >= 3 && $days < 7) ? "warn" : "";
-          $danger = ($days >= 7) ? "danger" : "";
+    <div class="docsControlsGrid">
+      <form class="toolbar toolbarSearch docsToolbarSearch" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
+        <input type="hidden" name="status" value="<?= htmlspecialchars($statusGet) ?>">
+        <input type="hidden" name="from" value="<?= htmlspecialchars($date_from) ?>">
+        <input type="hidden" name="to" value="<?= htmlspecialchars($date_to) ?>">
+        <input type="hidden" name="quick" value="<?= htmlspecialchars($quick) ?>">
 
-          $inTransit = !empty($d["open_to_section_id"]);
-          $currentStatus = strtoupper((string)($d["current_status"] ?? "ACTIVE"));
+        <div class="control docsSearchControl">
+          <label>Search documents</label>
+          <input class="search" type="text" name="q"
+                 placeholder="Tracking no, subject, requester, holder..."
+                 value="<?= htmlspecialchars($search) ?>">
+        </div>
 
-          $statusLabel = "—";
-          $statusChipClass = "chip incoming";
+        <div class="control docsSortControl">
+          <label>Sort</label>
+          <select class="select" name="sort">
+            <option value="workflow" <?= ($sort === "" || $sort === "workflow") ? "selected" : "" ?>>Workflow priority</option>
+            <option value="newest" <?= $sort === "newest" ? "selected" : "" ?>>Newest first</option>
+            <option value="urgent" <?= $sort === "urgent" ? "selected" : "" ?>>Most urgent first</option>
+            <option value="overdue_longest" <?= $sort === "overdue_longest" ? "selected" : "" ?>>Longest overdue first</option>
+            <option value="oldest" <?= $sort === "oldest" ? "selected" : "" ?>>Oldest first</option>
+          </select>
+        </div>
 
-          if ($currentStatus === "ARCHIVED") {
-            $statusLabel = "ARCHIVED";
-            $statusChipClass = "chip archived";
-          } elseif ($currentStatus === "RELEASED") {
-            $statusLabel = "RELEASED";
-            $statusChipClass = "chip released";
-          } else {
-            $openToSectionId = (int)($d["open_to_section_id"] ?? 0);
-            $openToUserId    = (int)($d["open_to_user_id"] ?? 0);
-            $openFromSectionId = (int)($d["open_from_section_id"] ?? 0);
-            $holderSectionId = (int)($d["current_holder_section_id"] ?? 0);
-            $isMine = ($holderSectionId === $mySectionId);
-            $holderStillSending = $inTransit && $holderSectionId > 0 && $openFromSectionId === $holderSectionId;
+        <button type="submit" class="btnSecondary docsControlBtn">Search</button>
+      </form>
 
-            $isIncomingToMe =
-              ($openToUserId > 0 && $openToUserId === $myUserId)
-              || ($openToUserId === 0 && $isChief && $openToSectionId === $mySectionId);
+      <form class="toolbar toolbarFilters docsToolbarFilters" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
+        <input type="hidden" name="quick" value="<?= htmlspecialchars($quick) ?>">
+        <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
+        <input type="hidden" name="sort" value="<?= htmlspecialchars($sort) ?>">
 
-            if ($isMine && !$holderStillSending) {
-              $statusLabel = $inTransit ? "NEEDS ACTION (OTHERS PENDING)" : "NEEDS ACTION";
-              $statusChipClass = "chip overdue";
-            } elseif ($inTransit) {
-              $statusLabel = $isIncomingToMe ? "IN TRANSIT (TO YOU)" : "IN TRANSIT";
-              $statusChipClass = "chip action";
-            } else {
-              $statusLabel = "ACTIVE";
-              $statusChipClass = "chip incoming";
-            }
-          }
+        <div class="control">
+          <label>Status</label>
+          <select class="select" name="status">
+            <option value="">All</option>
+            <option value="ACTIVE" <?= strtoupper($statusGet) === "ACTIVE" ? "selected" : "" ?>>ACTIVE</option>
+            <option value="RELEASED" <?= strtoupper($statusGet) === "RELEASED" ? "selected" : "" ?>>RELEASED</option>
+            <option value="ARCHIVED" <?= strtoupper($statusGet) === "ARCHIVED" ? "selected" : "" ?>>ARCHIVED</option>
+          </select>
+        </div>
 
-          $openCount = (int)($d["open_route_count"] ?? 0);
+        <div class="control">
+          <label>Date from</label>
+          <input class="date" type="date" name="from" value="<?= htmlspecialchars($date_from) ?>">
+        </div>
 
-          $movementText = "—";
-          if ($inTransit) {
-            if ($openCount > 1) {
-              $movementText = "Multiple recipients (" . $openCount . ")";
-            } else {
-              $toUserName = trim((string)($d["open_to_user_name"] ?? ""));
-              $toSecName  = (string)($d["open_to_section_name"] ?? "—");
-              $movementText = $toUserName !== "" ? $toUserName : $toSecName;
-            }
-          }
+        <div class="control">
+          <label>Date to</label>
+          <input class="date" type="date" name="to" value="<?= htmlspecialchars($date_to) ?>">
+        </div>
 
-          $currentHolderText = (string)($d["current_holder_name"] ?? "—");
+        <button type="submit" class="btnSecondary docsControlBtn">Apply</button>
+      </form>
+    </div>
+  </section>
 
-          $lastHolderText = $inTransit
-            ? (string)($d["open_from_section_name"] ?? "—")
-            : (string)($d["last_holder_name"] ?? "—");
-        ?>
-        <tr
-          class="rowHover"
-          data-doc='<?= htmlspecialchars(
-            json_encode([
-              "id" => (int)$d["id"],
-              "tracking_no" => $d["tracking_no"],
-              "requester" => $d["requester"],
-              "document_date" => $d["document_date"],
-              "deadline_at" => $d["deadline_at"],
-              "subject" => $d["subject"],
-              "content_type" => $d["content_type"],
-              "comm_type" => $d["comm_type"],
+  <div class="tableWrap docsTableWrap">
+    <div class="docsTableTopbar">
+      <div>
+        <div class="docsSectionTitle">Documents in view</div>
+        <div class="docsSectionSub">Click any row to open the drawer and see full routing history.</div>
+      </div>
+      <div class="docsResultsMeta">
+        Showing <b><?= (int)($total ? $offset + 1 : 0) ?></b>–<b><?= (int)min($offset + $perPage, $total) ?></b> of <b><?= (int)$total ?></b>
+      </div>
+    </div>
 
-              "status_label" => $statusLabel,
-              "status_chip_class" => $statusChipClass,
-
-              "in_transit" => !empty($d["open_to_section_id"]) ? 1 : 0,
-              "open_to_section_id" => (int)($d["open_to_section_id"] ?? 0),
-              "open_to_user_id" => (int)($d["open_to_user_id"] ?? 0),
-              "open_to_user_name" => (string)($d["open_to_user_name"] ?? ""),
-              "open_to_section_name" => (string)($d["open_to_section_name"] ?? ""),
-              "open_from_section_name" => (string)($d["open_from_section_name"] ?? ""),
-              "open_from_section_id" => (int)($d["open_from_section_id"] ?? 0),
-              "open_route_id" => (int)($d["any_open_route_id"] ?? 0),
-              "open_route_count" => $openCount,
-
-              "movement_text" => $movementText,
-              "current_holder_text" => $currentHolderText,
-              "last_holder_text" => $lastHolderText,
-
-              "current_holder_section_id" => (int)($d["current_holder_section_id"] ?? 0),
-              "current_status" => (string)($d["current_status"] ?? "ACTIVE"),
-              "days_stuck" => $days,
-            ], JSON_UNESCAPED_UNICODE),
-            ENT_QUOTES,
-            "UTF-8"
-          ) ?>'
-        >
-          <td>
-            <span class="<?= htmlspecialchars($statusChipClass) ?>">
-              <?= htmlspecialchars($statusLabel) ?>
-            </span>
-          </td>
-
-          <td><b><?= htmlspecialchars($currentHolderText) ?></b></td>
-          <td class="mini"><?= htmlspecialchars((string)$d["tracking_no"]) ?></td>
-          <td class="mini"><?= htmlspecialchars((string)$d["subject"]) ?></td>
-          <td class="mini"><?= htmlspecialchars($movementText) ?></td>
-
-          <td>
-            <span class="daysPill <?= $danger ?: $warn ?>"><?= $days ?></span>
-          </td>
-
-          <td class="mini"><?= htmlspecialchars((string)$d["requester"]) ?></td>
-          <td class="mini"><?= htmlspecialchars((string)$d["document_date"]) ?></td>
-          <td class="mini"><?= htmlspecialchars((string)$d["content_type"]) ?></td>
-          <td class="mini"><?= htmlspecialchars($lastHolderText) ?></td>
+    <table class="docTable docsTableModern">
+      <thead>
+        <tr>
+          <th>My Status</th>
+          <th>Document</th>
+          <th>Route</th>
+          <th>Doc State</th>
+          <th>Days</th>
+          <th>Requester</th>
         </tr>
-      <?php endforeach; ?>
-    </tbody>
-  </table>
+      </thead>
+      <tbody>
+        <?php if (!$docs): ?>
+          <tr>
+            <td colspan="6" class="mini docsEmptyState">No documents found.</td>
+          </tr>
+        <?php endif; ?>
+
+        <?php foreach ($docs as $d): ?>
+          <?php
+            $days = (int)($d["days_stuck"] ?? 0);
+            $warn = ($days >= 3 && $days < 7) ? "warn" : "";
+            $danger = ($days >= 7) ? "danger" : "";
+
+            $inTransit = !empty($d["open_to_section_id"]);
+            $currentStatus = strtoupper((string)($d["current_status"] ?? "ACTIVE"));
+            $openCount = (int)($d["open_route_count"] ?? 0);
+            $hasRealBranches = ((int)($d["has_real_branches"] ?? 0) === 1);
+
+            $myHasOpenInbound = ((int)($d["my_has_open_inbound"] ?? 0) === 1);
+            $myHasActionableRole = ((int)($d["my_has_actionable_role"] ?? 0) === 1);
+            $myHasParticipation = ((int)($d["my_has_participation"] ?? 0) === 1);
+            $myIsVisibleOnly = ((int)($d["my_is_visible_only"] ?? 0) === 1);
+            $myIsOrigin = ((int)($d["my_is_origin"] ?? 0) === 1);
+            $myIsForReference = ((int)($d["my_is_for_reference"] ?? 0) === 1);
+            $myIsReceiveOnly = ((int)($d["my_is_receive_only"] ?? 0) === 1);
+
+            if ($myHasOpenInbound) {
+              $myStatusLabel = "INCOMING";
+              $myStatusChipClass = "chip action";
+              $rowToneClass = "rowToneIncoming";
+            } elseif ($myHasActionableRole) {
+              $myStatusLabel = "PENDING";
+              $myStatusChipClass = "chip overdue";
+              $rowToneClass = "rowTonePending";
+            } elseif ($myHasParticipation || $myIsOrigin || $myIsForReference) {
+              $myStatusLabel = "COMPLETE";
+              $myStatusChipClass = "chip incoming";
+              $rowToneClass = "rowToneComplete";
+            } else {
+              $myStatusLabel = "—";
+              $myStatusChipClass = "chip archived";
+              $rowToneClass = "rowToneNeutral";
+            }
+
+            if ($currentStatus === "ARCHIVED") {
+              $docStateLabel = "ARCHIVED";
+              $docStateToneClass = "isArchived";
+              $docStateHint = "Filed record";
+            } elseif ($currentStatus === "RELEASED") {
+              $docStateLabel = "RELEASED";
+              $docStateToneClass = "isReleased";
+              $docStateHint = "Completed routing";
+            } elseif ($inTransit) {
+              $docStateLabel = "IN TRANSIT";
+              $docStateToneClass = "isTransit";
+              $docStateHint = $openCount > 1 ? "Open routes: " . $openCount : "Awaiting acknowledgment";
+            } else {
+              $docStateLabel = "ACTIVE";
+              $docStateToneClass = "isActive";
+              $docStateHint = "Within workflow";
+            }
+
+            $statusBadges = [];
+            if ($myIsOrigin) {
+              $statusBadges[] = ["label" => "ORIGIN", "class" => "docMiniBadge"];
+            }
+            if ($myIsForReference) {
+              $statusBadges[] = ["label" => "FOR REFERENCE", "class" => "docMiniBadge"];
+            }
+            if ($myIsReceiveOnly) {
+              $statusBadges[] = ["label" => "RECEIVE ONLY", "class" => "docMiniBadge warn"];
+            }
+            if ($myIsVisibleOnly && !$myHasParticipation && !$myIsOrigin && !$myIsForReference) {
+              $statusBadges[] = ["label" => "VISIBLE", "class" => "docMiniBadge muted"];
+            }
+
+            $movementText = "—";
+            if ($inTransit) {
+              if ($openCount > 1) {
+                $movementText = "Multiple recipients (" . $openCount . ")";
+              } else {
+                $toUserName = trim((string)($d["open_to_user_name"] ?? ""));
+                $toSecName  = (string)($d["open_to_section_name"] ?? "—");
+                $movementText = $toUserName !== "" ? $toUserName : $toSecName;
+              }
+            }
+
+            $currentHolderText = (string)($d["current_holder_name"] ?? "—");
+
+            $lastHolderText = $inTransit
+              ? (string)($d["open_from_section_name"] ?? "—")
+              : (string)($d["last_holder_name"] ?? "—");
+
+            $routeLine1Label = "Current";
+            $routeLine1Value = $currentHolderText;
+            $routeLine1Strong = true;
+
+            $routeLine2Label = "To";
+            $routeLine2Value = $movementText;
+
+            $routeLine3Label = "Last";
+            $routeLine3Value = $lastHolderText;
+
+            if ($hasRealBranches) {
+              $routeLine1Label = "My lane";
+              $routeLine1Strong = true;
+
+              if ($myHasActionableRole) {
+                $routeLine1Value = "With you";
+              } elseif ($myHasOpenInbound) {
+                $routeLine1Value = "To you";
+              } elseif ($myHasParticipation || $myIsOrigin || $myIsForReference) {
+                $routeLine1Value = "Past your lane";
+              } else {
+                $routeLine1Value = "Not in your lane";
+              }
+
+              $routeLine2Label = "Context";
+
+              if ($myHasActionableRole) {
+                $routeLine2Value = "Awaiting your action";
+              } elseif ($myHasOpenInbound) {
+                $routeLine2Value = "Waiting for your receive";
+              } elseif ($openCount > 0) {
+                $routeLine2Value = "Waiting for " . $openCount . " recipient" . ($openCount === 1 ? "" : "s");
+              } else {
+                $routeLine2Value = "Branch complete";
+              }
+
+              $routeLine3Label = "Latest";
+              $routeLine3Value = $lastHolderText !== "" ? $lastHolderText : "—";
+            }
+
+            $deadlineText = !empty($d["deadline_at"])
+              ? date("Y-m-d", strtotime((string)$d["deadline_at"]))
+              : "No deadline";
+
+            $docTypeText = trim((string)($d["content_type"] ?? ""));
+            $docCommText = trim((string)($d["comm_type"] ?? ""));
+            $docMetaType = $docTypeText !== "" && $docCommText !== ""
+              ? $docTypeText . " • " . $docCommText
+              : ($docTypeText !== "" ? $docTypeText : ($docCommText !== "" ? $docCommText : "—"));
+          ?>
+          <tr
+            class="rowHover docsRow <?= htmlspecialchars($rowToneClass) ?>"
+            data-doc='<?= htmlspecialchars(
+              json_encode([
+                "id" => (int)$d["id"],
+                "tracking_no" => $d["tracking_no"],
+                "requester" => $d["requester"],
+                "document_date" => $d["document_date"],
+                "deadline_at" => $d["deadline_at"],
+                "subject" => $d["subject"],
+                "content_type" => $d["content_type"],
+                "comm_type" => $d["comm_type"],
+
+                "status_label" => $docStateLabel,
+                "status_chip_class" => $docStateToneClass,
+                "my_status" => $myStatusLabel,
+                "my_status_chip_class" => $myStatusChipClass,
+                "is_origin" => $myIsOrigin ? 1 : 0,
+                "is_for_reference" => $myIsForReference ? 1 : 0,
+                "is_receive_only" => $myIsReceiveOnly ? 1 : 0,
+                "is_visible_only" => $myIsVisibleOnly ? 1 : 0,
+                "has_real_branches" => $hasRealBranches ? 1 : 0,
+
+                "in_transit" => !empty($d["open_to_section_id"]) ? 1 : 0,
+                "open_to_section_id" => (int)($d["open_to_section_id"] ?? 0),
+                "open_to_user_id" => (int)($d["open_to_user_id"] ?? 0),
+                "open_to_user_name" => (string)($d["open_to_user_name"] ?? ""),
+                "open_to_section_name" => (string)($d["open_to_section_name"] ?? ""),
+                "open_from_section_name" => (string)($d["open_from_section_name"] ?? ""),
+                "open_from_section_id" => (int)($d["open_from_section_id"] ?? 0),
+                "open_route_id" => (int)($d["any_open_route_id"] ?? 0),
+                "open_route_count" => $openCount,
+
+                "movement_text" => $movementText,
+                "current_holder_text" => $currentHolderText,
+                "last_holder_text" => $lastHolderText,
+
+                "current_holder_section_id" => (int)($d["current_holder_section_id"] ?? 0),
+                "current_status" => (string)($d["current_status"] ?? "ACTIVE"),
+                "days_stuck" => $days,
+              ], JSON_UNESCAPED_UNICODE),
+              ENT_QUOTES,
+              "UTF-8"
+            ) ?>'
+          >
+            <td>
+              <div class="docStatusCell">
+                <span class="<?= htmlspecialchars($myStatusChipClass) ?>">
+                  <?= htmlspecialchars($myStatusLabel) ?>
+                </span>
+
+                <?php if ($statusBadges): ?>
+                  <div class="docStatusBadges">
+                    <?php foreach ($statusBadges as $badge): ?>
+                      <span class="<?= htmlspecialchars($badge["class"]) ?>"><?= htmlspecialchars($badge["label"]) ?></span>
+                    <?php endforeach; ?>
+                  </div>
+                <?php endif; ?>
+              </div>
+            </td>
+
+            <td>
+              <div class="docInfoCell">
+                <div class="docInfoTitle"><?= htmlspecialchars((string)$d["subject"]) ?></div>
+                <div class="docInfoMeta">
+                  <span class="docInfoTracking"><?= htmlspecialchars((string)$d["tracking_no"]) ?></span>
+                  <span class="docMetaDot">•</span>
+                  <span><?= htmlspecialchars($docMetaType) ?></span>
+                  <span class="docMetaDot">•</span>
+                  <span><?= htmlspecialchars((string)$d["document_date"]) ?></span>
+                </div>
+              </div>
+            </td>
+
+            <td>
+              <div class="routeInfoCell">
+                <div class="routeLine">
+                  <span class="routeLabel"><?= htmlspecialchars($routeLine1Label) ?></span>
+                  <span class="routeValue <?= $routeLine1Strong ? 'strong' : '' ?>">
+                    <?= htmlspecialchars($routeLine1Value) ?>
+                  </span>
+                </div>
+
+                <div class="routeLine">
+                  <span class="routeLabel"><?= htmlspecialchars($routeLine2Label) ?></span>
+                  <span class="routeValue"><?= htmlspecialchars($routeLine2Value) ?></span>
+                </div>
+
+                <div class="routeLine">
+                  <span class="routeLabel"><?= htmlspecialchars($routeLine3Label) ?></span>
+                  <span class="routeValue"><?= htmlspecialchars($routeLine3Value) ?></span>
+                </div>
+              </div>
+            </td>
+
+            <td>
+              <div class="docStateCell">
+                <div class="docStateMain <?= htmlspecialchars($docStateToneClass) ?>">
+                  <span class="docStateDot"></span>
+                  <span class="docStateText"><?= htmlspecialchars($docStateLabel) ?></span>
+                </div>
+                <div class="docStateHint"><?= htmlspecialchars($docStateHint) ?></div>
+              </div>
+            </td>
+
+            <td>
+              <div class="daysCellWrap">
+                <span class="daysPill <?= $danger ?: $warn ?>"><?= $days ?></span>
+                <div class="daysHintText">
+                  <?php if ($days >= 7): ?>
+                    Needs action
+                  <?php elseif ($days >= 3): ?>
+                    Watch closely
+                  <?php else: ?>
+                    On track
+                  <?php endif; ?>
+                </div>
+              </div>
+            </td>
+
+            <td>
+              <div class="requesterCell">
+                <div class="requesterName"><?= htmlspecialchars((string)$d["requester"]) ?></div>
+                <div class="requesterMeta">Deadline: <?= htmlspecialchars($deadlineText) ?></div>
+              </div>
+            </td>
+          </tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
 </div>
 
 <?php
@@ -832,7 +1209,6 @@ $end   = min($totalPages, $page + 2);
         <button type="button" class="btnComp" id="btnPpdSlipPrint" disabled>Print</button>
       </div>
     </div>
-
 
     <!-- Attachments -->
     <div style="margin-top:14px;">

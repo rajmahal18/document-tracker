@@ -416,59 +416,6 @@ body {
 .chip.archived { background: rgba(102,112,133,.12); border-color: rgba(102,112,133,.35); color: #475467; }
 .chip.overdue  { background: rgba(231,76,60,.12);  border-color: rgba(231,76,60,.35);  color: #b42318; }
 
-.tableWrap {
-  background: #fff;
-  border: 1px solid #e3e6ea;
-  box-shadow: 0 6px 18px rgba(16, 24, 40, 0.06);
-  overflow: auto;
-}
-
-.docTable {
-  width: 100%;
-  border-collapse: collapse;
-  min-width: 980px;
-}
-
-.docTable th, .docTable td {
-  padding: 12px 14px;
-  border-bottom: 1px solid #eef0f2;
-  vertical-align: top;
-}
-
-.docTable th {
-  background: #0b3a66;
-  color: #fff;
-  position: sticky;
-  top: 0;
-  text-align: center;
-}
-
-.rowHover:hover {
-  background: #FFF4EC;
-  cursor: pointer;
-}
-
-.mini {
-  font-size: 12px;
-  color: #667085;
-  font-weight: 700;
-}
-
-.daysPill {
-  display: inline-flex;
-  min-width: 44px;
-  justify-content: center;
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-weight: 900;
-  font-size: 12px;
-  border: 1px solid #e3e6ea;
-  background: #fff;
-}
-
-.daysPill.warn { border-color: rgba(243,156,18,.35); background: rgba(243,156,18,.10); color: #b66a00; }
-.daysPill.danger { border-color: rgba(231,76,60,.35); background: rgba(231,76,60,.10); color: #b42318; }
-
 @media (max-width: 900px) {
   .stats { grid-template-columns: 1fr 1fr; }
   .search { min-width: 220px; }
@@ -874,8 +821,8 @@ body::before {
   background-repeat: no-repeat;
   background-size: cover;
   background-position: center;
-  filter: grayscale(10%) blur(3px);
-  opacity: 0.12;
+  filter: grayscale(10%) blur(4px);
+  opacity: 0.07;
   pointer-events: none;
   z-index: 0;
 }
@@ -2178,4 +2125,837 @@ body.modalOpen{
     white-space: normal;
     text-align: left;
   }
+}
+
+/* =========================
+   Documents Page Revamp
+   ========================= */
+.docsPageShell {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.docsHero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 2px;
+}
+
+.docsEyebrow {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: #0b5ea8;
+  margin-bottom: 8px;
+}
+
+.docsTitle {
+  margin: 0;
+  font-size: 40px;
+  line-height: 1.04;
+  font-weight: 900;
+  color: #101828;
+}
+
+.docsLead {
+  margin: 10px 0 0;
+  max-width: 720px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: #667085;
+  font-weight: 600;
+}
+
+.docsHeroActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.docsSummaryPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgba(11, 58, 102, 0.06);
+  border: 1px solid rgba(11, 58, 102, 0.10);
+}
+
+.docsSummaryValue {
+  font-size: 18px;
+  font-weight: 900;
+  color: #0b3a66;
+}
+
+.docsSummaryLabel {
+  font-size: 12px;
+  font-weight: 800;
+  color: #475467;
+  white-space: nowrap;
+}
+
+.docsAddBtn {
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 18px;
+  font-weight: 800;
+}
+
+.docsStatsGrid {
+  margin-top: 0;
+  gap: 16px;
+}
+
+.docsStatCard {
+  border-radius: 18px;
+  padding: 18px 18px 16px;
+  border: 1px solid rgba(227, 230, 234, 0.96);
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(8px);
+}
+
+.docsStatHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.docsStatHint {
+  margin-top: 4px;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.docsControlsCard {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(227, 230, 234, 0.96);
+  box-shadow: 0 14px 34px rgba(16, 24, 40, 0.08);
+  border-radius: 22px;
+  padding: 18px;
+  backdrop-filter: blur(10px);
+}
+
+.docsControlsTop,
+.docsTableTopbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.docsSectionTitle {
+  font-size: 16px;
+  font-weight: 900;
+  color: #101828;
+}
+
+.docsSectionSub {
+  margin-top: 4px;
+  color: #667085;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.docsClearFilters {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(11, 58, 102, 0.14);
+  background: rgba(11, 58, 102, 0.04);
+  color: #0b3a66;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.docsClearFilters:hover {
+  background: rgba(11, 58, 102, 0.08);
+}
+
+.docsControlsGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.docsToolbarSearch,
+.docsToolbarFilters {
+  height: 100%;
+  margin: 0;
+  border-radius: 18px;
+  box-shadow: none;
+  padding: 16px;
+  border: 1px solid rgba(207, 214, 221, 0.75);
+  background: #f8fafc;
+  backdrop-filter: none;
+}
+
+.docsToolbarSearch {
+  grid-template-columns: minmax(0, 1fr) 220px 132px;
+}
+
+.docsToolbarFilters {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) 128px;
+}
+
+.docsSearchControl,
+.docsSortControl {
+  min-width: 0;
+}
+
+.docsControlBtn {
+  height: 42px;
+  align-self: end;
+}
+
+.docsTableWrap {
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 16px 40px rgba(16, 24, 40, 0.09);
+  overflow: auto;
+}
+
+.docsTableTopbar {
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid #eef2f6;
+}
+
+.docsResultsMeta {
+  font-size: 12px;
+  font-weight: 800;
+  color: #667085;
+  white-space: nowrap;
+}
+
+.docsTableModern {
+  width: 100%;
+  min-width: 1100px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.docsTableModern th,
+.docsTableModern td {
+  padding: 18px 16px;
+  border-bottom: 1px solid #eef2f6;
+  vertical-align: top;
+}
+
+.docsTableModern th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+
+  background: linear-gradient(180deg, #123E66, #0B3A66);
+  color: #ffffff;
+
+  text-align: left;
+  font-size: 11.5px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.docsTableModern th:not(:last-child) {
+  border-right: 1px solid rgba(255,255,255,0.08);
+}
+
+.docsTableModern tbody tr {
+  background: rgba(255, 255, 255, 0.92);
+  transition: background .12s ease;
+}
+
+
+.docsRow td:first-child {
+  border-left: 4px solid transparent;
+}
+
+.docsRow.rowToneIncoming td:first-child {
+  border-left-color: #0b5ea8;
+}
+
+.docsRow.rowTonePending td:first-child {
+  border-left-color: #b42318;
+}
+
+.docsRow.rowToneComplete td:first-child,
+.docsRow.rowToneNeutral td:first-child {
+  border-left-color: transparent;
+}
+
+.docStatusCell,
+.docInfoCell,
+.routeInfoCell,
+.docStateCell,
+.requesterCell,
+.daysCellWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.docStatusCell .chip,
+.docStateCell .chip {
+  align-self: flex-start;
+}
+
+.docsTableModern .docStatusCell > .chip {
+  font-size: 12px;
+  padding: 7px 12px;
+}
+
+.docStatusBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 230px;
+}
+
+.docMiniBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(11, 58, 102, 0.14);
+  background: rgba(11, 58, 102, 0.05);
+  color: #0b3a66;
+  font-size: 10.5px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.docMiniBadge.warn {
+  border-color: rgba(180, 35, 24, 0.22);
+  background: rgba(180, 35, 24, 0.07);
+  color: #b42318;
+}
+
+.docMiniBadge.muted {
+  border-color: rgba(102, 112, 133, 0.18);
+  background: rgba(102, 112, 133, 0.08);
+  color: #475467;
+}
+
+.docInfoTitle {
+  font-size: 15px;
+  line-height: 1.35;
+  font-weight: 800;
+  color: #101828;
+}
+
+.docInfoMeta,
+.docStateHint,
+.requesterMeta,
+.daysHintText {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  color: #667085;
+  font-weight: 700;
+}
+
+.docInfoTracking {
+  color: #0b3a66;
+  font-weight: 900;
+}
+
+.docMetaDot {
+  color: #98a2b3;
+}
+
+.routeLine {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.routeLabel {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: #98a2b3;
+  font-weight: 900;
+  line-height: 1.5;
+}
+
+.routeValue {
+  font-size: 13px;
+  line-height: 1.45;
+  color: #475467;
+  font-weight: 700;
+  min-width: 0;
+}
+
+.routeValue.strong {
+  color: #101828;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.docStateHint {
+  max-width: 150px;
+}
+
+.daysCellWrap {
+  align-items: flex-start;
+}
+
+.daysPill {
+  display: inline-flex;
+  min-width: 46px;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 900;
+  font-size: 12px;
+  border: 1px solid #dbe1e7;
+  background: #fff;
+  color: #344054;
+}
+
+.daysPill.warn {
+  border-color: rgba(243, 156, 18, .35);
+  background: rgba(243, 156, 18, .10);
+  color: #b66a00;
+}
+
+.daysPill.danger {
+  border-color: rgba(231, 76, 60, .35);
+  background: rgba(231, 76, 60, .10);
+  color: #b42318;
+}
+
+.requesterName {
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 800;
+  color: #101828;
+}
+
+.docsEmptyState {
+  padding: 34px 18px !important;
+  text-align: center;
+}
+
+.docsTableModern .chip {
+  font-size: 11px;
+  letter-spacing: .02em;
+}
+
+@media (max-width: 1200px) {
+  .docsControlsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .docsToolbarSearch {
+    grid-template-columns: minmax(0, 1fr) 220px 132px;
+  }
+}
+
+@media (max-width: 900px) {
+  .docsHero,
+  .docsControlsTop,
+  .docsTableTopbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .docsTitle {
+    font-size: 34px;
+  }
+
+  .docsHeroActions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .docsToolbarSearch,
+  .docsToolbarFilters {
+    grid-template-columns: 1fr;
+  }
+
+  .docsControlBtn,
+  .docsAddBtn,
+  .docsClearFilters {
+    width: 100%;
+  }
+
+  .docsResultsMeta {
+    white-space: normal;
+  }
+}
+
+/* =========================
+   Documents Page Color Lift
+   ========================= */
+
+.docsHero {
+  position: relative;
+  padding: 6px 2px 2px;
+}
+
+.docsEyebrow {
+  color: #e87722;
+}
+
+.docsTitle {
+  color: #0b2742;
+}
+
+.docsLead {
+  color: #5f6f85;
+}
+
+.docsSummaryPill {
+  background: linear-gradient(135deg, rgba(11, 58, 102, 0.10), rgba(232, 119, 34, 0.10));
+  border-color: rgba(11, 58, 102, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.45);
+}
+
+.docsSummaryValue {
+  color: #0b3a66;
+}
+
+.docsAddBtn {
+  box-shadow: 0 10px 22px rgba(232, 119, 34, 0.22);
+}
+
+/* stat cards */
+.docsStatCard {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(219, 223, 228, 0.95);
+  box-shadow: 0 12px 28px rgba(16, 24, 40, 0.07);
+}
+
+.docsStatCard::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: linear-gradient(90deg, #0b3a66, #e87722);
+  opacity: 0.95;
+}
+
+.docsStatCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 30px rgba(16, 24, 40, 0.10);
+}
+
+.docsStatCard .statValue {
+  color: #101828;
+}
+
+.docsStatCard:nth-child(1)::before {
+  background: linear-gradient(90deg, #e87722, #f5b041);
+}
+
+.docsStatCard:nth-child(2)::before {
+  background: linear-gradient(90deg, #d92d20, #f97066);
+}
+
+.docsStatCard:nth-child(3)::before {
+  background: linear-gradient(90deg, #12b76a, #6ce9a6);
+}
+
+.docsStatCard:nth-child(4)::before {
+  background: linear-gradient(90deg, #667085, #98a2b3);
+}
+
+.statCardLink:hover {
+  background: rgba(255,255,255,0.98);
+}
+
+.statCardLink.isActive {
+  border-color: rgba(11, 58, 102, 0.22);
+  background: linear-gradient(180deg, rgba(11, 58, 102, 0.05), rgba(232, 119, 34, 0.04));
+  box-shadow: 0 12px 28px rgba(11, 58, 102, 0.12);
+}
+
+/* controls */
+.docsControlsCard {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.97), rgba(248,250,252,0.96));
+  border-color: rgba(222, 227, 232, 0.96);
+}
+
+.docsSectionTitle {
+  color: #0f1728;
+}
+
+.docsSectionSub {
+  color: #667085;
+}
+
+.docsToolbarSearch,
+.docsToolbarFilters {
+  background:
+    linear-gradient(180deg, rgba(248,250,252,1), rgba(244,247,250,0.98));
+  border-color: rgba(203, 213, 225, 0.75);
+}
+
+.docsToolbarSearch {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.65);
+}
+
+.docsToolbarFilters {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.65);
+}
+
+.docsToolbarSearch .search,
+.docsToolbarSearch .select,
+.docsToolbarFilters .select,
+.docsToolbarFilters .date {
+  background: rgba(255,255,255,0.95);
+}
+
+/* table shell */
+.docsTableWrap {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.98), rgba(249,250,251,0.98));
+  border: 1px solid rgba(224, 229, 234, 0.98);
+}
+
+.docsTableTopbar {
+  background: linear-gradient(180deg, rgba(255,255,255,0.72), rgba(248,250,252,0.88));
+}
+
+/* row life */
+.docsTableModern tbody tr {
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.docsTableModern tbody tr:hover {
+  background: linear-gradient(90deg, rgba(255,247,237,0.78), rgba(255,255,255,0.98));
+}
+
+.docsRow.rowToneIncoming {
+  background:
+    linear-gradient(90deg, rgba(219, 234, 254, 0.28), rgba(255,255,255,0.95));
+}
+
+.docsRow.rowTonePending {
+  background:
+    linear-gradient(90deg, rgba(254, 242, 242, 0.55), rgba(255,255,255,0.96));
+}
+
+.docsRow.rowToneIncoming:hover {
+  background:
+    linear-gradient(90deg, rgba(219, 234, 254, 0.42), rgba(255,255,255,0.98));
+}
+
+.docsRow.rowTonePending:hover {
+  background:
+    linear-gradient(90deg, rgba(254, 226, 226, 0.72), rgba(255,255,255,0.98));
+}
+
+/* accent border stronger but refined */
+.docsRow.rowToneIncoming td:first-child {
+  border-left-color: #1570ef;
+}
+
+.docsRow.rowTonePending td:first-child {
+  border-left-color: #d92d20;
+}
+
+/* document title and metadata */
+.docInfoTitle {
+  color: #0f1728;
+}
+
+.docInfoTracking {
+  color: #0b5ea8;
+}
+
+.routeValue.strong {
+  color: #111827;
+}
+
+.routeLabel {
+  color: #94a3b8;
+}
+
+.docStateHint,
+.requesterMeta,
+.daysHintText,
+.docInfoMeta {
+  color: #667085;
+}
+
+/* chips — slightly richer */
+.docsTableModern .docStatusCell > .chip {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.45);
+}
+
+.chip.incoming {
+  background: rgba(243,156,18,.12);
+  border-color: rgba(243,156,18,.40);
+  color: #b86500;
+}
+
+.chip.action {
+  background: rgba(21,112,239,.12);
+  border-color: rgba(21,112,239,.30);
+  color: #0b5ea8;
+}
+
+.chip.released {
+  background: rgba(18,183,106,.12);
+  border-color: rgba(18,183,106,.28);
+  color: #027a48;
+}
+
+.chip.archived {
+  background: rgba(102,112,133,.12);
+  border-color: rgba(102,112,133,.24);
+  color: #475467;
+}
+
+.chip.overdue {
+  background: rgba(217,45,32,.10);
+  border-color: rgba(217,45,32,.28);
+  color: #b42318;
+}
+
+/* mini badges */
+.docMiniBadge {
+  background: rgba(11, 58, 102, 0.06);
+  border-color: rgba(11, 58, 102, 0.16);
+  color: #0b3a66;
+}
+
+.docMiniBadge.warn {
+  background: rgba(217,45,32,0.08);
+  border-color: rgba(217,45,32,0.20);
+  color: #b42318;
+}
+
+.docMiniBadge.muted {
+  background: rgba(102,112,133,0.09);
+  border-color: rgba(102,112,133,0.16);
+  color: #475467;
+}
+
+/* days pill */
+.daysPill {
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
+  border-color: #d7dde4;
+  color: #344054;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.55);
+}
+
+.daysPill.warn {
+  background: rgba(243,156,18,.11);
+  border-color: rgba(243,156,18,.38);
+  color: #b66a00;
+}
+
+.daysPill.danger {
+  background: rgba(217,45,32,.11);
+  border-color: rgba(217,45,32,.30);
+  color: #b42318;
+}
+
+/* requester emphasis */
+.requesterName {
+  color: #101828;
+}
+
+.docsResultsMeta {
+  color: #5f6b7a;
+}
+
+/* buttons slightly more alive */
+.btnSecondary,
+.btnComp,
+.btnPrimary {
+  box-shadow: 0 8px 18px rgba(11, 58, 102, 0.10);
+}
+
+.btnComp {
+  box-shadow: 0 10px 22px rgba(232, 119, 34, 0.20);
+}
+
+/* small polish on empty / section cards */
+.docsEmptyState {
+  color: #667085;
+}
+
+.docsTableModern tbody tr,
+.docsTableModern tbody tr td {
+  cursor: pointer;
+}
+
+.docStateCell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.docStateMain {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+}
+
+.docStateDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex: 0 0 10px;
+  background: #98a2b3;
+  box-shadow: 0 0 0 4px rgba(152,162,179,0.12);
+}
+
+.docStateText {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: #344054;
+}
+
+.docStateMain.isActive .docStateDot {
+  background: #e87722;
+  box-shadow: 0 0 0 4px rgba(232,119,34,0.14);
+}
+
+.docStateMain.isTransit .docStateDot {
+  background: #1570ef;
+  box-shadow: 0 0 0 4px rgba(21,112,239,0.14);
+}
+
+.docStateMain.isReleased .docStateDot {
+  background: #12b76a;
+  box-shadow: 0 0 0 4px rgba(18,183,106,0.14);
+}
+
+.docStateMain.isArchived .docStateDot {
+  background: #667085;
+  box-shadow: 0 0 0 4px rgba(102,112,133,0.12);
 }

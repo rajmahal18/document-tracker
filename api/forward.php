@@ -187,6 +187,7 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
   }
 
   $branchMode = workflow_branch_mode_enabled($conn);
+  $docHasRealBranches = ($branchMode && workflow_document_has_real_branches($conn, $docId));
 
   $stmt = $conn->prepare("SELECT id, current_status, current_holder_section_id FROM documents WHERE id = ? LIMIT 1");
   $stmt->bind_param("i", $docId);
@@ -210,7 +211,7 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
   }
 
   $sourceBranch = null;
-  if ($branchMode) {
+  if ($docHasRealBranches) {
     $sourceBranch = workflow_find_single_actionable_branch($conn, $docId, $userId, $branchIdReq > 0 ? $branchIdReq : null);
     if (!$sourceBranch) {
       $stmt = $conn->prepare("\n        SELECT COUNT(*) AS c\n        FROM document_branches\n        WHERE document_id = ?\n          AND branch_status = 'ACTIVE'\n          AND current_assignee_user_id = ?\n          AND is_reference = 0\n      ");
@@ -235,18 +236,12 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
       echo json_encode(["ok" => false, "error" => "Your section does not hold this document."]);
       exit;
     }
-    if ($toSectionId === $mySectionId) {
-      $conn->rollback();
-      http_response_code(400);
-      echo json_encode(["ok" => false, "error" => "You cannot forward a document to your own section."]);
-      exit;
-    }
   }
 
   $routeIds = [];
   $newBranchIds = [];
 
-  if ($branchMode) {
+  if ($docHasRealBranches) {
     $sourceBranchId = (int)$sourceBranch["id"];
 
     $stmtRoute = $conn->prepare("\n      INSERT INTO routes\n        (document_id, branch_id, from_section_id, to_section_id, from_user_id, to_user_id, route_kind, send_batch_id, received_at, sent_by_user_id, remarks)\n      VALUES\n        (?, ?, ?, ?, ?, ?, 'ACTION', ?, NULL, ?, ?)\n    ");
@@ -318,8 +313,8 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
   $payload = json_encode([
     "remarks" => $remarks,
     "send_batch_id" => $sendBatchId,
-    "branch_mode" => $branchMode,
-    "receive_only" => $branchMode ? ($receiveOnly || count($recipients) > 1) : false,
+    "branch_mode" => $docHasRealBranches,
+    "receive_only" => $docHasRealBranches ? ($receiveOnly || count($recipients) > 1) : false,
 
     "from_section_name" => $fromSectionName,
     "to_section_name" => $toSectionName,
@@ -331,13 +326,13 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
     "to_user_names" => $recipientNames,
     "recipient_names" => $recipientNames,
 
-    "source_branch_id" => $branchMode ? (int)($sourceBranch["id"] ?? 0) : null,
+    "source_branch_id" => $docHasRealBranches ? (int)($sourceBranch["id"] ?? 0) : null,
     "new_branch_ids" => array_values(array_unique(array_filter($newBranchIds))),
   ], JSON_UNESCAPED_UNICODE);
 
   $stmt = $conn->prepare("\n    INSERT INTO document_events\n      (document_id, event_type, actor_user_id, actor_section_id, from_section_id, to_section_id, payload_json)\n    VALUES (?, 'forwarded', ?, ?, ?, ?, ?)\n  ");
 
-  $fromSectionForEvent = $branchMode ? $mySectionId : $holderSectionId;
+  $fromSectionForEvent = $docHasRealBranches ? $mySectionId : $holderSectionId;
   $stmt->bind_param("iiiiis", $docId, $userId, $mySectionId, $fromSectionForEvent, $toSectionId, $payload);
   $stmt->execute();
 
@@ -349,7 +344,7 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
     "route_ids" => $routeIds,
     "to_user_ids" => $recipients,
     "send_batch_id" => $sendBatchId,
-    "branch_mode" => $branchMode,
+    "branch_mode" => $docHasRealBranches,
     "branch_ids" => array_values(array_unique(array_filter($newBranchIds))),
   ]);
   exit;
