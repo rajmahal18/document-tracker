@@ -1339,7 +1339,7 @@ $end   = min($totalPages, $page + 2);
 
     <div class="kv"><div class="k">Requester</div><div class="v" id="d_requester"></div></div>
     <div class="kv"><div class="k">Doc Date</div><div class="v" id="d_date"></div></div>
-    <div class="kv"><div class="k">Document deadline</div><div class="v" id="d_deadline">—</div></div>
+    <div class="kv"><div class="k">Doc deadline</div><div class="v" id="d_deadline">—</div></div>
     <div class="kv"><div class="k">Your deadline</div><div class="v" id="d_personal_deadline">—</div></div>
     <div class="kv"><div class="k">Urgency</div><div class="v" id="d_deadline_countdown">—</div></div>
     <div class="kv"><div class="k">Subject</div><div class="v" id="d_subject"></div></div>

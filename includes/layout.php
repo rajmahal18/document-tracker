@@ -24,7 +24,7 @@ $pageTitle = $pageTitle ?? "Document Tracker";
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="<?= ASSETS_PATH ?>/css/style.css?v=14.0">
+  <link rel="stylesheet" href="<?= ASSETS_PATH ?>/css/style.css?v=16.1">
 
 <script>
   window.__APP__ = {
@@ -44,6 +44,16 @@ $pageTitle = $pageTitle ?? "Document Tracker";
 ?>
 <header class="topbar appTopbar">
   <div class="appTopbarMain">
+    <?php if (isset($_SESSION["user_id"])): ?>
+      <div class="topbarTools topbarToolsLeft">
+        <button type="button" class="navToggle" id="navToggle" aria-label="Open navigation" aria-expanded="false" aria-controls="mainNav">
+          <span class="navToggleLine"></span>
+          <span class="navToggleLine"></span>
+          <span class="navToggleLine"></span>
+        </button>
+      </div>
+    <?php endif; ?>
+
     <a href="<?= PUBLIC_PATH ?>/documents.php" class="brand appBrandShell appBrandHeaderLink">
       <span class="logo appBrandLogoLink">
         <img src="<?= ASSETS_PATH ?>/mpwlogo1.png" alt="MPW Logo" />
@@ -54,16 +64,6 @@ $pageTitle = $pageTitle ?? "Document Tracker";
         <span class="brandSubtitle">Bangsamoro Autonomous Region in Muslim Mindanao</span>
       </span>
     </a>
-
-    <?php if (isset($_SESSION["user_id"])): ?>
-      <div class="topbarTools">
-        <button type="button" class="navToggle" id="navToggle" aria-label="Open navigation" aria-expanded="false" aria-controls="mainNav">
-          <span class="navToggleLine"></span>
-          <span class="navToggleLine"></span>
-          <span class="navToggleLine"></span>
-        </button>
-      </div>
-    <?php endif; ?>
   </div>
 </header>
 
@@ -75,7 +75,6 @@ $pageTitle = $pageTitle ?? "Document Tracker";
         <img src="<?= ASSETS_PATH ?>/mpwlogo1.png" alt="MPW Logo" />
         <div>
           <strong>MPW Document Tracker</strong>
-          <span>Quick access and phone-first tools</span>
         </div>
       </div>
       <button type="button" class="appDrawerClose" id="navCloseBtn" aria-label="Close navigation">✕</button>
