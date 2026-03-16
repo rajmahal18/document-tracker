@@ -14,14 +14,33 @@ if ($_SERVER["REQUEST_METHOD"] !== "POST") {
 
 require_csrf();
 
+
+function normalize_deadline_input(?string $raw): ?string
+{
+  $raw = trim((string)$raw);
+  if ($raw === '') {
+    return null;
+  }
+
+  $dt = DateTime::createFromFormat('Y-m-d\TH:i', $raw, new DateTimeZone('Asia/Manila'));
+  if (!$dt) {
+    return null;
+  }
+
+  return $dt->format('Y-m-d H:i:s');
+}
+
 $docId       = (int)($_POST["document_id"] ?? 0);
 $toSectionId = (int)($_POST["to_section_id"] ?? 0);
 $toUserId    = (int)($_POST["to_user_id"] ?? 0);
 $branchIdReq = (int)($_POST["branch_id"] ?? 0);
 $receiveOnly = ((int)($_POST["receive_only"] ?? 0) === 1);
-$remarks     = trim((string)($_POST["remarks"] ?? "none"));
-if ($remarks === "") {
-  $remarks = "none";
+$remarks     = trim((string)($_POST["remarks"] ?? ""));
+$personalDeadlineRaw = trim((string)($_POST["personal_deadline_at"] ?? ""));
+$personalDeadlineAt = normalize_deadline_input($personalDeadlineRaw);
+$routeRemarks = '';
+if ($remarks !== '' && strcasecmp($remarks, 'none') !== 0) {
+  $routeRemarks = $remarks;
 }
 
 $toUserIds = $_POST["to_user_ids"] ?? [];
@@ -41,9 +60,22 @@ if ($docId <= 0 || $toSectionId <= 0) {
 
 $mySectionId = (int)($_SESSION["section_id"] ?? 0);
 $userId      = (int)($_SESSION["user_id"] ?? 0);
+$isChief     = ((int)($_SESSION["is_chief"] ?? 0) === 1);
 if ($mySectionId <= 0 || $userId <= 0) {
   http_response_code(400);
   echo json_encode(["ok" => false, "error" => "Missing session assignment"]);
+  exit;
+}
+
+if ($personalDeadlineRaw !== '' && $personalDeadlineAt === null) {
+  http_response_code(400);
+  echo json_encode(["ok" => false, "error" => "Personal deadline must be a valid date and time."]);
+  exit;
+}
+
+if ($personalDeadlineAt !== null && !$isChief) {
+  http_response_code(403);
+  echo json_encode(["ok" => false, "error" => "Only section chiefs can set a personal deadline."]);
   exit;
 }
 
@@ -244,7 +276,7 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
   if ($docHasRealBranches) {
     $sourceBranchId = (int)$sourceBranch["id"];
 
-    $stmtRoute = $conn->prepare("\n      INSERT INTO routes\n        (document_id, branch_id, from_section_id, to_section_id, from_user_id, to_user_id, route_kind, send_batch_id, received_at, sent_by_user_id, remarks)\n      VALUES\n        (?, ?, ?, ?, ?, ?, 'ACTION', ?, NULL, ?, ?)\n    ");
+    $stmtRoute = $conn->prepare("\n      INSERT INTO routes\n        (document_id, branch_id, from_section_id, to_section_id, from_user_id, to_user_id, route_kind, send_batch_id, received_at, sent_by_user_id, remarks, personal_deadline_at)\n      VALUES\n        (?, ?, ?, ?, ?, ?, 'ACTION', ?, NULL, ?, ?, ?)\n    ");
 
     $forceReceiveOnly = $receiveOnly || count($recipients) > 1;
 
@@ -258,7 +290,7 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
 
       workflow_grant_visibility($conn, $docId, $rid, 'PARTICIPANT', $sourceBranchId, $userId);
 
-      $stmtRoute->bind_param("iiiiiisis", $docId, $sourceBranchId, $mySectionId, $toSectionId, $userId, $rid, $sendBatchId, $userId, $remarks);
+      $stmtRoute->bind_param("iiiiiisiss", $docId, $sourceBranchId, $mySectionId, $toSectionId, $userId, $rid, $sendBatchId, $userId, $routeRemarks, $personalDeadlineAt);
       $stmtRoute->execute();
       $routeIds[] = (int)$conn->insert_id;
       $newBranchIds[] = $sourceBranchId;
@@ -286,18 +318,18 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
 
         workflow_grant_visibility($conn, $docId, $rid, 'PARTICIPANT', $childBranchId, $userId);
 
-        $stmtRoute->bind_param("iiiiiisis", $docId, $childBranchId, $mySectionId, $toSectionId, $userId, $rid, $sendBatchId, $userId, $remarks);
+        $stmtRoute->bind_param("iiiiiisiss", $docId, $childBranchId, $mySectionId, $toSectionId, $userId, $rid, $sendBatchId, $userId, $routeRemarks, $personalDeadlineAt);
         $stmtRoute->execute();
         $routeIds[] = (int)$conn->insert_id;
         $newBranchIds[] = $childBranchId;
       }
     }
   } else {
-    $stmt = $conn->prepare("\n      INSERT INTO routes\n        (document_id, from_section_id, to_section_id, to_user_id, send_batch_id, received_at, sent_by_user_id, remarks)\n      VALUES\n        (?, ?, ?, ?, ?, NULL, ?, ?)\n    ");
+    $stmt = $conn->prepare("\n      INSERT INTO routes\n        (document_id, from_section_id, to_section_id, to_user_id, send_batch_id, received_at, sent_by_user_id, remarks, personal_deadline_at)\n      VALUES\n        (?, ?, ?, ?, ?, NULL, ?, ?, ?)\n    ");
 
     foreach ($recipients as $rid) {
       $rid = (int)$rid;
-      $stmt->bind_param("iiiisis", $docId, $holderSectionId, $toSectionId, $rid, $sendBatchId, $userId, $remarks);
+      $stmt->bind_param("iiiisiss", $docId, $holderSectionId, $toSectionId, $rid, $sendBatchId, $userId, $routeRemarks, $personalDeadlineAt);
       $stmt->execute();
       $routeIds[] = (int)$conn->insert_id;
     }
@@ -311,11 +343,13 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
   }
 
   $payload = json_encode([
-    "remarks" => $remarks,
+    "remarks" => $routeRemarks,
     "send_batch_id" => $sendBatchId,
     "branch_mode" => $docHasRealBranches,
     "receive_only" => $docHasRealBranches ? ($receiveOnly || count($recipients) > 1) : false,
 
+    "from_section_id" => $mySectionId,
+    "to_section_id" => $toSectionId,
     "from_section_name" => $fromSectionName,
     "to_section_name" => $toSectionName,
 
@@ -328,6 +362,7 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
 
     "source_branch_id" => $docHasRealBranches ? (int)($sourceBranch["id"] ?? 0) : null,
     "new_branch_ids" => array_values(array_unique(array_filter($newBranchIds))),
+    "personal_deadline_at" => $personalDeadlineAt,
   ], JSON_UNESCAPED_UNICODE);
 
   $stmt = $conn->prepare("\n    INSERT INTO document_events\n      (document_id, event_type, actor_user_id, actor_section_id, from_section_id, to_section_id, payload_json)\n    VALUES (?, 'forwarded', ?, ?, ?, ?, ?)\n  ");
@@ -346,6 +381,7 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
     "send_batch_id" => $sendBatchId,
     "branch_mode" => $docHasRealBranches,
     "branch_ids" => array_values(array_unique(array_filter($newBranchIds))),
+    "personal_deadline_at" => $personalDeadlineAt,
   ]);
   exit;
 

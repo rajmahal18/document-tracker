@@ -8,6 +8,7 @@
   const elRequester = document.getElementById("d_requester");
   const elDate = document.getElementById("d_date");
   const elDeadline = document.getElementById("d_deadline");
+  const elPersonalDeadline = document.getElementById("d_personal_deadline");
   const elDeadlineCountdown = document.getElementById("d_deadline_countdown");
   const elSubject = document.getElementById("d_subject");
   const elType = document.getElementById("d_type");
@@ -19,7 +20,7 @@
   const elDestinationText = document.getElementById("d_destination_text");
   const elLastHolder = document.getElementById("d_last_holder");
 
-  const elRemarks = document.getElementById("d_remarks");
+  const elActionRemarks = document.getElementById("d_action_remarks");
   const elTimeline = document.getElementById("d_timeline");
   const elBranchWrap = document.getElementById("d_branch_wrap");
   const elBranchBar = document.getElementById("d_branch_bar");
@@ -38,6 +39,9 @@
   const btnToggleAttachments = document.getElementById("btnToggleAttachments");
   const btnToggleUpload = document.getElementById("btnToggleUpload");
   const btnToggleForward = document.getElementById("btnToggleForward");
+
+  const forwardPersonalDeadlineWrap = document.getElementById("forwardPersonalDeadlineWrap");
+  const inputForwardPersonalDeadline = document.getElementById("f_personal_deadline");
 
   const attachForm = document.getElementById("attachForm");
   const attachFile = document.getElementById("attachFile");
@@ -106,8 +110,7 @@
   }
 
   function normalizedRemarksValue() {
-    const raw = (elRemarks?.value ?? "").toString().trim();
-    return raw ? raw : "none";
+    return (elActionRemarks?.value ?? "").toString().trim();
   }
 
   function fmtBytes(n) {
@@ -146,9 +149,13 @@
     return `${minutes}m`;
   }
 
-  function renderDeadline(deadlineAt) {
-    const raw = (deadlineAt || "").toString().trim();
-    if (elDeadline) elDeadline.textContent = raw ? fmt(raw) : "—";
+  function renderDeadline(documentDeadlineAt, personalDeadlineAt = "") {
+    const docRaw = (documentDeadlineAt || "").toString().trim();
+    const personalRaw = (personalDeadlineAt || "").toString().trim();
+    const effectiveRaw = personalRaw || docRaw;
+
+    if (elDeadline) elDeadline.textContent = docRaw ? fmt(docRaw) : "—";
+    if (elPersonalDeadline) elPersonalDeadline.textContent = personalRaw ? fmt(personalRaw) : "—";
 
     if (deadlineTicker) {
       clearInterval(deadlineTicker);
@@ -156,12 +163,12 @@
     }
 
     if (!elDeadlineCountdown) return;
-    if (!raw) {
-      elDeadlineCountdown.textContent = "—";
+    if (!effectiveRaw) {
+      elDeadlineCountdown.textContent = "No deadline set";
       return;
     }
 
-    const deadlineDate = new Date(raw.replace(" ", "T"));
+    const deadlineDate = new Date(effectiveRaw.replace(" ", "T"));
     if (Number.isNaN(deadlineDate.getTime())) {
       elDeadlineCountdown.textContent = "—";
       return;
@@ -169,11 +176,17 @@
 
     const tick = () => {
       const diff = deadlineDate.getTime() - Date.now();
-      if (diff >= 0) {
-        elDeadlineCountdown.textContent = `Due in ${formatCountdown(diff)}`;
-      } else {
-        elDeadlineCountdown.textContent = `Overdue by ${formatCountdown(Math.abs(diff))}`;
+      if (diff < 0) {
+        const lateDays = Math.max(1, Math.ceil(Math.abs(diff) / 86400000));
+        elDeadlineCountdown.textContent = lateDays === 1 ? "OVERDUE BY 1 DAY" : `OVERDUE BY ${lateDays} DAYS`;
+        return;
       }
+      if (diff <= 86400000) {
+        elDeadlineCountdown.textContent = "DUE TODAY";
+        return;
+      }
+      const daysLeft = Math.floor(diff / 86400000);
+      elDeadlineCountdown.textContent = daysLeft <= 1 ? "1 DAY LEFT" : `${daysLeft} DAYS LEFT`;
     };
 
     tick();
@@ -568,10 +581,16 @@
     if (!forwardBox) return;
 
     const isOpen = !forwardBox.classList.contains("collapsed");
+    const chiefCanSetDeadline = !!(window.__CTX__?.isChief);
 
     if (btnToggleForward) btnToggleForward.style.display = currentCanForward ? "" : "none";
     if (btnForward) btnForward.style.display = (currentCanForward && isOpen) ? "" : "none";
     if (elForwardModeWrap) elForwardModeWrap.style.display = (currentCanForward && isOpen) ? "" : "none";
+    if (forwardPersonalDeadlineWrap) forwardPersonalDeadlineWrap.style.display = (currentCanForward && isOpen && chiefCanSetDeadline) ? "" : "none";
+
+    if (!currentCanForward && inputForwardPersonalDeadline) {
+      inputForwardPersonalDeadline.value = "";
+    }
 
     updateForwardModeUI();
   }
@@ -1243,6 +1262,7 @@
 
                 ${ackSummaryHtml}
 
+                ${i.personal_deadline_at ? `<div class="tNote"><strong>Personal deadline:</strong> ${esc(fmt(i.personal_deadline_at))}</div>` : ``}
                 ${i.remarks ? `<div class="tNote"><strong>Remarks:</strong> ${esc(i.remarks)}</div>` : ``}
 
               </div>
@@ -1378,6 +1398,7 @@
                         ${movement ? `<div class="tLineMove">${movement}</div>` : ``}
                         ${details.length ? `<div class="tLineMove">${details.join(" • ")}</div>` : ``}
                         ${ackSummaryHtml}
+                        ${i.personal_deadline_at ? `<div class="tLineNote">Personal deadline: ${esc(fmt(i.personal_deadline_at))}</div>` : ``}
                         ${i.remarks ? `<div class="tLineNote">Remarks: ${esc(i.remarks)}</div>` : ``}
                       </div>
                     </div>
@@ -1582,7 +1603,7 @@
     if (elTracking) elTracking.textContent = payload.tracking_no || "";
     if (elRequester) elRequester.textContent = payload.requester || "—";
     if (elDate) elDate.textContent = payload.document_date || "—";
-    renderDeadline(payload.deadline_at || "");
+    renderDeadline(payload.deadline_at || "", payload.my_personal_deadline_at || "");
     if (elSubject) elSubject.textContent = payload.subject || "—";
     if (elType) elType.textContent = payload.content_type || "—";
     if (elDays) elDays.textContent = payload.days_stuck ?? "0";
@@ -1618,7 +1639,7 @@
     }
 
     if (elLastHolder) elLastHolder.textContent = payload.last_holder_text || "—";
-    if (elRemarks) elRemarks.value = "none";
+    if (elActionRemarks) elActionRemarks.value = "";
 
     backdrop?.classList.add("open");
     drawer?.classList.add("open");
@@ -1692,6 +1713,7 @@
     if (attachNote) attachNote.value = "";
     if (attachType) attachType.value = "1";
     if (selForwardTo) selForwardTo.value = "";
+    if (inputForwardPersonalDeadline) inputForwardPersonalDeadline.value = "";
     resetUsersUI();
     updateForwardModeUI();
 
@@ -1773,6 +1795,7 @@
       deadlineTicker = null;
     }
     if (elDeadline) elDeadline.textContent = "—";
+    if (elPersonalDeadline) elPersonalDeadline.textContent = "—";
     if (elDeadlineCountdown) elDeadlineCountdown.textContent = "—";
     if (elBranchWrap) elBranchWrap.style.display = "none";
     if (elBranchBar) elBranchBar.innerHTML = "";
@@ -1788,7 +1811,7 @@
     const routeId = Number.parseInt(currentPayload?.open_route_id || "0", 10) || 0;
     if (routeId > 0) form.append("route_id", String(routeId));
     form.append("new_status", newStatus);
-    form.append("remarks", elRemarks ? elRemarks.value : "");
+    form.append("remarks", normalizedRemarksValue());
     form.append("csrf_token", window.__CSRF__ || "");
 
     try {
@@ -1820,7 +1843,7 @@
       ? (Number.parseInt(branch?.my_pending_route_id || "0", 10) || 0)
       : (Number.parseInt(currentPayload?.open_route_id || "0", 10) || 0);
     if (routeId > 0) form.append("route_id", String(routeId));
-    form.append("remarks", elRemarks ? elRemarks.value : "");
+    form.append("remarks", normalizedRemarksValue());
     form.append("csrf_token", window.__CSRF__ || "");
 
     try {
@@ -1871,6 +1894,10 @@
 
     const receiveOnly = selected.length > 1 || !!cbReceiveOnly?.checked;
     form.append("receive_only", receiveOnly ? "1" : "0");
+
+    if (inputForwardPersonalDeadline && inputForwardPersonalDeadline.value) {
+      form.append("personal_deadline_at", inputForwardPersonalDeadline.value);
+    }
 
     form.append("remarks", normalizedRemarksValue());
     form.append("csrf_token", window.__CSRF__ || "");

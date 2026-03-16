@@ -157,9 +157,16 @@ try {
   $stmt->execute();
   $openRemaining = (int)($stmt->get_result()->fetch_assoc()["c"] ?? 0);
 
+  $eventRemarks = '';
+  if ($remarks !== '' && strcasecmp($remarks, 'none') !== 0) {
+    $eventRemarks = $remarks;
+  }
+
   $payload = json_encode([
-    "remarks" => $remarks,
+    "remarks" => $eventRemarks,
     "receive_mode" => $docHasRealBranches ? 'user' : $receiveMode,
+    "from_section_id" => $fromSectionId,
+    "to_section_id" => $toSectionId,
     "to_user_id" => $toUserId,
     "branch_id" => $branchId > 0 ? $branchId : null,
     "open_remaining_after_receive" => $openRemaining,

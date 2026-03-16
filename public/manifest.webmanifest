@@ -1,0 +1,25 @@
+{
+  "name": "MPW Document Tracker",
+  "short_name": "MPW Tracker",
+  "description": "Track, receive, forward, and scan government documents on mobile or desktop.",
+  "start_url": "/document-tracker/public/index.php",
+  "scope": "/document-tracker/",
+  "display": "standalone",
+  "background_color": "#f2f4f7",
+  "theme_color": "#0b3a66",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/document-tracker/assets/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/document-tracker/assets/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

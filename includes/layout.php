@@ -7,22 +7,32 @@ $pageTitle = $pageTitle ?? "Document Tracker";
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <meta name="theme-color" content="#0b3a66">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="MPW Tracker">
+  <meta name="mobile-web-app-capable" content="yes">
   <title><?= htmlspecialchars($pageTitle) ?></title>
+
+  <link rel="manifest" href="<?= PUBLIC_PATH ?>/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="<?= ASSETS_PATH ?>/icons/icon-192.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="<?= ASSETS_PATH ?>/icons/icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="<?= ASSETS_PATH ?>/icons/icon-512.png">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="<?= ASSETS_PATH ?>/css/style.css?v=11.46">
-  
+  <link rel="stylesheet" href="<?= ASSETS_PATH ?>/css/style.css?v=14.0">
 
 <script>
   window.__APP__ = {
     base: "<?= BASE_PATH ?>",
     api: "<?= API_PATH ?>",
     public: "<?= PUBLIC_PATH ?>",
-    assets: "<?= ASSETS_PATH ?>"
+    assets: "<?= ASSETS_PATH ?>",
+    currentPage: "<?= htmlspecialchars($currentPage ?? basename($_SERVER['PHP_SELF'])) ?>"
   };
 </script>
 </head>
@@ -32,50 +42,102 @@ $pageTitle = $pageTitle ?? "Document Tracker";
 <?php
   $currentPage = basename($_SERVER['PHP_SELF']);
 ?>
-<header class="topbar">
-  <div class="brand">
+<header class="topbar appTopbar">
+  <div class="appTopbarMain">
+    <a href="<?= PUBLIC_PATH ?>/documents.php" class="brand appBrandShell appBrandHeaderLink">
+      <span class="logo appBrandLogoLink">
+        <img src="<?= ASSETS_PATH ?>/mpwlogo1.png" alt="MPW Logo" />
+      </span>
 
-    <!-- ✅ Clickable Logo -->
-    <a href="https://mpw.bangsamoro.gov.ph/" class="logo">
-      <img src="<?= ASSETS_PATH ?>/mpwlogo1.png" alt="MPW Logo" />
+      <span class="brandText appBrandTextLink">
+        <h1>Ministry of Public Works</h1>
+        <span class="brandSubtitle">Bangsamoro Autonomous Region in Muslim Mindanao</span>
+      </span>
     </a>
 
-    <!-- ✅ Clickable Brand Text -->
-    <a href="https://mpw.bangsamoro.gov.ph/" class="brandText">
-      <h1>Ministry of Public Works</h1>
-      <span>Bangsamoro Autonomous Region in Muslim Mindanao</span>
-    </a>
-
+    <?php if (isset($_SESSION["user_id"])): ?>
+      <div class="topbarTools">
+        <button type="button" class="navToggle" id="navToggle" aria-label="Open navigation" aria-expanded="false" aria-controls="mainNav">
+          <span class="navToggleLine"></span>
+          <span class="navToggleLine"></span>
+          <span class="navToggleLine"></span>
+        </button>
+      </div>
+    <?php endif; ?>
   </div>
+</header>
 
-  <nav class="nav">
-    <!-- ✅ Home Highlight Logic -->
+<?php if (isset($_SESSION["user_id"])): ?>
+  <div class="appNavBackdrop" id="appNavBackdrop" hidden></div>
+  <nav class="nav appNav appSideNav" id="mainNav" aria-hidden="true">
+    <div class="appDrawerHeader">
+      <div class="appDrawerBrand">
+        <img src="<?= ASSETS_PATH ?>/mpwlogo1.png" alt="MPW Logo" />
+        <div>
+          <strong>MPW Document Tracker</strong>
+          <span>Quick access and phone-first tools</span>
+        </div>
+      </div>
+      <button type="button" class="appDrawerClose" id="navCloseBtn" aria-label="Close navigation">✕</button>
+    </div>
+
+    <div class="appDrawerSectionLabel">Navigation</div>
+    <div class="appDrawerNavLinks">
     <a 
-      href="<?= PUBLIC_PATH ?>/index.php"
-      class="<?= $currentPage === 'documents.php' ? 'navActive' : '' ?>"
+      href="<?= PUBLIC_PATH ?>/documents.php"
+      class="<?= in_array($currentPage, ['documents.php', 'index.php'], true) ? 'navActive' : '' ?>"
     >
-      Home
+      <span class="navIcon">⌂</span>
+      <span class="navText">Home</span>
     </a>
 
-    <a href="#" onclick="event.preventDefault()">Online Services</a>
-    <a href="#" onclick="event.preventDefault()">About Us</a>
+    <a href="<?= PUBLIC_PATH ?>/scan.php" class="<?= $currentPage === 'scan.php' ? 'navActive' : '' ?>">
+      <span class="navIcon">⌁</span>
+      <span class="navText">Scan QR</span>
+    </a>
 
-    <?php if (isset($_SESSION["user_id"]) && (string)($_SESSION["role"] ?? "user") === "admin"): ?>
+    <a href="#" class="navPlaceholder" onclick="event.preventDefault()">
+      <span class="navIcon">◎</span>
+      <span class="navText">Issuances</span>
+    </a>
+    <a href="#" class="navPlaceholder" onclick="event.preventDefault()">
+      <span class="navIcon">▤</span>
+      <span class="navText">Organizational Chart</span>
+    </a>
+    <a href="#" class="navPlaceholder" onclick="event.preventDefault()">
+      <span class="navIcon">☷</span>
+      <span class="navText">Ministry Orders</span>
+    </a>
+
+    <?php if ((string)($_SESSION["role"] ?? "user") === "admin"): ?>
       <a
         href="<?= PUBLIC_PATH ?>/access_requests.php"
         class="<?= $currentPage === 'access_requests.php' ? 'navActive' : '' ?>"
       >
-        Access Requests
+        <span class="navIcon">⚑</span>
+        <span class="navText">Access Requests</span>
       </a>
     <?php endif; ?>
 
-    <?php if (isset($_SESSION["user_id"])): ?>
-      <a href="<?= PUBLIC_PATH ?>/logout.php" style="margin-left:18px;color:#ffdddd;">
-        Logout
-      </a>
-    <?php endif; ?>
+    <a href="<?= PUBLIC_PATH ?>/logout.php" class="navLogout">
+      <span class="navIcon">↗</span>
+      <span class="navText">Logout</span>
+    </a>
+    </div>
+
+    <div class="appDrawerSectionLabel">Appearance</div>
+    <div class="themePicker themePickerDrawer" aria-label="Appearance mode">
+      <button type="button" class="themeOrb isActive" data-theme-value="light" aria-label="Use light mode" title="Light mode"></button>
+      <button type="button" class="themeOrb themeOrbDark" data-theme-value="dark" aria-label="Use dark mode" title="Dark mode"></button>
+    </div>
+
+    <button type="button" id="installAppBtn" class="appInstallDrawerBtn" hidden>Install app</button>
   </nav>
-</header>
+<?php endif; ?>
+
+<?php if (isset($_SESSION["user_id"]) && $currentPage !== "scan.php"): ?>
+  <a href="<?= PUBLIC_PATH ?>/scan.php" class="mobileScanFab" aria-label="Scan document QR">Scan</a>
+<?php endif; ?>
 
 <main class="page">
   <div class="content">

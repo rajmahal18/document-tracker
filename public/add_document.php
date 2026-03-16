@@ -63,6 +63,7 @@ $roleNorm = strtolower(trim($role));
 
 // ✅ Must have a section_id for routing
 $fromSectionId = (int)($_SESSION["section_id"] ?? 0);
+$isChief = ((int)($_SESSION["is_chief"] ?? 0) === 1);
 
 // ✅ Used as fallback display label
 $divisionName = trim((string)($_SESSION["division_name"] ?? ""));
@@ -137,9 +138,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   $comm_type     = trim((string)($_POST["comm_type"] ?? "internal"));
   $deadlineAtRaw = trim((string)($_POST["deadline_at"] ?? ""));
   $deadlineAt    = normalize_deadline_input($deadlineAtRaw);
-  $remarks       = trim((string)($_POST["remarks"] ?? "none"));
-  if ($remarks === "") {
-    $remarks = "none";
+  $remarks       = trim((string)($_POST["remarks"] ?? ""));
+  if (strcasecmp($remarks, "none") === 0) {
+    $remarks = "";
   }
   $selectedSectionId = (int)($_POST["to_section_id"] ?? 0); // picker only
 
@@ -178,6 +179,32 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
     if (count($cleanUserIds) > 0) {
       $recipientMap[$sectionId] = $cleanUserIds;
     }
+  }
+
+  $personalDeadlineMapRaw = $_POST["personal_deadline_map"] ?? [];
+  if (!is_array($personalDeadlineMapRaw)) {
+    $personalDeadlineMapRaw = [];
+  }
+
+  $personalDeadlineMap = [];
+  foreach ($personalDeadlineMapRaw as $sectionIdRaw => $deadlineRaw) {
+    $sectionId = (int)$sectionIdRaw;
+    if ($sectionId <= 0) continue;
+
+    $deadlineRaw = trim((string)$deadlineRaw);
+    if ($deadlineRaw === '') continue;
+
+    $normalizedPersonalDeadline = normalize_deadline_input($deadlineRaw);
+    if ($normalizedPersonalDeadline === null) {
+      $error = "One of the personal deadlines is invalid.";
+      break;
+    }
+
+    $personalDeadlineMap[$sectionId] = $normalizedPersonalDeadline;
+  }
+
+  if (!$isChief && $personalDeadlineMap !== []) {
+    $error = "Only section chiefs can set personal deadlines.";
   }
 
   // ✅ One batch id for the initial send
@@ -393,21 +420,22 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         if ($useBranchModeForThisDocument) {
           $stmt = $conn->prepare("
             INSERT INTO routes
-              (document_id, branch_id, from_section_id, to_section_id, from_user_id, to_user_id, route_kind, send_batch_id, received_at, sent_by_user_id, remarks)
+              (document_id, branch_id, from_section_id, to_section_id, from_user_id, to_user_id, route_kind, send_batch_id, received_at, sent_by_user_id, remarks, personal_deadline_at)
             VALUES
-              (?, ?, ?, ?, ?, ?, 'ACTION', ?, NULL, ?, ?)
+              (?, ?, ?, ?, ?, ?, 'ACTION', ?, NULL, ?, ?, ?)
           ");
         } else {
           $stmt = $conn->prepare("
             INSERT INTO routes
-              (document_id, from_section_id, to_section_id, to_user_id, send_batch_id, received_at, sent_by_user_id, remarks)
+              (document_id, from_section_id, to_section_id, to_user_id, send_batch_id, received_at, sent_by_user_id, remarks, personal_deadline_at)
             VALUES
-              (?, ?, ?, ?, ?, NULL, ?, ?)
+              (?, ?, ?, ?, ?, NULL, ?, ?, ?)
           ");
         }
 
         foreach ($finalRecipientMap as $destSectionId => $destUserIds) {
           $destSectionId = (int)$destSectionId;
+          $destPersonalDeadlineAt = $personalDeadlineMap[$destSectionId] ?? null;
 
           foreach ($destUserIds as $rid) {
             $rid = (int)$rid;
@@ -434,10 +462,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
 
               workflow_grant_visibility($conn, $docId, $rid, 'PARTICIPANT', $branchId, $userId);
 
-              $stmt->bind_param("iiiiiisis", $docId, $branchId, $fromSectionId, $destSectionId, $userId, $rid, $sendBatchId, $userId, $remarks);
+              $stmt->bind_param("iiiiiisiss", $docId, $branchId, $fromSectionId, $destSectionId, $userId, $rid, $sendBatchId, $userId, $remarks, $destPersonalDeadlineAt);
             } else {
               workflow_grant_visibility($conn, $docId, $rid, 'PARTICIPANT', null, $userId);
-              $stmt->bind_param("iiiisis", $docId, $fromSectionId, $destSectionId, $rid, $sendBatchId, $userId, $remarks);
+              $stmt->bind_param("iiiisiss", $docId, $fromSectionId, $destSectionId, $rid, $sendBatchId, $userId, $remarks, $destPersonalDeadlineAt);
             }
 
             $stmt->execute();
@@ -458,6 +486,20 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         $stmt->bind_param("iiis", $docId, $userId, $fromSectionId, $payloadCreated);
         $stmt->execute();
 
+        $toSectionIds = array_values(array_unique(array_filter(array_map('intval', array_keys($finalRecipientMap)))));
+        $toSectionNames = [];
+        if ($toSectionIds !== []) {
+          $sectionPlaceholders = implode(',', array_fill(0, count($toSectionIds), '?'));
+          $sectionTypes = str_repeat('i', count($toSectionIds));
+          $stmtToSections = $conn->prepare("SELECT id, name FROM sections WHERE id IN ($sectionPlaceholders)");
+          $stmtToSections->bind_param($sectionTypes, ...$toSectionIds);
+          $stmtToSections->execute();
+          $toSectionRows = $stmtToSections->get_result()->fetch_all(MYSQLI_ASSOC);
+          foreach ($toSectionRows as $toSectionRow) {
+            $toSectionNames[] = (string)($toSectionRow['name'] ?? '');
+          }
+        }
+
         $payloadSent = json_encode([
           "remarks" => $remarks,
           "recipient_map" => $finalRecipientMap,
@@ -466,6 +508,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           "branch_mode" => $useBranchModeForThisDocument,
           "branch_ids" => array_values(array_unique(array_filter($createdBranchIds))),
           "route_branch_map" => $routeBranchMap,
+          "personal_deadline_map" => $personalDeadlineMap,
+          "from_section_id" => $fromSectionId,
+          "from_section_name" => $fromSectionName,
+          "to_section_ids" => $toSectionIds,
+          "to_section_names" => $toSectionNames,
         ], JSON_UNESCAPED_UNICODE);
 
         $stmt = $conn->prepare("
@@ -1021,16 +1068,15 @@ require __DIR__ . "/../includes/layout.php";
     <div class="docDivider span2"></div>
 
     <div class="authField span2">
-      <label>Remarks <span class="req">*</span></label>
+      <label>Remarks <span class="mini" style="font-weight:700;">(optional)</span></label>
       <input
         type="text"
         name="remarks"
-        required
-        placeholder="none"
-        value="<?= htmlspecialchars($_POST["remarks"] ?? "none") ?>"
+        placeholder="Add remarks only if needed"
+        value="<?= htmlspecialchars($_POST["remarks"] ?? "") ?>"
       >
       <div class="mini" style="margin-top:6px;">
-        Required for initial send. Default value is <b>none</b>.
+        Leave blank if there is no special instruction.
       </div>
     </div>
 
@@ -1113,6 +1159,8 @@ require __DIR__ . "/../includes/layout.php";
   const sectionLabels = <?= json_encode($sectionLabelMap, JSON_UNESCAPED_UNICODE) ?>;
   const seedRecipientMap = <?= json_encode($_POST["recipient_map"] ?? [], JSON_UNESCAPED_UNICODE) ?>;
   const seedDestinationMode = <?= json_encode($_POST["destination_mode"] ?? [], JSON_UNESCAPED_UNICODE) ?>;
+  const seedPersonalDeadlineMap = <?= json_encode($_POST["personal_deadline_map"] ?? [], JSON_UNESCAPED_UNICODE) ?>;
+  const canSetPersonalDeadline = <?= $isChief ? "true" : "false" ?>;
 
   const selSection = document.getElementById("addToSection");
   const btnAddDestination = document.getElementById("btnAddDestination");
@@ -1218,7 +1266,8 @@ require __DIR__ . "/../includes/layout.php";
     return {
       mode: "chief",
       users: new Map(),
-      loadedUsers: []
+      loadedUsers: [],
+      personalDeadline: ""
     };
   }
 
@@ -1235,6 +1284,8 @@ require __DIR__ . "/../includes/layout.php";
       const sid = String(sectionId);
       const dest = createEmptyDestination();
       dest.mode = (String(modeMap[sid] || "chief") === "users") ? "users" : "chief";
+
+      dest.personalDeadline = String((seedPersonalDeadlineMap && seedPersonalDeadlineMap[sid]) || "");
 
       const seedUsers = Array.isArray(recipientMap[sid]) ? recipientMap[sid] : [];
       seedUsers.forEach(uid => {
@@ -1271,6 +1322,15 @@ require __DIR__ . "/../includes/layout.php";
         input.setAttribute("data-destination-hidden", "1");
         form.appendChild(input);
       });
+
+      if (canSetPersonalDeadline && dest.personalDeadline) {
+        const deadlineInput = document.createElement("input");
+        deadlineInput.type = "hidden";
+        deadlineInput.name = `personal_deadline_map[${sid}]`;
+        deadlineInput.value = dest.personalDeadline;
+        deadlineInput.setAttribute("data-destination-hidden", "1");
+        form.appendChild(deadlineInput);
+      }
     });
   }
 
@@ -1345,6 +1405,20 @@ require __DIR__ . "/../includes/layout.php";
           <div class="mini" style="margin-top:10px;">
             Current initial recipient(s): <b>${esc(selectedSummary)}</b>
           </div>
+
+          ${canSetPersonalDeadline ? `
+            <div style="margin-top:12px;">
+              <label style="display:block; font-size:12px; font-weight:900; margin-bottom:6px;">Personal deadline</label>
+              <input
+                type="datetime-local"
+                value="${esc(dest.personalDeadline || "")}"
+                data-personal-deadline="${sid}"
+                class="search"
+                style="width:100%;"
+              >
+              <div class="mini" style="margin-top:6px; opacity:.75;">Applies only to this destination card.</div>
+            </div>
+          ` : ``}
 
           <div data-users-panel="${sid}" style="margin-top:12px; ${(!multi && dest.mode === "users") ? "" : "display:none;"}">
             <div class="mini" style="margin-bottom:8px;">
@@ -1522,6 +1596,16 @@ require __DIR__ . "/../includes/layout.php";
 
         dest.users.clear();
         renderDestinations();
+      });
+    });
+
+    destinationsBox.querySelectorAll("[data-personal-deadline]").forEach(input => {
+      input.addEventListener("change", () => {
+        const sid = String(input.getAttribute("data-personal-deadline") || "");
+        const dest = destinations.get(sid);
+        if (!dest) return;
+        dest.personalDeadline = String(input.value || "");
+        syncHiddenInputs();
       });
     });
   }

@@ -97,10 +97,15 @@ try {
   if (($oldStatus === "ACTIVE" || $oldStatus === "RELEASED") && $newStatus === "ARCHIVED") $eventType = "archived";
   if ($oldStatus === "ARCHIVED" && $newStatus === "RELEASED") $eventType = "archived";
 
+  $eventRemarks = '';
+  if ($remarks !== '' && strcasecmp($remarks, 'none') !== 0) {
+    $eventRemarks = $remarks;
+  }
+
   $payload = json_encode([
     "old_status" => $oldStatus,
     "new_status" => $newStatus,
-    "remarks" => $remarks,
+    "remarks" => $eventRemarks,
     "branch_mode" => $branchMode,
   ], JSON_UNESCAPED_UNICODE);
 

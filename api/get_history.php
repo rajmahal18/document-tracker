@@ -51,6 +51,13 @@ try {
     return implode(', ', array_slice($items, 0, $max)) . ' +' . (count($items) - $max) . ' more';
   };
 
+  $normalizeRemarks = static function ($value): string {
+    $s = trim((string)$value);
+    if ($s === '') return '';
+    if (in_array(strtolower($s), ['none', '-', '—', 'n/a', 'na', 'null', 'undefined'], true)) return '';
+    return $s;
+  };
+
   if (!can_view_document($conn, $docId)) {
     http_response_code(403);
     echo json_encode(["ok" => false, "error" => "Forbidden"]);
@@ -60,6 +67,7 @@ try {
   $branchMode = workflow_branch_mode_enabled($conn);
   $docHasRealBranches = ($branchMode && workflow_document_has_real_branches($conn, $docId));
   $viewerUserId = (int)($_SESSION["user_id"] ?? 0);
+  $viewerSectionId = (int)($_SESSION["section_id"] ?? 0);
   $viewerDivisionName = trim((string)($_SESSION["division_name"] ?? ""));
   $viewerRole = strtolower(trim((string)($_SESSION["role"] ?? "")));
   $viewerIsAdmin = ($viewerRole === "admin");
@@ -106,9 +114,11 @@ try {
 
   $selectedBranchScopeIds = [];
   if ($docHasRealBranches && $selectedBranchId > 0 && isset($allBranchesById[$selectedBranchId])) {
-    $cursorId = $selectedBranchId;
-    $guard = 0;
+    $selectedBranchScopeIds = [$selectedBranchId];
 
+    // Keep ancestor events visible so the viewer still sees how the selected lane was created.
+    $cursorId = (int)($allBranchesById[$selectedBranchId]['parent_branch_id'] ?? 0);
+    $guard = 0;
     while ($cursorId > 0 && isset($allBranchesById[$cursorId]) && $guard < 100) {
       if (in_array($cursorId, $selectedBranchScopeIds, true)) {
         break;
@@ -116,6 +126,29 @@ try {
 
       $selectedBranchScopeIds[] = $cursorId;
       $cursorId = (int)($allBranchesById[$cursorId]['parent_branch_id'] ?? 0);
+      $guard++;
+    }
+
+    // Also include descendants so child/grandchild acknowledgments stay visible
+    // while the viewer is focused on a parent lane.
+    $queue = [$selectedBranchId];
+    $guard = 0;
+    while ($queue !== [] && $guard < 1000) {
+      $parentId = (int)array_shift($queue);
+
+      foreach ($allBranchesById as $candidateId => $candidateBranch) {
+        if ((int)($candidateBranch['parent_branch_id'] ?? 0) !== $parentId) {
+          continue;
+        }
+
+        if (in_array($candidateId, $selectedBranchScopeIds, true)) {
+          continue;
+        }
+
+        $selectedBranchScopeIds[] = (int)$candidateId;
+        $queue[] = (int)$candidateId;
+      }
+
       $guard++;
     }
   }
@@ -224,6 +257,8 @@ try {
       e.created_at,
       e.payload_json,
       e.actor_section_id,
+      e.from_section_id,
+      e.to_section_id,
       s_actor.name AS actor_section_name,
       d_actor.name AS actor_division_name,
       u.full_name AS actor,
@@ -415,7 +450,7 @@ try {
         break;
 
       case "updated":
-        $remarksText = trim((string)($payload["remarks"] ?? ""));
+        $remarksText = $normalizeRemarks($payload["remarks"] ?? "");
         if ($remarksText !== '') {
           $title = "{$actor} updated the document";
         } else {
@@ -500,13 +535,68 @@ try {
     $actorDivision = trim((string)($r["actor_division_name"] ?? ""));
     $fromDivision = trim((string)($r["from_division_name"] ?? ""));
     $toDivision = trim((string)($r["to_division_name"] ?? ""));
+
+    $payloadToSectionIds = array_values(array_unique(array_filter(array_map('intval', array_merge(
+      (array)($payload['to_section_ids'] ?? []),
+      (array)array_keys((array)($payload['recipient_map'] ?? []))
+    )), static fn($id) => $id > 0)));
+
+    $payloadToUserIds = array_values(array_unique(array_filter(array_map('intval', (array)($payload['to_user_ids'] ?? [])), static fn($id) => $id > 0)));
+
+    $explicitFromSectionId = (int)($payload['from_section_id'] ?? ($r['from_section_id'] ?? 0));
+    $explicitToSectionId = (int)($payload['to_section_id'] ?? ($r['to_section_id'] ?? 0));
+    if ($explicitToSectionId > 0) {
+      $payloadToSectionIds[] = $explicitToSectionId;
+      $payloadToSectionIds = array_values(array_unique($payloadToSectionIds));
+    }
+
     $eventDivision = $firstNonEmpty([$actorDivision, $fromDivision, $toDivision]);
     $sameDivision = (
       $viewerDivisionName !== ''
       && $eventDivision !== ''
       && strcasecmp($viewerDivisionName, $eventDivision) === 0
     );
+    $viewerIsPartyToMovement = (
+      $viewerDivisionName !== ''
+      && (
+        ($actorDivision !== '' && strcasecmp($viewerDivisionName, $actorDivision) === 0)
+        || ($fromDivision !== '' && strcasecmp($viewerDivisionName, $fromDivision) === 0)
+        || ($toDivision !== '' && strcasecmp($viewerDivisionName, $toDivision) === 0)
+      )
+    );
+
+    $viewerIsExplicitParty = (
+      ($viewerSectionId > 0 && ($viewerSectionId === $explicitFromSectionId || in_array($viewerSectionId, $payloadToSectionIds, true)))
+      || ($viewerUserId > 0 && in_array($viewerUserId, $payloadToUserIds, true))
+    );
+
+    $selectedLaneOwnsEvent = false;
+    if ($selectedBranchId > 0) {
+      $candidateBranchIdsForRemarks = [];
+      if ($resolvedBranchId !== null && $resolvedBranchId > 0) $candidateBranchIdsForRemarks[] = (int)$resolvedBranchId;
+      if ($sourceBranchId > 0) $candidateBranchIdsForRemarks[] = $sourceBranchId;
+      foreach ($newBranchIds as $newBid) {
+        $newBid = (int)$newBid;
+        if ($newBid > 0) $candidateBranchIdsForRemarks[] = $newBid;
+      }
+      $candidateBranchIdsForRemarks = array_values(array_unique($candidateBranchIdsForRemarks));
+      foreach ($candidateBranchIdsForRemarks as $candidateBid) {
+        if (in_array($candidateBid, $selectedBranchScopeIds, true)) {
+          $selectedLaneOwnsEvent = true;
+          break;
+        }
+      }
+    }
+
     $shouldRedact = (!$viewerIsAdmin && !$sameDivision && $eventDivision !== '');
+    $remarksValue = $normalizeRemarks($payload["remarks"] ?? "");
+    $personalDeadlineValue = trim((string)($payload["personal_deadline_at"] ?? ""));
+    $canSeeRemarks = (
+      !$shouldRedact
+      || $viewerIsAdmin
+      || $viewerIsPartyToMovement
+      || $viewerIsExplicitParty
+    );
 
     $branchSplitRedacted = false;
     if ($shouldRedact) {
@@ -581,7 +671,8 @@ try {
       "actor_division" => $actorDivision,
       "viewer_redacted" => $shouldRedact,
       "branch_split_redacted" => $branchSplitRedacted,
-      "remarks" => $shouldRedact ? "" : (string)($payload["remarks"] ?? ""),
+            "remarks" => $canSeeRemarks ? $remarksValue : "",
+      "personal_deadline_at" => $personalDeadlineValue,
       "acted_at" => (string)($r["created_at"] ?? ""),
       "actor" => $actor,
       "from_section" => $movementFrom !== '' ? $movementFrom : $from,

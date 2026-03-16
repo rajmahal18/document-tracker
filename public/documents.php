@@ -14,6 +14,7 @@ $sections = $conn->query("
 ")->fetch_all(MYSQLI_ASSOC);
 
 $branchMode = workflow_branch_mode_enabled($conn);
+$routePersonalDeadlineEnabled = workflow_has_column($conn, 'routes', 'personal_deadline_at');
 
 $pageTitle = "Documents - Document Tracker";
 require __DIR__ . "/../includes/layout.php";
@@ -231,6 +232,62 @@ $myUid = (int)$myUserId;
 $myChiefInt = $isChief ? 1 : 0;
 $branchModeInt = $branchMode ? 1 : 0;
 
+$personalDeadlineSelectSql = "NULL AS my_personal_deadline_at";
+$personalDeadlineJoinSql = "";
+$effectiveDeadlineOrderExpr = "d.deadline_at";
+
+if ($routePersonalDeadlineEnabled) {
+  $effectiveDeadlineOrderExpr = "COALESCE(rpd_me.personal_deadline_at, d.deadline_at)";
+  $personalDeadlineSelectSql = "rpd_me.personal_deadline_at AS my_personal_deadline_at";
+
+  if ($branchMode) {
+    $personalDeadlineJoinSql = "
+  LEFT JOIN (
+    SELECT
+      rpd.document_id,
+      MAX(rpd.id) AS my_personal_route_id
+    FROM routes rpd
+    LEFT JOIN document_branches bpd ON bpd.id = rpd.branch_id
+    LEFT JOIN documents dpd ON dpd.id = rpd.document_id
+    WHERE rpd.to_user_id = {$myUid}
+      AND rpd.personal_deadline_at IS NOT NULL
+      AND (
+        rpd.received_at IS NULL
+        OR (
+          bpd.id IS NOT NULL
+          AND bpd.branch_status = 'ACTIVE'
+          AND bpd.current_assignee_user_id = {$myUid}
+        )
+        OR (
+          bpd.id IS NULL
+          AND dpd.current_holder_section_id = {$mySid}
+        )
+      )
+    GROUP BY rpd.document_id
+  ) rpd_pick ON rpd_pick.document_id = d.id
+  LEFT JOIN routes rpd_me ON rpd_me.id = rpd_pick.my_personal_route_id
+";
+  } else {
+    $personalDeadlineJoinSql = "
+  LEFT JOIN (
+    SELECT
+      rpd.document_id,
+      MAX(rpd.id) AS my_personal_route_id
+    FROM routes rpd
+    JOIN documents dpd ON dpd.id = rpd.document_id
+    WHERE rpd.to_user_id = {$myUid}
+      AND rpd.personal_deadline_at IS NOT NULL
+      AND (
+        rpd.received_at IS NULL
+        OR dpd.current_holder_section_id = {$mySid}
+      )
+    GROUP BY rpd.document_id
+  ) rpd_pick ON rpd_pick.document_id = d.id
+  LEFT JOIN routes rpd_me ON rpd_me.id = rpd_pick.my_personal_route_id
+";
+  }
+}
+
 $sql = "
   SELECT
     d.id,
@@ -256,6 +313,14 @@ $sql = "
 
     ro.any_open_route_id,
     COALESCE(ro.open_count, 0) AS open_route_count,
+
+    {$personalDeadlineSelectSql},
+
+    rr_latest.latest_route_remark,
+    rr_latest.latest_remark_sent_by_user_id,
+    rr_latest.latest_remark_from_user_id,
+    rr_latest.latest_remark_to_user_id,
+    rr_latest.latest_remark_received_by_user_id,
 
     -- last holder (fallback when not in transit)
     sf_last.name AS last_holder_name,
@@ -437,6 +502,26 @@ $sql = "
   LEFT JOIN sections st_open ON st_open.id = r_open.to_section_id
   LEFT JOIN users u_open ON u_open.id = r_open.to_user_id
 
+  {$personalDeadlineJoinSql}
+
+  LEFT JOIN (
+    SELECT
+      r_remark.document_id,
+      r_remark.remarks AS latest_route_remark,
+      r_remark.sent_by_user_id AS latest_remark_sent_by_user_id,
+      r_remark.from_user_id AS latest_remark_from_user_id,
+      r_remark.to_user_id AS latest_remark_to_user_id,
+      r_remark.received_by_user_id AS latest_remark_received_by_user_id
+    FROM routes r_remark
+    INNER JOIN (
+      SELECT document_id, MAX(id) AS max_route_id
+      FROM routes
+      WHERE TRIM(COALESCE(remarks, '')) <> ''
+        AND LOWER(TRIM(COALESCE(remarks, ''))) <> 'none'
+      GROUP BY document_id
+    ) r_remark_pick ON r_remark_pick.max_route_id = r_remark.id
+  ) rr_latest ON rr_latest.document_id = d.id
+
   LEFT JOIN routes r_last
     ON r_last.document_id = d.id
    AND r_last.received_at = (
@@ -488,8 +573,8 @@ if ($sort === "newest") {
 } elseif ($sort === "urgent") {
   $orderBySql = "
     ORDER BY
-      CASE WHEN d.deadline_at IS NULL THEN 1 ELSE 0 END ASC,
-      d.deadline_at ASC,
+      CASE WHEN {$effectiveDeadlineOrderExpr} IS NULL THEN 1 ELSE 0 END ASC,
+      {$effectiveDeadlineOrderExpr} ASC,
       d.document_date DESC,
       d.id DESC
   ";
@@ -497,8 +582,8 @@ if ($sort === "newest") {
   $orderBySql = "
     ORDER BY
       CASE WHEN d.deadline_at IS NOT NULL AND d.deadline_at < NOW() THEN 0 ELSE 1 END ASC,
-      CASE WHEN d.deadline_at IS NULL THEN 1 ELSE 0 END ASC,
-      d.deadline_at ASC,
+      CASE WHEN {$effectiveDeadlineOrderExpr} IS NULL THEN 1 ELSE 0 END ASC,
+      {$effectiveDeadlineOrderExpr} ASC,
       d.document_date DESC,
       d.id DESC
   ";
@@ -820,26 +905,65 @@ function quickUrl(string $target): string {
           <th>Document</th>
           <th>Route</th>
           <th>Doc State</th>
-          <th>Days</th>
+          <th>Latest Remark</th>
+          <th>Deadline</th>
           <th>Requester</th>
         </tr>
       </thead>
       <tbody>
         <?php if (!$docs): ?>
           <tr>
-            <td colspan="6" class="mini docsEmptyState">No documents found.</td>
+            <td colspan="7" class="mini docsEmptyState">No documents found.</td>
           </tr>
         <?php endif; ?>
 
         <?php foreach ($docs as $d): ?>
           <?php
             $days = (int)($d["days_stuck"] ?? 0);
-            $warn = ($days >= 3 && $days < 7) ? "warn" : "";
-            $danger = ($days >= 7) ? "danger" : "";
 
-            $inTransit = !empty($d["open_to_section_id"]);
-            $currentStatus = strtoupper((string)($d["current_status"] ?? "ACTIVE"));
+            $docDeadlineRaw = trim((string)($d["deadline_at"] ?? ""));
+            $myPersonalDeadlineRaw = trim((string)($d["my_personal_deadline_at"] ?? ""));
+            $hasPersonalDeadline = ($myPersonalDeadlineRaw !== "");
+            $effectiveDeadlineRaw = $hasPersonalDeadline ? $myPersonalDeadlineRaw : $docDeadlineRaw;
+            $effectiveDeadlineTs = $effectiveDeadlineRaw !== "" ? strtotime($effectiveDeadlineRaw) : false;
+            $docDeadlineText = $docDeadlineRaw !== "" ? date("M d, Y g:i A", strtotime($docDeadlineRaw)) : "—";
+            $personalDeadlineText = $myPersonalDeadlineRaw !== "" ? date("M d, Y g:i A", strtotime($myPersonalDeadlineRaw)) : "—";
+            $deadlineBadgeText = "NO DEADLINE";
+            $deadlineBadgeClass = "neutral";
+            $deadlineToneClass = "";
+            $deadlineMetaLines = [];
+            $deadlineSortTs = $effectiveDeadlineTs ? (int)$effectiveDeadlineTs : 0;
+
+            if ($hasPersonalDeadline) {
+              $deadlineMetaLines[] = "Your deadline: " . $personalDeadlineText;
+            }
+            $deadlineMetaLines[] = "Document: " . $docDeadlineText;
+
+            if ($effectiveDeadlineTs !== false) {
+              $secondsLeft = $effectiveDeadlineTs - time();
+              $daysLeft = (int)floor($secondsLeft / 86400);
+              $hoursLeft = (int)floor(abs($secondsLeft) / 3600);
+
+              if ($secondsLeft < 0) {
+                $lateDays = max(1, (int)ceil(abs($secondsLeft) / 86400));
+                $deadlineBadgeText = $lateDays === 1 ? "OVERDUE 1 DAY" : "OVERDUE {$lateDays} DAYS";
+                $deadlineBadgeClass = "danger";
+                $deadlineToneClass = "rowDeadlineOverdue";
+              } elseif ($secondsLeft <= 86400) {
+                $deadlineBadgeText = "DUE TODAY";
+                $deadlineBadgeClass = "today";
+              } elseif ($secondsLeft <= 259200) {
+                $deadlineBadgeText = $daysLeft <= 1 ? "1 DAY LEFT" : $daysLeft . " DAYS LEFT";
+                $deadlineBadgeClass = "warn";
+              } else {
+                $deadlineBadgeText = $daysLeft . " DAYS LEFT";
+                $deadlineBadgeClass = "safe";
+              }
+            }
+
             $openCount = (int)($d["open_route_count"] ?? 0);
+            $inTransit = ($openCount > 0);
+            $currentStatus = strtoupper((string)($d["current_status"] ?? "ACTIVE"));
             $hasRealBranches = ((int)($d["has_real_branches"] ?? 0) === 1);
 
             $myHasOpenInbound = ((int)($d["my_has_open_inbound"] ?? 0) === 1);
@@ -871,18 +995,22 @@ function quickUrl(string $target): string {
             if ($currentStatus === "ARCHIVED") {
               $docStateLabel = "ARCHIVED";
               $docStateToneClass = "isArchived";
+              $drawerStatusChipClass = "chip archived";
               $docStateHint = "Filed record";
             } elseif ($currentStatus === "RELEASED") {
               $docStateLabel = "RELEASED";
               $docStateToneClass = "isReleased";
+              $drawerStatusChipClass = "chip released";
               $docStateHint = "Completed routing";
             } elseif ($inTransit) {
               $docStateLabel = "IN TRANSIT";
               $docStateToneClass = "isTransit";
+              $drawerStatusChipClass = "chip action";
               $docStateHint = $openCount > 1 ? "Open routes: " . $openCount : "Awaiting acknowledgment";
             } else {
               $docStateLabel = "ACTIVE";
               $docStateToneClass = "isActive";
+              $drawerStatusChipClass = "chip incoming";
               $docStateHint = "Within workflow";
             }
 
@@ -957,9 +1085,20 @@ function quickUrl(string $target): string {
               $routeLine3Value = $lastHolderText !== "" ? $lastHolderText : "—";
             }
 
-            $deadlineText = !empty($d["deadline_at"])
-              ? date("Y-m-d", strtotime((string)$d["deadline_at"]))
-              : "No deadline";
+            $latestRemarkText = trim((string)($d["latest_route_remark"] ?? ""));
+            $latestRemarkText = strcasecmp($latestRemarkText, "none") === 0 ? "" : $latestRemarkText;
+
+            $latestRemarkVisibleToMe = false;
+            if ($latestRemarkText !== "") {
+              $latestRemarkVisibleToMe = (
+                (int)($d["latest_remark_sent_by_user_id"] ?? 0) === $myUserId
+                || ((int)($d["latest_remark_from_user_id"] ?? 0) > 0 && (int)($d["latest_remark_from_user_id"] ?? 0) === $myUserId)
+                || (int)($d["latest_remark_to_user_id"] ?? 0) === $myUserId
+                || (int)($d["latest_remark_received_by_user_id"] ?? 0) === $myUserId
+              );
+            }
+            $latestRemarkForList = $latestRemarkVisibleToMe ? $latestRemarkText : "";
+
 
             $docTypeText = trim((string)($d["content_type"] ?? ""));
             $docCommText = trim((string)($d["comm_type"] ?? ""));
@@ -968,7 +1107,7 @@ function quickUrl(string $target): string {
               : ($docTypeText !== "" ? $docTypeText : ($docCommText !== "" ? $docCommText : "—"));
           ?>
           <tr
-            class="rowHover docsRow <?= htmlspecialchars($rowToneClass) ?>"
+            class="rowHover docsRow <?= htmlspecialchars(trim($rowToneClass . " " . $deadlineToneClass)) ?>"
             data-doc='<?= htmlspecialchars(
               json_encode([
                 "id" => (int)$d["id"],
@@ -976,12 +1115,16 @@ function quickUrl(string $target): string {
                 "requester" => $d["requester"],
                 "document_date" => $d["document_date"],
                 "deadline_at" => $d["deadline_at"],
+                "my_personal_deadline_at" => $d["my_personal_deadline_at"],
+                "effective_deadline_at" => $effectiveDeadlineRaw,
+                "deadline_badge_text" => $deadlineBadgeText,
+                "deadline_badge_class" => $deadlineBadgeClass,
                 "subject" => $d["subject"],
                 "content_type" => $d["content_type"],
                 "comm_type" => $d["comm_type"],
 
                 "status_label" => $docStateLabel,
-                "status_chip_class" => $docStateToneClass,
+                "status_chip_class" => $drawerStatusChipClass,
                 "my_status" => $myStatusLabel,
                 "my_status_chip_class" => $myStatusChipClass,
                 "is_origin" => $myIsOrigin ? 1 : 0,
@@ -1073,24 +1216,30 @@ function quickUrl(string $target): string {
             </td>
 
             <td>
-              <div class="daysCellWrap">
-                <span class="daysPill <?= $danger ?: $warn ?>"><?= $days ?></span>
-                <div class="daysHintText">
-                  <?php if ($days >= 7): ?>
-                    Needs action
-                  <?php elseif ($days >= 3): ?>
-                    Watch closely
-                  <?php else: ?>
-                    On track
-                  <?php endif; ?>
-                </div>
+              <div class="latestRemarkCell<?= $latestRemarkForList !== '' ? ' hasRemark' : '' ?>">
+                <?php if ($latestRemarkForList !== ''): ?>
+                  <div class="latestRemarkText" title="<?= htmlspecialchars($latestRemarkForList) ?>">
+                    <?= htmlspecialchars($latestRemarkForList) ?>
+                  </div>
+                <?php else: ?>
+                  <div class="latestRemarkBlank"></div>
+                <?php endif; ?>
+              </div>
+            </td>
+
+            <td>
+              <div class="deadlineCell <?= htmlspecialchars($deadlineBadgeClass) ?>">
+                <div class="deadlineBadge <?= htmlspecialchars($deadlineBadgeClass) ?>"><?= htmlspecialchars($deadlineBadgeText) ?></div>
+                <?php foreach ($deadlineMetaLines as $deadlineMetaLine): ?>
+                  <div class="deadlineMetaLine"><?= htmlspecialchars($deadlineMetaLine) ?></div>
+                <?php endforeach; ?>
               </div>
             </td>
 
             <td>
               <div class="requesterCell">
                 <div class="requesterName"><?= htmlspecialchars((string)$d["requester"]) ?></div>
-                <div class="requesterMeta">Deadline: <?= htmlspecialchars($deadlineText) ?></div>
+                <div class="requesterMeta">Days stuck: <?= (int)$days ?></div>
               </div>
             </td>
           </tr>
@@ -1162,11 +1311,6 @@ $end   = min($totalPages, $page + 2);
   <div class="drawerBody">
     <input type="hidden" id="d_id" value="">
 
-    <div style="margin: 10px 0 14px;">
-      <label style="font-size:12px;font-weight:900;">Remarks</label>
-      <input id="d_remarks" type="text" class="search" style="min-width:100%;" placeholder="none" value="none">
-    </div>
-
     <div class="kv">
       <div class="k">Status</div>
       <div class="v">
@@ -1175,28 +1319,29 @@ $end   = min($totalPages, $page + 2);
     </div>
 
     <div class="kv">
-      <div class="k">Current Holder</div>
+      <div class="k">Current</div>
       <div class="v">
         <span id="d_holder" class="chip incoming">—</span>
       </div>
     </div>
 
     <div class="kv">
-      <div class="k">Destination</div>
+      <div class="k">To</div>
       <div class="v" id="d_destination">
         <span id="d_destination_text">—</span>
       </div>
     </div>
 
     <div class="kv">
-      <div class="k">Last Holder</div>
+      <div class="k">From</div>
       <div class="v" id="d_last_holder">—</div>
     </div>
 
     <div class="kv"><div class="k">Requester</div><div class="v" id="d_requester"></div></div>
     <div class="kv"><div class="k">Doc Date</div><div class="v" id="d_date"></div></div>
-    <div class="kv"><div class="k">Deadline</div><div class="v" id="d_deadline">—</div></div>
-    <div class="kv"><div class="k">Countdown</div><div class="v" id="d_deadline_countdown">—</div></div>
+    <div class="kv"><div class="k">Document deadline</div><div class="v" id="d_deadline">—</div></div>
+    <div class="kv"><div class="k">Your deadline</div><div class="v" id="d_personal_deadline">—</div></div>
+    <div class="kv"><div class="k">Urgency</div><div class="v" id="d_deadline_countdown">—</div></div>
     <div class="kv"><div class="k">Subject</div><div class="v" id="d_subject"></div></div>
     <div class="kv"><div class="k">Type</div><div class="v" id="d_type"></div></div>
     <div class="kv"><div class="k">Days stuck</div><div class="v" id="d_days"></div></div>
@@ -1255,12 +1400,19 @@ $end   = min($totalPages, $page + 2);
     </div>
   </div>
 
-  <div class="drawerActions">
-    <button type="button" class="btnSecondary" id="btnToggleForward">Forward</button>
+  <div class="drawerActionsWrap">
+    <div class="drawerActionRemarks">
+      <label for="d_action_remarks" class="drawerActionRemarksLabel">Remarks (optional)</label>
+      <textarea id="d_action_remarks" class="search drawerActionRemarksInput" rows="2" placeholder="Add remarks for this action only if needed"></textarea>
+    </div>
 
-    <button id="btnAckReceived" class="btnGreen" type="button" style="display:none;">Received</button>
-    <button id="btnRelease" class="btnGreen" type="button" style="display:none;">Release</button>
-    <button id="btnArchive" class="btnComp" type="button" style="display:none;">Archive</button>
+    <div class="drawerActions">
+      <button type="button" class="btnSecondary" id="btnToggleForward">Forward</button>
+
+      <button id="btnAckReceived" class="btnGreen" type="button" style="display:none;">Received</button>
+      <button id="btnRelease" class="btnGreen" type="button" style="display:none;">Release</button>
+      <button id="btnArchive" class="btnComp" type="button" style="display:none;">Archive</button>
+    </div>
   </div>
 
   <div id="forwardBox" class="collapsed" style="margin-top:10px;">
@@ -1296,6 +1448,12 @@ $end   = min($totalPages, $page + 2);
           </span>
         </span>
       </label>
+    </div>
+
+    <div id="forwardPersonalDeadlineWrap" class="forwardDeadlineWrap" style="display:none; margin-top:10px;">
+      <label for="f_personal_deadline" style="font-size:12px; font-weight:900; display:block; margin-bottom:6px;">Personal deadline</label>
+      <input id="f_personal_deadline" type="datetime-local" class="search" style="width:100%;">
+      <div class="mini" style="margin-top:6px; opacity:.75;">Only section chiefs can set a personal deadline for the selected recipient(s).</div>
     </div>
 
     <button id="btnForward" type="button" class="btnSecondary" style="margin-top:10px; margin-bottom:10px; margin-left:10px; display:none;">
