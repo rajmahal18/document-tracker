@@ -81,6 +81,29 @@ function require_csrf(): void {
   }
 }
 
+
+
+function db_column_exists(mysqli $conn, string $table, string $column): bool {
+  static $cache = [];
+
+  $key = $table . "." . $column;
+  if (array_key_exists($key, $cache)) {
+    return $cache[$key];
+  }
+
+  $tableEsc = $conn->real_escape_string($table);
+  $columnEsc = $conn->real_escape_string($column);
+  $sql = "SHOW COLUMNS FROM `{$tableEsc}` LIKE '{$columnEsc}'";
+  $result = $conn->query($sql);
+  $cache[$key] = $result instanceof mysqli_result && $result->num_rows > 0;
+
+  if ($result instanceof mysqli_result) {
+    $result->free();
+  }
+
+  return $cache[$key];
+}
+
 /**
  * ===== Permission Helpers =====
  */

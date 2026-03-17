@@ -1,0 +1,1276 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   Org Atlas 2026  ·  Redesigned CSS
+   Aesthetic: Dark editorial × precision engineering × refined depth
+   Fully scoped to .orgArt2026 — zero bleed to other pages
+───────────────────────────────────────────────────────────────────────────── */
+
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;700&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300&display=swap');
+
+/* ── Tokens ──────────────────────────────────────────────────────────────── */
+.orgArt2026 {
+  --c-void:        #040810;
+  --c-deep:        #080f1e;
+  --c-surface:     #0c1525;
+  --c-lift:        #111d31;
+  --c-glass:       rgba(14, 24, 44, 0.72);
+  --c-panel:       #f8fafd;
+  --c-panel-2:     #f2f6fc;
+  --c-panel-3:     #e8eff9;
+  --c-white:       #ffffff;
+  --c-star:        #e8f1ff;
+  --c-mist:        rgba(210, 228, 255, 0.72);
+  --c-fog:         rgba(170, 198, 240, 0.48);
+  --c-ink:         #0d1e35;
+  --c-ink-2:       #2e4a6a;
+  --c-ink-3:       #637d9b;
+  --c-ink-4:       #9baec4;
+  --c-sky:         #3a8fff;
+  --c-sky-glow:    rgba(58, 143, 255, 0.22);
+  --c-ice:         #a8d8ff;
+  --c-amber:       #f5a042;
+  --c-amber-glow:  rgba(245, 160, 66, 0.18);
+  --c-amber-pale:  #fde8cc;
+  --c-jade:        #23c49a;
+  --c-jade-glow:   rgba(35, 196, 154, 0.16);
+  --c-coral:       #ff6b6b;
+  --c-violet:      #7b6cff;
+  --grad-director:     linear-gradient(135deg, #6b2e00 0%, #c96020 55%, #f5a042 100%);
+  --grad-head:         linear-gradient(135deg, #0c2e5e 0%, #2462b8 55%, #5aaeff 100%);
+  --grad-assistant:    linear-gradient(135deg, #1e2d4a 0%, #3d5580 55%, #7e9ec4 100%);
+  --grad-admin:        linear-gradient(135deg, #073d32 0%, #147a62 55%, #30d4a8 100%);
+  --grad-staff:        linear-gradient(135deg, #0e1f38 0%, #1e3c6e 55%, #4a81d4 100%);
+  --b-dark:        rgba(255, 255, 255, 0.06);
+  --b-dark-2:      rgba(255, 255, 255, 0.10);
+  --b-dark-3:      rgba(255, 255, 255, 0.16);
+  --b-light:       rgba(13, 30, 53, 0.08);
+  --b-light-2:     rgba(13, 30, 53, 0.13);
+  --b-sky:         rgba(58, 143, 255, 0.24);
+  --b-amber:       rgba(245, 160, 66, 0.22);
+  --sh-deep:   0 40px 100px rgba(2, 6, 16, 0.55), 0 16px 40px rgba(2, 6, 16, 0.28);
+  --sh-card:   0 24px 56px rgba(4, 10, 22, 0.14), 0 8px 18px rgba(4, 10, 22, 0.08);
+  --sh-soft:   0 12px 28px rgba(4, 10, 22, 0.07);
+  --sh-sky:    0 8px 28px rgba(58, 143, 255, 0.22);
+  --sh-amber:  0 8px 28px rgba(245, 160, 66, 0.18);
+  --r-xl:  32px;
+  --r-lg:  24px;
+  --r-md:  18px;
+  --r-sm:  12px;
+  --r-xs:  8px;
+  --font-display: 'Syne', system-ui, sans-serif;
+  --font-body:    'DM Sans', system-ui, sans-serif;
+  --font-mono:    'Geist Mono', 'Fira Code', monospace;
+  --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast:    160ms;
+  --dur-med:     260ms;
+  --dur-slow:    400ms;
+
+  font-family: var(--font-body);
+  position: relative;
+  display: grid;
+  gap: 24px;
+  isolation: isolate;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.orgArt2026::before,
+.orgArt2026::after {
+  content: "";
+  position: fixed;
+  pointer-events: none;
+  z-index: -2;
+  border-radius: 50%;
+  will-change: transform;
+}
+.orgArt2026::before {
+  width: 600px; height: 600px;
+  right: -200px; top: 60px;
+  background: radial-gradient(circle, rgba(58, 143, 255, 0.12) 0%, transparent 68%);
+  filter: blur(60px);
+}
+.orgArt2026::after {
+  width: 480px; height: 480px;
+  left: -160px; top: 480px;
+  background: radial-gradient(circle, rgba(245, 160, 66, 0.10) 0%, transparent 68%);
+  filter: blur(52px);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   HERO SHELL
+══════════════════════════════════════════════════════════════════ */
+.orgHeroShell {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-xl);
+  padding: 40px 44px;
+  background:
+    radial-gradient(ellipse 60% 50% at 100% 0%, rgba(58, 143, 255, 0.14) 0%, transparent 100%),
+    radial-gradient(ellipse 40% 60% at 0% 100%, rgba(245, 160, 66, 0.08) 0%, transparent 100%),
+    linear-gradient(160deg, #080f1e 0%, #060d1a 60%, #040a14 100%);
+  border: 1px solid var(--b-dark-2);
+  box-shadow: var(--sh-deep);
+}
+.orgHeroShell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.028) 1px, transparent 1px);
+  background-size: 52px 52px;
+  mask-image: linear-gradient(180deg, rgba(255,255,255,0.18) 0%, transparent 100%);
+}
+.orgHeroShell::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(58, 143, 255, 0.5) 30%,
+    rgba(168, 216, 255, 0.8) 50%,
+    rgba(58, 143, 255, 0.5) 70%,
+    transparent 100%);
+  pointer-events: none;
+}
+
+.orgHeroGrid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
+  gap: 32px;
+  align-items: stretch;
+}
+
+.orgHeroEyebrow,
+.orgKicker,
+.orgSectionLabel,
+.orgMiniLabel,
+.orgSearchLabel {
+  margin: 0 0 10px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.20em;
+  text-transform: uppercase;
+}
+.orgHeroEyebrow { color: var(--c-sky); }
+.orgKicker      { color: var(--c-amber); }
+.orgSectionLabel{ color: var(--c-ink-3); }
+.orgMiniLabel   { color: var(--c-ink-3); }
+.orgSearchLabel { color: var(--c-mist); }
+
+.orgHeroTitle {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(52px, 5.6vw, 84px);
+  font-weight: 800;
+  line-height: 0.90;
+  letter-spacing: -0.04em;
+  color: var(--c-white);
+  text-wrap: balance;
+  background: linear-gradient(160deg, #ffffff 0%, #c8deff 45%, #8ab8ff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.orgHeroSub {
+  margin: 20px 0 0;
+  max-width: 500px;
+  color: var(--c-mist);
+  font-size: 14px;
+  line-height: 1.72;
+  font-weight: 300;
+}
+
+.orgHeroRail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 28px;
+}
+
+.orgHeroNote {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 14px;
+  min-height: 36px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--b-dark-2);
+  color: var(--c-star);
+  font-size: 11.5px;
+  font-weight: 500;
+  backdrop-filter: blur(12px);
+  transition: background var(--dur-fast), border-color var(--dur-fast);
+}
+.orgHeroNote:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: var(--b-dark-3);
+}
+
+.orgHeroDot {
+  flex-shrink: 0;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--c-amber), var(--c-sky));
+  box-shadow: 0 0 8px var(--c-sky-glow);
+}
+
+/* ── Control Deck ────────────────────────────────────────────────────────── */
+.orgControlDeck {
+  display: grid;
+  gap: 18px;
+  align-content: start;
+  padding: 22px;
+  border-radius: var(--r-lg);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--b-dark-2);
+  backdrop-filter: blur(20px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.12);
+}
+
+.orgSearchWrap { display: grid; gap: 8px; }
+.orgSearchBox { position: relative; }
+
+.orgSearchIcon {
+  position: absolute;
+  left: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgba(160, 192, 240, 0.65);
+  font-size: 18px;
+  pointer-events: none;
+}
+
+.orgSearchInput {
+  width: 100%;
+  height: 52px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--b-dark-2);
+  background: rgba(6, 12, 24, 0.55);
+  color: var(--c-white);
+  outline: none;
+  padding: 0 18px 0 50px;
+  font-size: 13.5px;
+  font-family: var(--font-body);
+  font-weight: 400;
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast), background var(--dur-fast);
+}
+.orgSearchInput::placeholder { color: rgba(160, 192, 240, 0.42); }
+.orgSearchInput:focus {
+  border-color: rgba(58, 143, 255, 0.48);
+  background: rgba(8, 16, 34, 0.75);
+  box-shadow: 0 0 0 4px rgba(58, 143, 255, 0.10), var(--sh-sky);
+}
+
+.orgActionRow { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.orgActionBtn,
+.orgMemberToggle {
+  appearance: none;
+  min-height: 38px;
+  border-radius: 999px;
+  border: 1px solid var(--b-dark-2);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--c-star);
+  padding: 0 16px;
+  font-size: 11.5px;
+  font-family: var(--font-body);
+  font-weight: 600;
+  cursor: pointer;
+  letter-spacing: 0.01em;
+  transition:
+    transform var(--dur-fast) var(--ease-spring),
+    background var(--dur-fast),
+    border-color var(--dur-fast),
+    box-shadow var(--dur-fast);
+}
+.orgActionBtn:hover,
+.orgMemberToggle:hover {
+  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.10);
+  border-color: var(--b-dark-3);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.22);
+}
+.orgActionBtn:active,
+.orgMemberToggle:active { transform: translateY(0); }
+
+.orgActionBtn.isPrimary {
+  background: linear-gradient(135deg, var(--c-amber-pale), #f9c880);
+  color: #3a1800;
+  border-color: rgba(245, 160, 66, 0.50);
+  font-weight: 700;
+  box-shadow: 0 4px 16px rgba(245, 160, 66, 0.22);
+}
+.orgActionBtn.isPrimary:hover {
+  background: linear-gradient(135deg, #fef0df, #f8bf65);
+  box-shadow: 0 8px 28px rgba(245, 160, 66, 0.35);
+}
+
+.orgHeroStats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--b-dark);
+}
+
+.orgHeroStat {
+  flex: 1 1 96px;
+  min-width: 96px;
+  padding: 14px 16px;
+  border-radius: var(--r-sm);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--b-dark);
+}
+.orgHeroStatValue {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 30px;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: -0.06em;
+  color: var(--c-white);
+}
+.orgHeroStatLabel {
+  margin: 5px 0 0;
+  font-size: 11px;
+  color: var(--c-fog);
+  letter-spacing: 0.02em;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   SPOTLIGHT BANNER
+══════════════════════════════════════════════════════════════════ */
+.orgSpotlight {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-xl);
+  padding: 20px 28px;
+  background: linear-gradient(100deg, #ffffff 0%, #f7f9ff 100%);
+  border: 1px solid var(--b-light);
+  box-shadow: var(--sh-soft);
+  transition: opacity var(--dur-med);
+}
+.orgSpotlight::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 50% 100% at 100% 50%, rgba(58, 143, 255, 0.07) 0%, transparent 100%),
+    radial-gradient(ellipse 30% 60% at 0% 50%, rgba(245, 160, 66, 0.05) 0%, transparent 100%);
+  pointer-events: none;
+}
+.orgSpotlight::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(90deg,
+    var(--c-amber) 0%,
+    var(--c-sky) 40%,
+    var(--c-jade) 70%,
+    transparent 100%);
+  opacity: 0.5;
+}
+
+.orgSpotlightGrid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px;
+  align-items: center;
+}
+
+.orgMiniLabel { font-family: var(--font-mono); }
+
+.orgSpotlightTitle {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(26px, 2.8vw, 38px);
+  font-weight: 700;
+  line-height: 0.96;
+  letter-spacing: -0.05em;
+  color: var(--c-ink);
+}
+
+.orgCounters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.orgCounter {
+  min-width: 110px;
+  padding: 14px 18px;
+  border-radius: var(--r-md);
+  background: var(--c-panel);
+  border: 1px solid var(--b-light);
+  box-shadow: var(--sh-soft);
+  transition: transform var(--dur-fast), box-shadow var(--dur-fast);
+}
+.orgCounter:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--sh-card);
+}
+.orgCounterValue {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.06em;
+  line-height: 1;
+  color: var(--c-ink);
+}
+.orgCounterLabel {
+  margin: 5px 0 0;
+  font-size: 11px;
+  color: var(--c-ink-3);
+  letter-spacing: 0.02em;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   STAGE
+══════════════════════════════════════════════════════════════════ */
+.orgStage {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-xl);
+  padding: 36px 32px 32px;
+  background:
+    radial-gradient(ellipse 55% 35% at 50% 0%, rgba(58, 143, 255, 0.10) 0%, transparent 100%),
+    linear-gradient(160deg, #080f1e 0%, #050c18 100%);
+  border: 1px solid var(--b-dark-2);
+  box-shadow: var(--sh-deep);
+}
+.orgStage::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.024) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.024) 1px, transparent 1px);
+  background-size: 52px 52px;
+  mask-image: linear-gradient(180deg, rgba(255,255,255,0.14) 0%, transparent 80%);
+}
+.orgStage::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(58, 143, 255, 0.45) 35%,
+    rgba(140, 210, 255, 0.65) 50%,
+    rgba(58, 143, 255, 0.45) 65%,
+    transparent 100%);
+  pointer-events: none;
+}
+
+.orgStageGlow {
+  position: absolute;
+  top: -120px; left: 50%;
+  transform: translateX(-50%);
+  width: 700px; height: 400px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(58, 143, 255, 0.07) 0%, transparent 70%);
+  pointer-events: none;
+  filter: blur(30px);
+}
+
+/* ── Root Shell ──────────────────────────────────────────────────────────── */
+.orgRootShell {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  border-radius: var(--r-xl);
+  padding: 28px 28px 24px;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(245, 160, 66, 0.07) 0%, transparent 100%),
+    linear-gradient(160deg, rgba(18, 28, 50, 0.95), rgba(12, 20, 38, 0.97));
+  border: 1px solid rgba(245, 160, 66, 0.14);
+  box-shadow: 0 32px 72px rgba(0, 0, 0, 0.40), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  transition: opacity var(--dur-med), filter var(--dur-med);
+}
+.orgRootShell::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(245, 160, 66, 0.5) 25%,
+    rgba(253, 210, 150, 0.85) 50%,
+    rgba(245, 160, 66, 0.5) 75%,
+    transparent 100%);
+}
+.orgRootShell::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -48px;
+  transform: translateX(-50%);
+  width: 2px;
+  height: 48px;
+  background: linear-gradient(180deg, rgba(100, 175, 255, 0.6), rgba(100, 175, 255, 0));
+  pointer-events: none;
+}
+
+.orgRootTop,
+.orgDivisionHead,
+.orgSectionHeader,
+.orgUserCard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+}
+.orgRootTop { margin-bottom: 24px; }
+
+.orgRootTitle,
+.orgDivisionName,
+.orgSectionTitle,
+.orgUserName {
+  margin: 0;
+  font-family: var(--font-display);
+  letter-spacing: -0.04em;
+}
+.orgRootTitle {
+  font-size: clamp(32px, 3.4vw, 50px);
+  font-weight: 800;
+  line-height: 0.93;
+  color: var(--c-white);
+  max-width: 680px;
+}
+.orgDivisionName {
+  font-size: clamp(22px, 2vw, 30px);
+  font-weight: 700;
+  line-height: 0.97;
+  max-width: 360px;
+  color: var(--c-ink);
+}
+.orgSectionTitle {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.22;
+  color: var(--c-ink);
+}
+.orgUserName {
+  font-size: 14.5px;
+  font-weight: 700;
+  line-height: 1.18;
+  color: var(--c-ink);
+  font-family: var(--font-body);
+}
+
+.orgRootShell .orgCounter {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--b-dark-2);
+  box-shadow: none;
+}
+.orgRootShell .orgCounterValue { color: var(--c-white); }
+.orgRootShell .orgCounterLabel { color: var(--c-fog); }
+
+/* ── Tree connector ──────────────────────────────────────────────────────── */
+.orgTreeConnector {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  margin: 28px 0 22px;
+  transition: opacity var(--dur-fast);
+}
+.orgTreeConnector::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 38px;
+  background: linear-gradient(180deg, rgba(100, 175, 255, 0.65), rgba(100, 175, 255, 0));
+}
+.orgTreeConnector::after {
+  content: "";
+  position: absolute;
+  top: 38px;
+  width: min(100%, 1200px);
+  height: 1px;
+  background: linear-gradient(90deg,
+    rgba(100, 175, 255, 0) 0%,
+    rgba(100, 175, 255, 0.45) 20%,
+    rgba(100, 175, 255, 0.70) 50%,
+    rgba(100, 175, 255, 0.45) 80%,
+    rgba(100, 175, 255, 0) 100%);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   DIVISION GRID
+══════════════════════════════════════════════════════════════════ */
+.orgDivisionGrid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
+.orgDivisionCard {
+  position: relative;
+  display: grid;
+  gap: 16px;
+  padding: 22px 20px 20px;
+  border-radius: var(--r-xl);
+  background: linear-gradient(180deg, var(--c-panel) 0%, var(--c-panel-2) 100%);
+  border: 1px solid var(--b-light);
+  box-shadow: var(--sh-card);
+  transition:
+    transform var(--dur-med) var(--ease-out),
+    box-shadow var(--dur-med) var(--ease-out),
+    border-color var(--dur-med),
+    opacity var(--dur-med) var(--ease-out);
+  overflow: hidden;
+}
+.orgDivisionCard:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 32px 72px rgba(4, 10, 22, 0.18), 0 8px 20px rgba(4, 10, 22, 0.10);
+  border-color: var(--b-sky);
+}
+.orgDivisionCard:nth-child(2) { margin-top: 12px; }
+.orgDivisionCard:nth-child(3) { margin-top: 6px; }
+
+.orgDivisionCard::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--c-ice), var(--c-sky), var(--c-violet));
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+}
+.orgDivisionCard::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -18px;
+  transform: translateX(-50%);
+  width: 2px;
+  height: 18px;
+  background: linear-gradient(180deg, rgba(100, 175, 255, 0.55), rgba(100, 175, 255, 0));
+  pointer-events: none;
+}
+
+.orgDivisionMetaWrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.orgDivisionMetaPill,
+.orgMiniCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  border-radius: 999px;
+  min-height: 28px;
+  padding: 0 11px;
+  background: rgba(13, 30, 53, 0.05);
+  border: 1px solid var(--b-light);
+  color: var(--c-ink-2);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+.orgMiniCount {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 22px;
+  letter-spacing: -0.05em;
+  min-height: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--c-ink-3);
+}
+
+.orgDivisionMetrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.orgDivisionMetric {
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--c-panel-2);
+  border: 1px solid var(--b-light);
+}
+.orgDivisionMetricValue {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.05em;
+  line-height: 1;
+  color: var(--c-ink);
+}
+.orgDivisionMetricLabel {
+  margin: 4px 0 0;
+  font-size: 10.5px;
+  color: var(--c-ink-3);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   SECTION CARDS
+══════════════════════════════════════════════════════════════════ */
+.orgSectionsFlow { display: grid; gap: 12px; }
+
+.orgSectionCard,
+.orgChiefSection {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--b-light);
+  background: linear-gradient(180deg, #ffffff 0%, var(--c-panel-2) 100%);
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+}
+.orgSectionCard:hover,
+.orgChiefSection:hover {
+  border-color: var(--b-sky);
+  box-shadow: 0 12px 32px rgba(58, 143, 255, 0.08);
+}
+.orgSectionCard::before,
+.orgChiefSection::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(90deg,
+    rgba(100, 175, 255, 0) 0%,
+    rgba(100, 175, 255, 0.60) 50%,
+    rgba(100, 175, 255, 0) 100%);
+}
+.orgChiefSection {
+  background: linear-gradient(180deg, #fffaf5 0%, #fff8f0 100%);
+  border-color: var(--b-amber);
+}
+.orgChiefSection::before {
+  background: linear-gradient(90deg,
+    rgba(245, 160, 66, 0) 0%,
+    rgba(245, 160, 66, 0.65) 50%,
+    rgba(245, 160, 66, 0) 100%);
+}
+.orgChiefSection:hover {
+  border-color: rgba(245, 160, 66, 0.38);
+  box-shadow: 0 12px 32px rgba(245, 160, 66, 0.10);
+}
+
+.orgSectionHeader { padding: 16px 18px 0; }
+
+/* ══════════════════════════════════════════════════════════════════
+   USER CARDS
+══════════════════════════════════════════════════════════════════ */
+.orgLeaderList,
+.orgMemberList {
+  display: grid;
+  gap: 9px;
+  padding: 11px 16px 16px;
+}
+
+.orgUserCard {
+  align-items: center;
+  padding: 13px 14px;
+  border: 1px solid var(--b-light);
+  border-radius: var(--r-md);
+  background: linear-gradient(160deg, #ffffff 0%, var(--c-panel) 100%);
+  transition:
+    transform var(--dur-fast) var(--ease-spring),
+    border-color var(--dur-fast),
+    box-shadow var(--dur-fast);
+}
+.orgUserCard:hover {
+  transform: translateY(-2px);
+  border-color: var(--b-sky);
+  box-shadow: 0 8px 22px rgba(58, 143, 255, 0.09);
+}
+.orgUserCard.isLeader {
+  background: linear-gradient(135deg, #f0f6ff 0%, #ffffff 100%);
+  border-color: rgba(58, 143, 255, 0.18);
+  box-shadow: 0 10px 22px rgba(58, 143, 255, 0.07);
+}
+
+.orgUserCore {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 13px;
+  align-items: center;
+  min-width: 0;
+}
+
+.orgUserAvatar {
+  flex-shrink: 0;
+  width: 46px; height: 46px;
+  border-radius: var(--r-sm);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: #fff;
+  background: var(--grad-staff);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.20);
+  transition: box-shadow var(--dur-fast), transform var(--dur-fast);
+}
+.orgUserCard:hover .orgUserAvatar {
+  transform: scale(1.04);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.26);
+}
+.orgUserAvatar.role-director          { background: var(--grad-director);  box-shadow: var(--sh-amber); }
+.orgUserAvatar.role-division_head,
+.orgUserAvatar.role-section_head      { background: var(--grad-head);      box-shadow: var(--sh-sky);   }
+.orgUserAvatar.role-division_assistant{ background: var(--grad-assistant); }
+.orgUserAvatar.role-admin             { background: var(--grad-admin); }
+
+.orgUserTopline { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
+
+.orgRoleBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  border: 1px solid var(--b-light);
+  background: rgba(13, 30, 53, 0.05);
+  color: var(--c-ink-2);
+  white-space: nowrap;
+}
+.orgRoleBadge.role-director {
+  color: #7a3200;
+  background: rgba(245, 160, 66, 0.12);
+  border-color: rgba(245, 160, 66, 0.28);
+}
+.orgRoleBadge.role-division_head,
+.orgRoleBadge.role-section_head {
+  color: #1a4a8a;
+  background: rgba(58, 143, 255, 0.10);
+  border-color: rgba(58, 143, 255, 0.22);
+}
+.orgRoleBadge.role-division_assistant {
+  color: #2e4a72;
+  background: rgba(70, 110, 170, 0.09);
+  border-color: rgba(70, 110, 170, 0.18);
+}
+.orgRoleBadge.role-admin {
+  color: #0c5a45;
+  background: rgba(35, 196, 154, 0.10);
+  border-color: rgba(35, 196, 154, 0.22);
+}
+
+.orgUserMeta,
+.orgUserSection {
+  margin: 3px 0 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--c-ink-3);
+}
+.orgUserSection { font-size: 11px; color: var(--c-ink-4); }
+
+.presencePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--b-light);
+  background: rgba(13, 30, 53, 0.04);
+  color: var(--c-ink-4);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.presenceDot {
+  flex-shrink: 0;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--c-ink-4);
+}
+.presencePill.isOnline {
+  color: #0a6040;
+  background: rgba(35, 196, 154, 0.10);
+  border-color: rgba(35, 196, 154, 0.24);
+}
+.presencePill.isOnline .presenceDot {
+  background: var(--c-jade);
+  box-shadow: 0 0 0 4px var(--c-jade-glow);
+  animation: pulseOnline 2.4s ease-in-out infinite;
+}
+@keyframes pulseOnline {
+  0%, 100% { box-shadow: 0 0 0 3px var(--c-jade-glow); }
+  50%       { box-shadow: 0 0 0 6px rgba(35, 196, 154, 0.08); }
+}
+
+.orgUserEmpty {
+  margin: 12px 16px 16px;
+  padding: 13px 16px;
+  border-radius: var(--r-sm);
+  border: 1px dashed var(--b-light-2);
+  background: rgba(230, 238, 252, 0.45);
+  color: var(--c-ink-4);
+  font-size: 12.5px;
+}
+
+.orgSectionActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px 16px;
+}
+.orgMemberCount {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--c-ink-3);
+}
+.orgMemberToggle {
+  color: var(--c-ink);
+  background: var(--c-panel);
+  border: 1px solid var(--b-light-2);
+  font-size: 11.5px;
+}
+.orgMemberToggle:hover {
+  color: var(--c-ink);
+  background: var(--c-panel-2);
+  border-color: var(--b-sky);
+}
+
+.orgMemberDrawer {
+  margin: 0 14px 14px;
+  padding: 4px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--b-light);
+  background: linear-gradient(180deg, var(--c-panel-2) 0%, #ffffff 100%);
+}
+
+.orgMemberDrawer[hidden],
+.orgRootShell[hidden],
+.orgDivisionCard[hidden],
+.orgUserCard[hidden],
+.orgSectionCard[hidden],
+.orgChiefSection[hidden] { display: none !important; }
+
+.orgEmptyState {
+  display: none;
+  padding: 22px 28px;
+  border-radius: var(--r-lg);
+  border: 1px dashed var(--b-dark-2);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--c-mist);
+  text-align: center;
+  font-size: 14px;
+}
+.orgEmptyState.isVisible { display: block; }
+
+/* ══════════════════════════════════════════════════════════════════
+   ROOT-SECTION DARK OVERRIDES
+══════════════════════════════════════════════════════════════════ */
+.orgRootShell .orgSectionLabel  { color: var(--c-amber); }
+.orgRootShell .orgSectionTitle  { color: var(--c-white); }
+.orgRootShell .orgMiniCount     { color: rgba(255,255,255,0.45); }
+.orgRootShell .orgSectionCard,
+.orgRootShell .orgChiefSection  {
+  background: linear-gradient(160deg, rgba(26, 38, 64, 0.90), rgba(18, 28, 52, 0.95));
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.orgRootShell .orgSectionCard:hover,
+.orgRootShell .orgChiefSection:hover { border-color: rgba(58, 143, 255, 0.30); }
+.orgRootShell .orgUserCard {
+  background: linear-gradient(160deg, rgba(18, 30, 56, 0.90), rgba(14, 22, 44, 0.94));
+  border-color: rgba(255, 255, 255, 0.07);
+}
+.orgRootShell .orgUserCard.isLeader {
+  background: linear-gradient(135deg, rgba(26, 44, 78, 0.94), rgba(18, 32, 60, 0.96));
+  border-color: rgba(58, 143, 255, 0.22);
+}
+.orgRootShell .orgUserCard:hover { border-color: rgba(58, 143, 255, 0.40); }
+.orgRootShell .orgUserName      { color: var(--c-star); }
+.orgRootShell .orgUserMeta,
+.orgRootShell .orgUserSection   { color: var(--c-fog); }
+.orgRootShell .orgUserEmpty {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.10);
+  color: var(--c-fog);
+}
+.orgRootShell .orgMemberCount   { color: var(--c-fog); }
+.orgRootShell .orgMemberToggle  {
+  color: var(--c-star);
+  background: rgba(255, 255, 255, 0.07);
+  border-color: var(--b-dark-2);
+}
+.orgRootShell .orgMemberToggle:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: var(--b-sky);
+}
+.orgRootShell .orgMemberDrawer {
+  background: rgba(10, 18, 36, 0.80);
+  border-color: rgba(255, 255, 255, 0.07);
+}
+.orgRootShell .orgDivisionMetaPill {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.10);
+  color: var(--c-mist);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   SEARCH: hide root shell
+══════════════════════════════════════════════════════════════════ */
+.orgStage.isRootHidden .orgRootShell { display: none; }
+
+/* ══════════════════════════════════════════════════════════════════
+   DRILL-DOWN MODE
+   Triggered by .isDrillMode on .orgStage (set by JS)
+   Focused card gets .isDrillActive
+   Other cards get .isDrillHidden
+══════════════════════════════════════════════════════════════════ */
+
+/* ── Drill hint button (inside each division card) ───────────────────────── */
+.orgDrillHint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px dashed rgba(58, 143, 255, 0.22);
+  background: rgba(58, 143, 255, 0.04);
+  color: var(--c-ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast),
+    border-color var(--dur-fast),
+    color var(--dur-fast),
+    transform var(--dur-fast) var(--ease-spring);
+  width: fit-content;
+  appearance: none;
+}
+.orgDrillHint:hover {
+  background: rgba(58, 143, 255, 0.10);
+  border-color: rgba(58, 143, 255, 0.42);
+  color: var(--c-sky);
+  transform: translateY(-1px);
+}
+.orgDrillHintDot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--c-sky);
+  opacity: 0.55;
+  flex-shrink: 0;
+  transition: opacity var(--dur-fast);
+}
+.orgDrillHint:hover .orgDrillHintDot { opacity: 1; }
+
+/* ── Drill bar (sticky back button container) ────────────────────────────── */
+.orgDrillBar {
+  display: none;
+  position: sticky;
+  top: 12px;
+  z-index: 20;
+  padding: 0 0 16px;
+  pointer-events: none;
+}
+.orgDrillBar.isVisible {
+  display: block;
+}
+.orgDrillBar > * { pointer-events: auto; }
+
+/* ── Back button ─────────────────────────────────────────────────────────── */
+.orgDrillBack {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  padding: 0 18px 0 12px;
+  min-height: 44px;
+  border-radius: 999px;
+  border: 1px solid var(--b-dark-2);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--c-star);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(16px);
+  appearance: none;
+  transition:
+    background var(--dur-fast),
+    border-color var(--dur-fast),
+    transform var(--dur-fast) var(--ease-spring),
+    box-shadow var(--dur-fast);
+}
+.orgDrillBar.isVisible .orgDrillBack {
+  display: flex;
+  animation: drillBackIn var(--dur-med) var(--ease-out) both;
+}
+@keyframes drillBackIn {
+  from { opacity: 0; transform: translateX(-16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.orgDrillBack:hover {
+  background: rgba(255, 255, 255, 0.11);
+  border-color: var(--b-dark-3);
+  transform: translateX(-3px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.22);
+}
+.orgDrillBack:active { transform: translateX(0); }
+
+.orgDrillBackArrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.09);
+  font-size: 14px;
+  line-height: 1;
+  transition: background var(--dur-fast);
+}
+.orgDrillBack:hover .orgDrillBackArrow { background: rgba(255, 255, 255, 0.15); }
+
+.orgDrillBackLabel { letter-spacing: 0.01em; }
+.orgDrillBackDivName {
+  color: var(--c-amber);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+/* ── Hidden cards (non-focused) ──────────────────────────────────────────── */
+.orgDivisionCard.isDrillHidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.94) translateY(8px);
+}
+
+/* ── Focused (active) card ───────────────────────────────────────────────── */
+.orgDivisionCard.isDrillActive {
+  grid-column: 1 / -1;
+  border-color: var(--b-sky);
+  box-shadow: 0 40px 90px rgba(4, 10, 22, 0.22), 0 12px 28px rgba(4, 10, 22, 0.12);
+  animation: drillExpand var(--dur-slow) var(--ease-out) both;
+}
+@keyframes drillExpand {
+  from { opacity: 0.7; transform: scale(0.97) translateY(6px); }
+  to   { opacity: 1;   transform: scale(1) translateY(0); }
+}
+
+/* Inside focused card: sections expand to multi-column */
+.orgDivisionCard.isDrillActive .orgSectionsFlow {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+/* Division name enlarges */
+.orgDivisionCard.isDrillActive .orgDivisionName {
+  font-size: clamp(26px, 3vw, 40px);
+  background: linear-gradient(135deg, var(--c-ink) 0%, var(--c-ink-2) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Hide drill hint when in drill mode */
+.orgStage.isDrillMode .orgDrillHint { display: none; }
+
+/* Dim root shell and tree connector while drilling */
+.orgStage.isDrillMode .orgRootShell {
+  opacity: 0.45;
+  filter: blur(0.5px);
+  pointer-events: none;
+}
+.orgStage.isDrillMode .orgTreeConnector {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Dim spotlight banner while drilling */
+.orgStage.isDrillMode ~ .orgSpotlight,
+.orgSpotlight:has(~ .orgStage.isDrillMode) {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* ── Reduce motion ───────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .orgDivisionCard.isDrillActive,
+  .orgDivisionCard.isDrillHidden,
+  .orgDrillBack,
+  .orgStage.isDrillMode .orgRootShell,
+  .orgStage.isDrillMode .orgTreeConnector { animation: none; transition: none; }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   RESPONSIVE
+══════════════════════════════════════════════════════════════════ */
+@media (max-width: 1180px) {
+  .orgHeroGrid,
+  .orgSpotlightGrid,
+  .orgRootTop,
+  .orgDivisionHead,
+  .orgSectionHeader,
+  .orgUserCard          { grid-template-columns: 1fr; }
+  .orgDivisionGrid      { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .orgRootShell::after,
+  .orgTreeConnector::after,
+  .orgDivisionCard::before { display: none; }
+  .orgCounters          { justify-content: flex-start; }
+  .orgDivisionCard:nth-child(2),
+  .orgDivisionCard:nth-child(3) { margin-top: 0; }
+}
+
+@media (max-width: 780px) {
+  .orgArt2026           { gap: 16px; }
+  .orgHeroShell         { padding: 24px 22px; border-radius: var(--r-lg); }
+  .orgSpotlight         { padding: 16px 20px; border-radius: var(--r-lg); }
+  .orgStage             { padding: 22px 18px 20px; border-radius: var(--r-lg); }
+  .orgRootShell,
+  .orgDivisionCard      { padding: 18px; border-radius: var(--r-lg); }
+  .orgHeroTitle         { font-size: clamp(38px, 11vw, 54px); }
+  .orgSpotlightTitle    { font-size: 24px; }
+  .orgDivisionGrid,
+  .orgDivisionMetrics   { grid-template-columns: 1fr; }
+  .orgHeroStats         { gap: 7px; }
+  .orgUserCore          { grid-template-columns: 42px minmax(0, 1fr); }
+  .orgHeroGrid          { gap: 22px; }
+  .orgControlDeck       { padding: 16px; }
+  .orgDivisionCard.isDrillActive .orgSectionsFlow { grid-template-columns: 1fr; }
+  .orgDrillBackDivName  { max-width: 140px; }
+}
+
+@media (max-width: 480px) {
+  .orgDivisionGrid      { grid-template-columns: 1fr; }
+  .orgHeroTitle         { font-size: clamp(32px, 12vw, 44px); }
+}

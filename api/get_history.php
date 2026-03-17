@@ -68,11 +68,97 @@ try {
   $docHasRealBranches = ($branchMode && workflow_document_has_real_branches($conn, $docId));
   $viewerUserId = (int)($_SESSION["user_id"] ?? 0);
   $viewerSectionId = (int)($_SESSION["section_id"] ?? 0);
+  $viewerDivisionId = (int)($_SESSION["division_id"] ?? 0);
   $viewerDivisionName = trim((string)($_SESSION["division_name"] ?? ""));
   $viewerRole = strtolower(trim((string)($_SESSION["role"] ?? "")));
   $viewerIsAdmin = ($viewerRole === "admin");
 
   $branches = $docHasRealBranches ? workflow_get_branch_state($conn, $docId, $viewerUserId) : [];
+  $allowedBranchIds = [];
+
+  // Important:
+  // Only enforce division-based branch visibility when the viewer actually owns
+  // or can act on at least one visible branch. For origin/creator/general viewers,
+  // workflow_get_branch_state() intentionally returns the full branch list.
+  $viewerHasOwnBranchContext = false;
+  if ($docHasRealBranches && is_array($branches)) {
+    foreach ($branches as $branchRow) {
+      if (
+        (int)($branchRow['current_assignee_user_id'] ?? 0) === $viewerUserId
+        || (int)($branchRow['my_pending_route_id'] ?? 0) > 0
+        || (int)($branchRow['can_forward'] ?? 0) === 1
+      ) {
+        $viewerHasOwnBranchContext = true;
+        break;
+      }
+    }
+  }
+
+  // Restrict visible branch tabs to the viewer's own division, except admins.
+  if (
+    $docHasRealBranches
+    && !$viewerIsAdmin
+    && $viewerDivisionId > 0
+    && $viewerHasOwnBranchContext
+    && is_array($branches)
+    && $branches !== []
+  ) {
+    $rawBranchIds = array_values(array_unique(array_filter(
+      array_map(static fn($b) => (int)($b['id'] ?? 0), $branches),
+      static fn($id) => $id > 0
+    )));
+
+    if ($rawBranchIds !== []) {
+      $placeholders = implode(',', array_fill(0, count($rawBranchIds), '?'));
+      $types = str_repeat('i', count($rawBranchIds));
+
+      $sqlBranchDivisionMap = "
+        SELECT
+          b.id,
+          COALESCE(cs.division_id, us.division_id, 0) AS division_id
+        FROM document_branches b
+        LEFT JOIN sections cs ON cs.id = b.current_assignee_section_id
+        LEFT JOIN users uu ON uu.id = b.current_assignee_user_id
+        LEFT JOIN sections us ON us.id = uu.section_id
+        WHERE b.id IN ($placeholders)
+      ";
+
+      $stmtBranchDivisionMap = $conn->prepare($sqlBranchDivisionMap);
+      $params = $rawBranchIds;
+      $bind = [$types];
+      foreach ($params as $k => $v) {
+        $bind[] = &$params[$k];
+      }
+      call_user_func_array([$stmtBranchDivisionMap, 'bind_param'], $bind);
+      $stmtBranchDivisionMap->execute();
+      $branchDivisionRows = $stmtBranchDivisionMap->get_result()->fetch_all(MYSQLI_ASSOC);
+
+      $branchDivisionMap = [];
+      foreach ($branchDivisionRows as $branchDivisionRow) {
+        $branchDivisionMap[(int)($branchDivisionRow['id'] ?? 0)] = (int)($branchDivisionRow['division_id'] ?? 0);
+      }
+
+      $branches = array_values(array_filter($branches, static function ($branchRow) use ($viewerDivisionId, $branchDivisionMap, &$allowedBranchIds) {
+        $branchId = (int)($branchRow['id'] ?? 0);
+        if ($branchId <= 0) return false;
+
+        $branchDivisionId = (int)($branchDivisionMap[$branchId] ?? 0);
+        if ($branchDivisionId !== $viewerDivisionId) {
+          return false;
+        }
+
+        $allowedBranchIds[] = $branchId;
+        return true;
+      }));
+
+      $allowedBranchIds = array_values(array_unique(array_filter(array_map('intval', $allowedBranchIds), static fn($id) => $id > 0)));
+    }
+  } elseif ($docHasRealBranches && is_array($branches)) {
+    $allowedBranchIds = array_values(array_unique(array_filter(
+      array_map(static fn($b) => (int)($b['id'] ?? 0), $branches),
+      static fn($id) => $id > 0
+    )));
+  }
 
   // Build full branch tree for strict selected-lane lineage filtering.
   $allBranchesById = [];
@@ -110,6 +196,26 @@ try {
 
       return true;
     }));
+  }
+
+  // Rebuild allowed IDs after final UI branch filtering.
+  if ($docHasRealBranches && is_array($branches)) {
+    $allowedBranchIds = array_values(array_unique(array_filter(
+      array_map(static fn($b) => (int)($b['id'] ?? 0), $branches),
+      static fn($id) => $id > 0
+    )));
+  }
+
+  // Drop stale/foreign selected branch IDs for non-admins.
+  if (
+    $docHasRealBranches
+    && $selectedBranchId > 0
+    && !$viewerIsAdmin
+    && $viewerHasOwnBranchContext
+    && $allowedBranchIds !== []
+    && !in_array($selectedBranchId, $allowedBranchIds, true)
+  ) {
+    $selectedBranchId = 0;
   }
 
   $selectedBranchScopeIds = [];
@@ -342,7 +448,6 @@ try {
       $payloadToUsers[0] ?? "",
     ]);
 
-    // Event-aware normalization
     if ($eventKey === "received") {
       $payloadToUser = $firstNonEmpty([
         $actor,
@@ -523,12 +628,50 @@ try {
           }
         }
       } elseif ($resolvedBranchId === null && $sourceBranchId === 0 && count($newBranchIds) === 0) {
-        // For single-recipient / non-branch docs, keep the event visible.
         $belongsToSelected = true;
       }
 
       if (!$belongsToSelected) {
         continue;
+      }
+    }
+
+    // Optional division-level safety guard when no lane is selected.
+    if (
+      $docHasRealBranches
+      && !$viewerIsAdmin
+      && $viewerDivisionId > 0
+      && $viewerHasOwnBranchContext
+      && $selectedBranchId <= 0
+    ) {
+      $candidateBranchIdsForDivisionGuard = [];
+
+      if ($resolvedBranchId !== null && $resolvedBranchId > 0) {
+        $candidateBranchIdsForDivisionGuard[] = (int)$resolvedBranchId;
+      }
+      if ($sourceBranchId > 0) {
+        $candidateBranchIdsForDivisionGuard[] = $sourceBranchId;
+      }
+      foreach ($newBranchIds as $newBid) {
+        $newBid = (int)$newBid;
+        if ($newBid > 0) {
+          $candidateBranchIdsForDivisionGuard[] = $newBid;
+        }
+      }
+
+      $candidateBranchIdsForDivisionGuard = array_values(array_unique($candidateBranchIdsForDivisionGuard));
+
+      if ($candidateBranchIdsForDivisionGuard !== []) {
+        $hasAllowedCandidate = false;
+        foreach ($candidateBranchIdsForDivisionGuard as $candidateBid) {
+          if (in_array($candidateBid, $allowedBranchIds, true)) {
+            $hasAllowedCandidate = true;
+            break;
+          }
+        }
+        if (!$hasAllowedCandidate) {
+          continue;
+        }
       }
     }
 
@@ -596,6 +739,7 @@ try {
       || $viewerIsAdmin
       || $viewerIsPartyToMovement
       || $viewerIsExplicitParty
+      || $selectedLaneOwnsEvent
     );
 
     $branchSplitRedacted = false;
@@ -671,7 +815,7 @@ try {
       "actor_division" => $actorDivision,
       "viewer_redacted" => $shouldRedact,
       "branch_split_redacted" => $branchSplitRedacted,
-            "remarks" => $canSeeRemarks ? $remarksValue : "",
+      "remarks" => $canSeeRemarks ? $remarksValue : "",
       "personal_deadline_at" => $personalDeadlineValue,
       "acted_at" => (string)($r["created_at"] ?? ""),
       "actor" => $actor,

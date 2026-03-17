@@ -93,6 +93,8 @@
   let currentBranchId = 0;
   let deadlineTicker = null;
 
+  const DRAWER_RESTORE_KEY = "dt_restore_drawer";
+
   function esc(s) {
     return (s ?? "").toString()
       .replaceAll("&", "&amp;")
@@ -111,6 +113,33 @@
 
   function normalizedRemarksValue() {
     return (elActionRemarks?.value ?? "").toString().trim();
+  }
+
+  function saveDrawerRestoreState(docId, branchId = 0) {
+    const id = Number(docId || 0);
+    if (id <= 0) return;
+    try {
+      sessionStorage.setItem(DRAWER_RESTORE_KEY, JSON.stringify({
+        docId: id,
+        branchId: Number(branchId || 0),
+        at: Date.now(),
+      }));
+    } catch (_) {}
+  }
+
+  function consumeDrawerRestoreState() {
+    try {
+      const raw = sessionStorage.getItem(DRAWER_RESTORE_KEY);
+      if (!raw) return null;
+      sessionStorage.removeItem(DRAWER_RESTORE_KEY);
+      const parsed = JSON.parse(raw);
+      const docId = Number(parsed?.docId || 0);
+      const branchId = Number(parsed?.branchId || 0);
+      if (docId <= 0) return null;
+      return { docId, branchId };
+    } catch (_) {
+      return null;
+    }
   }
 
   function fmtBytes(n) {
@@ -535,10 +564,11 @@
     return found;
   }
 
-  function renderBranchTabs(branches) {
+  function renderBranchTabs(branches, options = {}) {
     currentBranches = Array.isArray(branches) ? branches : [];
 
     const visibleBranches = currentBranches.filter((b) => Number(b.id || 0) > 0);
+    const preserveSelection = !!options.preserveSelection;
 
     if (!currentBranchMode || visibleBranches.length === 0) {
       currentBranchMode = false;
@@ -553,15 +583,21 @@
       savedBranchId > 0 &&
       visibleBranches.some((b) => Number(b.id || 0) === savedBranchId);
 
+    const currentBranchStillVisible =
+      Number(currentBranchId || 0) > 0 &&
+      visibleBranches.some((b) => Number(b.id || 0) === Number(currentBranchId || 0));
+
     const myPending = visibleBranches.find((b) => Number(b.my_pending_route_id || 0) > 0);
     const myActionable = visibleBranches.find((b) => Number(b.can_forward || 0) === 1);
 
-    if (myPending) {
+    if (preserveSelection && currentBranchStillVisible) {
+      // keep current selection stable while refreshing the drawer
+    } else if (savedBranchStillVisible) {
+      currentBranchId = savedBranchId;
+    } else if (myPending) {
       currentBranchId = Number(myPending.id || 0);
     } else if (myActionable) {
       currentBranchId = Number(myActionable.id || 0);
-    } else if (savedBranchStillVisible) {
-      currentBranchId = savedBranchId;
     } else {
       currentBranchId = preferredBranchId(visibleBranches);
     }
@@ -935,7 +971,7 @@
 
     try {
       const url = `${API}/attachments_list.php?document_id=${encodeURIComponent(docId)}`;
-      const res = await fetch(url, { headers: { Accept: "application/json" } });
+      const res = await fetch(url, { cache: "no-store", headers: { Accept: "application/json" } });
       const data = await res.json().catch(() => null);
 
       if (!res.ok || !data?.ok) {
@@ -1412,7 +1448,7 @@
     `;
   }
 
-  async function loadTimeline(docId, forcedBranchId = 0) {
+  async function loadTimeline(docId, forcedBranchId = 0, options = {}) {
     if (!elTimeline) return;
 
     try {
@@ -1421,6 +1457,7 @@
       if (currentBranchMode && branchId > 0) qs.set("branch_id", String(branchId));
 
       const res = await fetch(`${API}/get_history.php?${qs.toString()}`, {
+        cache: "no-store",
         headers: { Accept: "application/json" }
       });
 
@@ -1439,7 +1476,7 @@
       const hasRealBranches = branchRows.some((b) => Number(b.id || 0) > 0);
 
       currentBranchMode = !!data.branch_mode && hasRealBranches;
-      renderBranchTabs(branchRows);
+      renderBranchTabs(branchRows, { preserveSelection: !!options.preserveSelection || Number(forcedBranchId || 0) > 0 });
 
       if (currentBranchMode) {
         const activeId = Number(forcedBranchId || currentBranchId || preferredBranchId(branchRows));
@@ -1557,8 +1594,9 @@
       if (attachFile) attachFile.value = "";
       if (attachNote) attachNote.value = "";
 
+      const selectedBranchBefore = currentBranchMode ? Number(getSelectedBranch()?.id || 0) : 0;
       await loadAttachments(docId);
-      await loadTimeline(docId);
+      await loadTimeline(docId, selectedBranchBefore, { preserveSelection: true });
     } catch {
       if (attachMsg) attachMsg.textContent = "Upload failed (network error).";
       else alert("Upload failed (network error).");
@@ -1663,7 +1701,7 @@
     if (payload.id) loadAttachments(payload.id);
 
     if (elTimeline) elTimeline.textContent = "Loading timeline…";
-    if (payload.id) loadTimeline(payload.id);
+    if (payload.id) loadTimeline(payload.id, 0, { preserveSelection: false });
 
     const openToSectionId = Number.parseInt(payload.open_to_section_id, 10) || 0;
     const holderSectionId = Number.parseInt(payload.current_holder_section_id, 10) || 0;
@@ -1839,6 +1877,7 @@
     const form = new FormData();
     form.append("document_id", docId);
     const branch = currentBranchMode ? getSelectedBranch() : null;
+    const selectedBranchBefore = currentBranchMode ? Number(branch?.id || 0) : 0;
     const routeId = currentBranchMode
       ? (Number.parseInt(branch?.my_pending_route_id || "0", 10) || 0)
       : (Number.parseInt(currentPayload?.open_route_id || "0", 10) || 0);
@@ -1858,6 +1897,9 @@
         alert(data?.error || `Failed to acknowledge received. (${res.status})`);
         return;
       }
+
+      savePreferredBranchId(docId, selectedBranchBefore);
+      saveDrawerRestoreState(docId, selectedBranchBefore);
       location.reload();
     } catch {
       alert("Failed to acknowledge received (network error).");
@@ -1916,6 +1958,9 @@
       }
       if (currentBranchMode && Number(branchBeforeForward?.id || 0) > 0) {
         savePreferredBranchId(docId, Number(branchBeforeForward.id || 0));
+        saveDrawerRestoreState(docId, Number(branchBeforeForward.id || 0));
+      } else {
+        saveDrawerRestoreState(docId, 0);
       }
       location.reload();
     } catch {
@@ -1947,6 +1992,30 @@
       openDrawer(payload);
     });
   });
+
+  const restoreState = consumeDrawerRestoreState();
+  if (restoreState?.docId) {
+    const rows = Array.from(document.querySelectorAll("[data-doc]"));
+    const match = rows.find((row) => {
+      const raw = row.getAttribute("data-doc") || "{}";
+      try {
+        const payload = JSON.parse(raw);
+        return Number(payload?.id || 0) === Number(restoreState.docId || 0);
+      } catch {
+        return false;
+      }
+    });
+
+    if (match) {
+      const raw = match.getAttribute("data-doc") || "{}";
+      let payload;
+      try { payload = JSON.parse(raw); } catch { payload = {}; }
+      if (Number(restoreState.branchId || 0) > 0) {
+        savePreferredBranchId(Number(payload?.id || 0), Number(restoreState.branchId || 0));
+      }
+      setTimeout(() => openDrawer(payload), 0);
+    }
+  }
 
   btnToggleAttachments?.addEventListener("click", () => {
     if (!elAttachments) return;
@@ -2037,3 +2106,16 @@
   syncToggleLabels();
   updateForwardUI();
 })();
+
+
+document.addEventListener("click", function (e) {
+  const btn = e.target.closest(".toggleMembers");
+  if (!btn) return;
+
+  const container = btn.closest(".sectionCard");
+  const list = container.querySelector(".membersList");
+
+  if (!list) return;
+
+  list.classList.toggle("collapsed");
+});

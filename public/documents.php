@@ -506,21 +506,33 @@ $sql = "
 
   LEFT JOIN (
     SELECT
-      r_remark.document_id,
-      r_remark.remarks AS latest_route_remark,
-      r_remark.sent_by_user_id AS latest_remark_sent_by_user_id,
-      r_remark.from_user_id AS latest_remark_from_user_id,
-      r_remark.to_user_id AS latest_remark_to_user_id,
-      r_remark.received_by_user_id AS latest_remark_received_by_user_id
-    FROM routes r_remark
-    INNER JOIN (
-      SELECT document_id, MAX(id) AS max_route_id
-      FROM routes
-      WHERE TRIM(COALESCE(remarks, '')) <> ''
-        AND LOWER(TRIM(COALESCE(remarks, ''))) <> 'none'
-      GROUP BY document_id
-    ) r_remark_pick ON r_remark_pick.max_route_id = r_remark.id
-  ) rr_latest ON rr_latest.document_id = d.id
+      r1.id,
+      r1.document_id,
+      r1.remarks AS latest_route_remark,
+      r1.sent_by_user_id AS latest_remark_sent_by_user_id,
+      r1.from_user_id AS latest_remark_from_user_id,
+      r1.to_user_id AS latest_remark_to_user_id,
+      r1.received_by_user_id AS latest_remark_received_by_user_id,
+      r1.to_section_id AS latest_remark_to_section_id,
+      r1.from_section_id AS latest_remark_from_section_id
+    FROM routes r1
+  ) rr_latest
+    ON rr_latest.document_id = d.id
+  AND rr_latest.id = (
+      SELECT MAX(r2.id)
+      FROM routes r2
+      WHERE r2.document_id = d.id
+        AND TRIM(COALESCE(r2.remarks, '')) <> ''
+        AND LOWER(TRIM(COALESCE(r2.remarks, ''))) <> 'none'
+        AND (
+          r2.sent_by_user_id = {$myUid}
+          OR r2.from_user_id = {$myUid}
+          OR r2.to_user_id = {$myUid}
+          OR r2.received_by_user_id = {$myUid}
+          OR r2.to_section_id = {$mySid}
+          OR r2.from_section_id = {$mySid}
+        )
+    )
 
   LEFT JOIN routes r_last
     ON r_last.document_id = d.id
@@ -1092,9 +1104,11 @@ function quickUrl(string $target): string {
             if ($latestRemarkText !== "") {
               $latestRemarkVisibleToMe = (
                 (int)($d["latest_remark_sent_by_user_id"] ?? 0) === $myUserId
-                || ((int)($d["latest_remark_from_user_id"] ?? 0) > 0 && (int)($d["latest_remark_from_user_id"] ?? 0) === $myUserId)
+                || (int)($d["latest_remark_from_user_id"] ?? 0) === $myUserId
                 || (int)($d["latest_remark_to_user_id"] ?? 0) === $myUserId
                 || (int)($d["latest_remark_received_by_user_id"] ?? 0) === $myUserId
+                || (int)($d["latest_remark_to_section_id"] ?? 0) === $mySectionId
+                || (int)($d["latest_remark_from_section_id"] ?? 0) === $mySectionId
               );
             }
             $latestRemarkForList = $latestRemarkVisibleToMe ? $latestRemarkText : "";

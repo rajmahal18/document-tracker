@@ -19,7 +19,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $error = "Please enter your username/email and password.";
   } else {
 
-    // ✅ Pull user + section + division + chief flag
+    $hasOfficialTitle = db_column_exists($conn, "users", "official_title");
+    $hasAuthorityRole = db_column_exists($conn, "users", "authority_role");
+
     $stmt = $conn->prepare("
       SELECT
         u.id,
@@ -30,7 +32,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         u.role,
         u.section_id,
         u.is_chief,
+        " . ($hasOfficialTitle ? "u.official_title" : "NULL") . " AS official_title,
+        " . ($hasAuthorityRole ? "u.authority_role" : "NULL") . " AS authority_role,
         s.name AS section_name,
+        d.id AS division_id,
         d.name AS division_name
       FROM users u
       LEFT JOIN sections s ON s.id = u.section_id
@@ -54,10 +59,23 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
       $_SESSION["section_id"]    = isset($user["section_id"]) ? (int)$user["section_id"] : null;
       $_SESSION["section_name"]  = (string)($user["section_name"] ?? "");
+      $_SESSION["division_id"]   = isset($user["division_id"]) ? (int)$user["division_id"] : null;
       $_SESSION["division_name"] = (string)($user["division_name"] ?? "");
 
-      // ✅ NEW: chief flag for permission system
-      $_SESSION["is_chief"] = (int)($user["is_chief"] ?? 0);
+      $rawAuthorityRole = trim((string)($user["authority_role"] ?? ""));
+      if ($rawAuthorityRole === "") {
+        if ((string)($user["role"] ?? "user") === "admin") {
+          $rawAuthorityRole = "admin";
+        } elseif ((int)($user["is_chief"] ?? 0) === 1) {
+          $rawAuthorityRole = "section_head";
+        } else {
+          $rawAuthorityRole = "staff";
+        }
+      }
+
+      $_SESSION["authority_role"] = $rawAuthorityRole;
+      $_SESSION["official_title"] = trim((string)($user["official_title"] ?? ""));
+      $_SESSION["is_chief"]       = (int)($user["is_chief"] ?? 0);
 
       if ((int)($_SESSION["must_change_password"] ?? 0) === 1) {
         redirect(PUBLIC_PATH . "/change_password.php");

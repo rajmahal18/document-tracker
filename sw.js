@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mpw-doc-tracker-v1';
+const CACHE_NAME = 'mpw-doc-tracker-v2';
 const APP_BASE = '/document-tracker';
 const OFFLINE_URL = APP_BASE + '/public/offline.php';
 const CORE_ASSETS = [
@@ -30,9 +30,17 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (!url.pathname.startsWith(APP_BASE)) return;
 
-  if (request.mode === 'navigate') {
+  const isApi = url.pathname.startsWith(APP_BASE + '/api/');
+  const isDynamicPhp = url.pathname.endsWith('.php');
+
+  if (isApi) {
+    event.respondWith(fetch(request, { cache: 'no-store' }));
+    return;
+  }
+
+  if (request.mode === 'navigate' || isDynamicPhp) {
     event.respondWith(
-      fetch(request)
+      fetch(request, { cache: 'no-store' })
         .then((response) => {
           const copy = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => {});

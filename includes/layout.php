@@ -32,6 +32,7 @@ $pageTitle = $pageTitle ?? "Document Tracker";
     api: "<?= API_PATH ?>",
     public: "<?= PUBLIC_PATH ?>",
     assets: "<?= ASSETS_PATH ?>",
+    csrf: "<?= htmlspecialchars(csrf_token(), ENT_QUOTES, "UTF-8") ?>",
     currentPage: "<?= htmlspecialchars($currentPage ?? basename($_SERVER['PHP_SELF'])) ?>"
   };
 </script>
@@ -99,7 +100,7 @@ $pageTitle = $pageTitle ?? "Document Tracker";
       <span class="navIcon">◎</span>
       <span class="navText">Issuances</span>
     </a>
-    <a href="#" class="navPlaceholder" onclick="event.preventDefault()">
+    <a href="<?= PUBLIC_PATH ?>/org_chart.php" class="<?= $currentPage === 'org_chart.php' ? 'navActive' : '' ?>">
       <span class="navIcon">▤</span>
       <span class="navText">Organizational Chart</span>
     </a>
@@ -144,6 +145,7 @@ $pageTitle = $pageTitle ?? "Document Tracker";
     <?php if (isset($_SESSION["user_id"])): ?>
       <?php
         $fullName = (string)($_SESSION["full_name"] ?? "User");
+        $officialTitle = trim((string)($_SESSION["official_title"] ?? ""));
         $division = trim((string)($_SESSION["division_name"] ?? ""));
         $section  = trim((string)($_SESSION["section_name"] ?? ""));
         $role     = trim((string)($_SESSION["role"] ?? "user"));
@@ -157,6 +159,10 @@ $pageTitle = $pageTitle ?? "Document Tracker";
 
       <div class="mini" style="margin: 0 0 12px; opacity: .85;">
         Signed in as <b><?= htmlspecialchars($fullName) ?></b>
+        <?php if ($officialTitle !== ""): ?>
+          <br>
+          <span style="opacity:.75;"><?= htmlspecialchars($officialTitle) ?></span>
+        <?php endif; ?>
         <?php if ($orgLine !== ""): ?>
           <br>
           <span style="opacity:.75;">

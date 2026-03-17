@@ -18,6 +18,24 @@ $action = trim((string)($_POST["action"] ?? "")); // APPROVE | REJECT
 $notes  = trim((string)($_POST["admin_notes"] ?? ""));
 $sectionId = (int)($_POST["section_id"] ?? 0); // required for approve
 
+$officialTitle = trim((string)($_POST["official_title"] ?? ""));
+$authorityRole = trim((string)($_POST["authority_role"] ?? "staff"));
+
+$allowedAuthorityRoles = ["staff", "section_head", "division_assistant", "division_head", "director"];
+$allowedOfficialTitles = ["", "Director II", "Division Chief", "Assistant Division Chief", "Section Chief", "Acting Section Chief"];
+
+if (!in_array($authorityRole, $allowedAuthorityRoles, true)) {
+  http_response_code(422);
+  echo json_encode(["ok" => false, "error" => "Invalid authority role."]);
+  exit;
+}
+
+if (!in_array($officialTitle, $allowedOfficialTitles, true)) {
+  http_response_code(422);
+  echo json_encode(["ok" => false, "error" => "Invalid official title."]);
+  exit;
+}
+
 if ($id <= 0) {
   http_response_code(422);
   echo json_encode(["ok" => false, "error" => "Invalid request id."]);
@@ -110,8 +128,39 @@ $hash = password_hash($temp, PASSWORD_DEFAULT);
 
 // Create user (role locked to 'user')
 $role = "user";
-$ins = $conn->prepare("INSERT INTO users (full_name, email, password_hash, role, section_id, must_change_password) VALUES (?, ?, ?, ?, ?, 1)");
-$ins->bind_param("ssssi", $fullName, $email, $hash, $role, $sectionId);
+$hasOfficialTitle = db_column_exists($conn, "users", "official_title");
+$hasAuthorityRole = db_column_exists($conn, "users", "authority_role");
+$legacyIsChief = in_array($authorityRole, ["director", "division_head", "section_head"], true) ? 1 : 0;
+
+if ($hasOfficialTitle && $hasAuthorityRole) {
+  $ins = $conn->prepare("
+    INSERT INTO users (
+      full_name,
+      email,
+      password_hash,
+      role,
+      section_id,
+      is_chief,
+      official_title,
+      authority_role,
+      must_change_password
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+  ");
+  $ins->bind_param("ssssiiss", $fullName, $email, $hash, $role, $sectionId, $legacyIsChief, $officialTitle, $authorityRole);
+} else {
+  $ins = $conn->prepare("
+    INSERT INTO users (
+      full_name,
+      email,
+      password_hash,
+      role,
+      section_id,
+      is_chief,
+      must_change_password
+    ) VALUES (?, ?, ?, ?, ?, ?, 1)
+  ");
+  $ins->bind_param("ssssii", $fullName, $email, $hash, $role, $sectionId, $legacyIsChief);
+}
 
 if (!$ins->execute()) {
   http_response_code(500);
