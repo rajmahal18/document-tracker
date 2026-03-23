@@ -1514,4 +1514,5 @@ $end   = min($totalPages, $page + 2);
   </div>
 </div>
 
+<?php $pageScripts = [ASSETS_PATH . "/js/documents-page.js?v=20260323b"]; ?>
 <?php require __DIR__ . "/../includes/footer.php"; ?>

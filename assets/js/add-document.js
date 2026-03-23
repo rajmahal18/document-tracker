@@ -77,8 +77,11 @@
   const destinationModeHint = document.getElementById("destinationModeHint");
   const destinationNotice = document.getElementById("destinationNotice");
   const form = document.querySelector("form.docFormGrid");
+  const removeSavedAttachmentUrl = String(form?.getAttribute("data-remove-saved-attachment-url") || "");
   const removeSavedAttachmentInput = document.getElementById("removeSavedAttachmentInput");
+  const destinationBuilderContractInput = document.getElementById("destinationBuilderContractInput");
   const btnRemoveSavedAttachment = document.getElementById("btnRemoveSavedAttachment");
+  const savedAttachmentCard = document.getElementById("savedAttachmentCard");
   const destBuilder = document.querySelector(".destBuilder");
   const destViewButtons = Array.from(document.querySelectorAll(".destViewBtn"));
   const expandedUserPanels = new Set();
@@ -87,6 +90,10 @@
   let destinationNoticeTimer = null;
 
   const destinations = new Map();
+
+  if (destinationBuilderContractInput) {
+    destinationBuilderContractInput.value = "1";
+  }
 
   function esc(s) {
     return String(s ?? "").replace(/[&<>"']/g, (c) => ({
@@ -314,13 +321,43 @@
     });
   }
 
-  function getRecipientCount(dest) {
+  function getEffectiveRecipients(sectionId, dest) {
+    const meta = getSectionMeta(sectionId);
+    const recipients = Array.from(dest.users.values());
+
+    if (recipients.length === 0) {
+      return [{
+        id: null,
+        name: "Section Chief",
+        rawName: "Section Chief",
+        sectionName: meta.sectionName,
+        divisionName: meta.divisionName,
+        isChief: true,
+        isFallback: true
+      }];
+    }
+
+    return recipients.map((user) => ({
+      id: user.id ?? null,
+      name: String(user.name || `#${user.id}`),
+      rawName: String(user.rawName || user.name || `#${user.id}`),
+      sectionName: meta.sectionName,
+      divisionName: meta.divisionName,
+      isChief: !!user.isChief,
+      isFallback: false
+    }));
+  }
+
+  function getRecipientCount(dest, sectionId = null) {
+    if (!dest) return 0;
+    if (sectionId !== null) {
+      return getEffectiveRecipients(sectionId, dest).length;
+    }
     return dest && dest.users ? dest.users.size : 0;
   }
 
-  function getRecipientSummary(dest, multi) {
-    const names = [];
-    dest.users.forEach((u) => names.push(u.name || `#${u.id}`));
+  function getRecipientSummary(sectionId, dest, multi) {
+    const names = getEffectiveRecipients(sectionId, dest).map((u) => u.name || `#${u.id}`);
     if (names.length === 0) {
       return multi || dest.mode === "chief" ? "Section Chief" : "Section Chief by default";
     }
@@ -334,29 +371,19 @@
   }
 
   function getSimpleRecipients(sectionId, dest) {
-    const meta = getSectionMeta(sectionId);
-    const recipients = Array.from(dest.users.values());
-
-    if (recipients.length === 0) {
-      return [{
-        name: dest.mode === "chief" ? "Section Chief" : "No specific users selected",
-        sectionName: meta.sectionName,
-        divisionName: meta.divisionName,
-        isChief: dest.mode === "chief"
-      }];
-    }
-
-    return recipients.map((user) => ({
-      name: String(user.rawName || user.name || `#${user.id}`),
-      sectionName: meta.sectionName,
-      divisionName: meta.divisionName,
-      isChief: !!user.isChief
+    return getEffectiveRecipients(sectionId, dest).map((user) => ({
+      name: String(user.rawName || user.name || `#${user.id ?? ''}`),
+      sectionName: user.sectionName,
+      divisionName: user.divisionName,
+      isChief: !!user.isChief,
+      isFallback: !!user.isFallback
     }));
   }
 
   function renderSimpleCard(sectionId, dest) {
     const rows = getSimpleRecipients(sectionId, dest);
     const deadlineChip = dest.personalDeadline ? `<span class="destInlineChip">Has deadline</span>` : "";
+    const fallbackChip = (!dest.users.size && dest.mode === "users") ? `<span class="destInlineChip">Chief fallback</span>` : "";
 
     return `
       <div class="destCard" data-destination-card="${esc(sectionId)}">
@@ -378,6 +405,7 @@
               </div>
               <div class="destSimpleSide">
                 ${row.isChief ? '<span class="destInlineChip">Chief</span>' : ''}
+                ${row.isFallback ? fallbackChip : ''}
                 ${deadlineChip}
               </div>
             </div>
@@ -458,8 +486,8 @@
 
       const sectionLabel = getSectionLabel(sid);
       const modeLabel = multi ? "Chief only" : (dest.mode === "users" ? "Specific users" : "Chief only");
-      const recipientCount = getRecipientCount(dest);
-      const recipientSummary = getRecipientSummary(dest, multi);
+      const recipientCount = getRecipientCount(dest, sid);
+      const recipientSummary = getRecipientSummary(sid, dest, multi);
       const compactSummary = multi
         ? `Initial routing is <strong>chief only</strong>. Current recipient: <strong>${esc(truncateText(recipientSummary, 88))}</strong>.`
         : `Mode: <strong>${esc(modeLabel)}</strong> · Initial recipient${recipientCount === 1 ? '' : 's'}: <strong>${esc(truncateText(recipientSummary, 88))}</strong>.`;
@@ -502,7 +530,7 @@
             <div class="destCardMeta">
               <div class="destMetaBlock">
                 <div class="destMetaLabel">Current mode</div>
-                <div class="destMetaValue">${esc(modeLabel)}</div>
+                <div class="destMetaValue">${esc(!multi && dest.mode === 'users' && dest.users.size === 0 ? 'Specific users (empty → chief fallback)' : modeLabel)}</div>
               </div>
               <div class="destMetaBlock">
                 <div class="destMetaLabel">Initial recipient(s)</div>
@@ -525,7 +553,7 @@
               <div class="destUsersHeader">
                 <div>
                   <div class="destSectionLabel">Specific users</div>
-                  <div class="mini" style="opacity:.8;">Select users from this section. Leaving it blank still falls back to the section chief.</div>
+                  <div class="mini" style="opacity:.8;">Select users from this section. If none are selected, initial routing still goes to the section chief.</div>
                 </div>
                 <div class="destUsersActions">
                   <button type="button" class="destInlineBtn" data-select-all-users="${esc(sid)}">Select all</button>
@@ -695,6 +723,7 @@
         const dest = destinations.get(sid);
         if (!dest || isMultiSectionMode() || dest.mode !== "users") return;
         dest.users.clear();
+        setBuilderNotice("No specific users selected. Initial routing will fall back to the section chief.", "info");
         renderDestinations();
       });
     });
@@ -766,6 +795,15 @@
     setBuilderNotice(result.message || "Unable to add that destination right now.", "danger", { persist: true });
   });
 
+  form?.addEventListener("submit", (event) => {
+    syncHiddenInputs();
+    if (destinations.size > 0) return;
+
+    event.preventDefault();
+    setBuilderNotice("Add at least one destination to the list before saving.", "danger", { persist: true });
+    selSection?.focus();
+  });
+
   btnAddAllDivisionChiefs?.addEventListener("click", async () => {
     clearBuilderNotice();
     const targets = getValidDivisionChiefTargets();
@@ -818,10 +856,54 @@
     setBuilderNotice(`No new division chief targets were added${parts.length ? ` (${parts.join(', ')})` : ''}.`, "warning", { persist: true });
   });
 
-  btnRemoveSavedAttachment?.addEventListener("click", () => {
-    if (!removeSavedAttachmentInput || !form) return;
-    removeSavedAttachmentInput.value = "1";
-    form.submit();
+  btnRemoveSavedAttachment?.addEventListener("click", async () => {
+    if (!removeSavedAttachmentUrl || !savedAttachmentCard || !btnRemoveSavedAttachment) {
+      if (!removeSavedAttachmentInput || !form) return;
+      removeSavedAttachmentInput.value = "1";
+      form.submit();
+      return;
+    }
+
+    const originalLabel = btnRemoveSavedAttachment.textContent || "Remove saved file";
+    btnRemoveSavedAttachment.disabled = true;
+    btnRemoveSavedAttachment.textContent = "Removing...";
+
+    try {
+      const res = await fetch(removeSavedAttachmentUrl, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "X-Requested-With": "XMLHttpRequest"
+        },
+        credentials: "same-origin"
+      });
+
+      let payload = null;
+      try {
+        payload = await res.json();
+      } catch (_err) {
+        payload = null;
+      }
+
+      if (!res.ok || !payload || payload.ok !== true) {
+        throw new Error(payload && payload.error ? String(payload.error) : "Failed to remove saved attachment.");
+      }
+
+      savedAttachmentCard.remove();
+      if (removeSavedAttachmentInput) removeSavedAttachmentInput.value = "0";
+      setBuilderNotice("Saved attachment removed.", "success");
+      if (window.DTToast && typeof window.DTToast.success === "function") {
+        window.DTToast.success("Saved attachment removed.");
+      }
+    } catch (error) {
+      const message = error && error.message ? String(error.message) : "Failed to remove saved attachment.";
+      setBuilderNotice(message, "danger", { persist: true });
+      if (window.DTToast && typeof window.DTToast.error === "function") {
+        window.DTToast.error(message);
+      }
+      btnRemoveSavedAttachment.disabled = false;
+      btnRemoveSavedAttachment.textContent = originalLabel;
+    }
   });
 
   destViewButtons.forEach((btn) => {

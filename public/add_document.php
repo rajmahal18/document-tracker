@@ -180,8 +180,22 @@ function move_temp_attachment_to_document(mysqli $conn, int $docId, int $userId,
   unset($_SESSION["add_document_temp_attachment"]);
 }
 
-function build_division_chief_targets(array $sections, int $myDivisionId): array
+function build_division_chief_targets(mysqli $conn, array $sections, int $myDivisionId): array
 {
+  $chiefCounts = [];
+  $chiefRes = $conn->query("
+    SELECT section_id, COUNT(*) AS chief_count
+    FROM users
+    WHERE is_active = 1
+      AND is_chief = 1
+    GROUP BY section_id
+  ");
+  if ($chiefRes) {
+    while ($chiefRow = $chiefRes->fetch_assoc()) {
+      $chiefCounts[(int)($chiefRow['section_id'] ?? 0)] = (int)($chiefRow['chief_count'] ?? 0);
+    }
+  }
+
   $grouped = [];
   foreach ($sections as $section) {
     $divisionId = (int)($section['division_id'] ?? 0);
@@ -208,12 +222,29 @@ function build_division_chief_targets(array $sections, int $myDivisionId): array
       $bn = strtolower(trim((string)($b['name'] ?? '')));
 
       $weight = static function (string $name): int {
+        if ($name === 'director office') return 5;
         if (str_contains($name, 'office of the division chief')) return 10;
+        if (str_contains($name, 'office of the director')) return 12;
         if (str_contains($name, 'division chief')) return 15;
+        if (str_contains($name, 'director')) return 18;
+        if (str_contains($name, 'assistant division chief')) return 20;
         return 50;
       };
 
-      return [$weight($an), $an] <=> [$weight($bn), $bn];
+      $aChiefCount = (int)($chiefCounts[(int)($a['id'] ?? 0)] ?? 0);
+      $bChiefCount = (int)($chiefCounts[(int)($b['id'] ?? 0)] ?? 0);
+
+      return [
+        $weight($an),
+        $aChiefCount > 0 ? 0 : 1,
+        -$aChiefCount,
+        $an,
+      ] <=> [
+        $weight($bn),
+        $bChiefCount > 0 ? 0 : 1,
+        -$bChiefCount,
+        $bn,
+      ];
     });
 
     $picked = $candidates[0] ?? null;
@@ -248,20 +279,68 @@ function bind_params_dynamic(mysqli_stmt $stmt, string $types, array $params): v
 
 function find_section_chief_id(mysqli $conn, int $sectionId): int
 {
+  $hasOfficialTitle = db_column_exists($conn, "users", "official_title");
+  $hasAuthorityRole = db_column_exists($conn, "users", "authority_role");
+
+  $officialTitleSql = $hasOfficialTitle ? "u.official_title" : "NULL";
+  $authorityRoleSql = $hasAuthorityRole ? "u.authority_role" : "NULL";
+
   $stmt = $conn->prepare("
-    SELECT id
-    FROM users
-    WHERE section_id = ?
-      AND is_active = 1
-      AND is_chief = 1
-    ORDER BY id ASC
-    LIMIT 1
+    SELECT
+      u.id,
+      " . $officialTitleSql . " AS official_title,
+      " . $authorityRoleSql . " AS authority_role,
+      u.full_name
+    FROM users u
+    WHERE u.section_id = ?
+      AND u.is_active = 1
+      AND u.is_chief = 1
+    ORDER BY u.id ASC
   ");
   $stmt->bind_param("i", $sectionId);
   $stmt->execute();
-  $row = $stmt->get_result()->fetch_assoc();
+  $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
-  return (int)($row["id"] ?? 0);
+  if (!$rows) {
+    return 0;
+  }
+
+  usort($rows, static function (array $a, array $b): int {
+    $roleWeight = static function (string $role): int {
+      return match (strtolower(trim($role))) {
+        'director' => 5,
+        'division_head' => 10,
+        'section_head' => 15,
+        'division_assistant' => 20,
+        default => 50,
+      };
+    };
+
+    $titleWeight = static function (string $title): int {
+      $title = strtolower(trim($title));
+      if ($title === '') return 50;
+      if (str_contains($title, 'director')) return 5;
+      if (str_contains($title, 'division chief')) return 10;
+      if (str_contains($title, 'section chief')) return 15;
+      if (str_contains($title, 'chief')) return 18;
+      if (str_contains($title, 'head')) return 20;
+      return 50;
+    };
+
+    return [
+      $roleWeight((string)($a['authority_role'] ?? '')),
+      $titleWeight((string)($a['official_title'] ?? '')),
+      strtolower(trim((string)($a['full_name'] ?? ''))),
+      (int)($a['id'] ?? 0),
+    ] <=> [
+      $roleWeight((string)($b['authority_role'] ?? '')),
+      $titleWeight((string)($b['official_title'] ?? '')),
+      strtolower(trim((string)($b['full_name'] ?? ''))),
+      (int)($b['id'] ?? 0),
+    ];
+  });
+
+  return (int)($rows[0]['id'] ?? 0);
 }
 
 function normalize_recipient_map_to_chiefs(mysqli $conn, array $recipientMap): array
@@ -281,6 +360,60 @@ function normalize_recipient_map_to_chiefs(mysqli $conn, array $recipientMap): a
   }
 
   return $normalized;
+}
+
+function ensure_document_tracking_sequences_table(mysqli $conn): void
+{
+  $conn->query("
+    CREATE TABLE IF NOT EXISTS document_tracking_sequences (
+      tracking_year SMALLINT UNSIGNED NOT NULL,
+      last_number INT UNSIGNED NOT NULL DEFAULT 0,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (tracking_year)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  ");
+}
+
+function generate_document_tracking_no(mysqli $conn, ?DateTimeImmutable $now = null): string
+{
+  ensure_document_tracking_sequences_table($conn);
+
+  $now = $now ?? new DateTimeImmutable('now', new DateTimeZone('Asia/Manila'));
+  $year = (int)$now->format('Y');
+
+  $stmt = $conn->prepare("
+    INSERT INTO document_tracking_sequences (tracking_year, last_number)
+    VALUES (?, 0)
+    ON DUPLICATE KEY UPDATE tracking_year = tracking_year
+  ");
+  $stmt->bind_param('i', $year);
+  $stmt->execute();
+
+  $stmt = $conn->prepare("
+    SELECT last_number
+    FROM document_tracking_sequences
+    WHERE tracking_year = ?
+    FOR UPDATE
+  ");
+  $stmt->bind_param('i', $year);
+  $stmt->execute();
+  $row = $stmt->get_result()->fetch_assoc();
+
+  if (!$row) {
+    throw new RuntimeException('Failed to initialize tracking sequence.');
+  }
+
+  $nextNumber = ((int)($row['last_number'] ?? 0)) + 1;
+
+  $stmt = $conn->prepare("
+    UPDATE document_tracking_sequences
+    SET last_number = ?
+    WHERE tracking_year = ?
+  ");
+  $stmt->bind_param('ii', $nextNumber, $year);
+  $stmt->execute();
+
+  return sprintf('DOC-%04d-%05d', $year, $nextNumber);
 }
 
 $pageTitle = "Add Document";
@@ -334,7 +467,7 @@ $sections = $conn->query("
 ")->fetch_all(MYSQLI_ASSOC);
 
 // For JS / labels
-$divisionChiefTargets = build_division_chief_targets($sections, $myDivisionId);
+$divisionChiefTargets = build_division_chief_targets($conn, $sections, $myDivisionId);
 $sectionLabelMap = [];
 $sectionMetaMap = [];
 foreach ($sections as $s) {
@@ -373,7 +506,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
     clear_saved_temp_attachment();
   }
 
-  $tracking_no   = "TRK-" . time();
   $requester     = trim((string)($_POST["requester"] ?? ""));
   $document_date = trim((string)($_POST["document_date"] ?? ""));
   $subject       = trim((string)($_POST["subject"] ?? ""));
@@ -448,6 +580,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   }
 
   $hasSeededDestinations = ($destinationModeMap !== [] || $recipientMap !== []);
+  $builderContractEnabled = ((string)($_POST["destination_builder_contract"] ?? "") === "1");
 
   $personalDeadlineMap = [];
   foreach ($personalDeadlineMapRaw as $sectionIdRaw => $deadlineRaw) {
@@ -491,7 +624,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
 
   if ($requester === "" || $document_date === "" || $subject === "" || $content_type === "") {
     $error = "Please fill in all required fields.";
-  } elseif (!$hasSeededDestinations && $selectedSectionId <= 0) {
+  } elseif ($builderContractEnabled && !$hasSeededDestinations) {
+    $error = "Please add at least one destination to the list.";
+  } elseif (!$builderContractEnabled && !$hasSeededDestinations && $selectedSectionId <= 0) {
     $error = "Please add at least one destination.";
   } elseif ($fromSectionId <= 0) {
     $error = "Your account has no section assigned. Ask admin to set your section_id.";
@@ -501,8 +636,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
     // Build final recipient map from destination modes.
     $finalRecipientMap = [];
 
-    // If no destination explicitly added, default to currently selected section chief.
-    if (count($destinationModeMap) === 0) {
+    // Legacy fallback only when JS builder contract is not active.
+    if (!$builderContractEnabled && count($destinationModeMap) === 0) {
       $chiefId = find_section_chief_id($conn, $selectedSectionId);
       if ($chiefId <= 0) {
         $error = "No Section Chief configured for the selected section.";
@@ -556,6 +691,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
       try {
         $conn->begin_transaction();
         $txStarted = true;
+
+        $tracking_no = generate_document_tracking_no($conn);
 
         // 1) documents
         $stmt = $conn->prepare("
@@ -1050,8 +1187,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
 
 $savedTempAttachment = get_saved_temp_attachment();
 
-$pageStyles = [ASSETS_PATH . "/css/add-document.css?v=20260323a"];
-$pageScripts = [ASSETS_PATH . "/js/add-document.js?v=20260323a"];
+$pageStyles = [ASSETS_PATH . "/css/add-document.css?v=20260323b"];
+$pageScripts = [ASSETS_PATH . "/js/add-document.js?v=20260323b"];
 
 require __DIR__ . "/../includes/layout.php";
 ?>
@@ -1072,8 +1209,9 @@ require __DIR__ . "/../includes/layout.php";
     </div>
   </div>
 
-  <form method="POST" enctype="multipart/form-data" class="docFormGrid">
+  <form method="POST" enctype="multipart/form-data" class="docFormGrid" data-remove-saved-attachment-url="<?= API_PATH ?>/remove_saved_attachment.php">
     <input type="hidden" name="remove_saved_attachment" value="0" id="removeSavedAttachmentInput">
+    <input type="hidden" name="destination_builder_contract" value="0" id="destinationBuilderContractInput">
     <div class="authField">
       <label>Requester <span class="req">*</span></label>
       <input
@@ -1279,7 +1417,7 @@ require __DIR__ . "/../includes/layout.php";
     <div class="authField span2">
       <label>Attachment (optional)</label>
       <?php if ($savedTempAttachment): ?>
-        <div style="margin-bottom:10px; padding:12px 14px; border:1px solid rgba(25, 135, 84, .25); border-radius:14px; background:rgba(25, 135, 84, .06);">
+        <div id="savedAttachmentCard" style="margin-bottom:10px; padding:12px 14px; border:1px solid rgba(25, 135, 84, .25); border-radius:14px; background:rgba(25, 135, 84, .06);">
           <div style="font-weight:900;">Saved for retry: <?= htmlspecialchars((string)($savedTempAttachment["original_name"] ?? "Attachment")) ?></div>
           <div class="mini" style="margin-top:4px;">
             This file will still be attached even if you leave the file picker empty. Choose a new file to replace it.
