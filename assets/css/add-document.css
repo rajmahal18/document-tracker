@@ -1,0 +1,607 @@
+.addDocumentPage .destBuilder {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.96));
+  padding: 14px;
+}
+
+.addDocumentPage .destToolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.addDocumentPage .destSelect {
+  min-width: 0;
+}
+
+.addDocumentPage .destActionBtn,
+.addDocumentPage .destInlineBtn,
+.addDocumentPage .destViewBtn,
+.addDocumentPage .destModeOption {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+}
+
+.addDocumentPage .destActionBtn,
+.addDocumentPage .destInlineBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  background: #fff;
+  color: #0f365d;
+  border-radius: 999px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.addDocumentPage .destActionBtn {
+  min-height: 40px;
+  padding: 0 16px;
+  font-size: 13px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.addDocumentPage .destInlineBtn {
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.addDocumentPage .destActionBtn:hover,
+.addDocumentPage .destInlineBtn:hover {
+  background: #f8fafc;
+  border-color: rgba(15, 23, 42, 0.16);
+  color: #0b3a66;
+}
+
+.addDocumentPage .destActionBtn:focus-visible,
+.addDocumentPage .destInlineBtn:focus-visible,
+.addDocumentPage .destViewBtn:focus-visible,
+.addDocumentPage .destModeOption:focus-within {
+  outline: 2px solid rgba(37, 99, 235, 0.22);
+  outline-offset: 2px;
+}
+
+.addDocumentPage .destActionBtn:active,
+.addDocumentPage .destInlineBtn:active {
+  transform: translateY(1px);
+}
+
+.addDocumentPage .destActionBtn.is-primary {
+  background: #0f365d;
+  border-color: #0f365d;
+  color: #fff;
+  box-shadow: 0 10px 22px rgba(15, 54, 93, 0.12);
+}
+
+.addDocumentPage .destActionBtn.is-primary:hover {
+  background: #0b2d4d;
+  border-color: #0b2d4d;
+  color: #fff;
+}
+
+.addDocumentPage .destTopMeta {
+  margin-top: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.addDocumentPage .destHintText {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.addDocumentPage .destViewToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: #eef2f7;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.addDocumentPage .destViewBtn {
+  border: 0;
+  background: transparent;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 7px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.addDocumentPage .destViewBtn.is-active {
+  background: #fff;
+  color: #0b3a66;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.addDocumentPage .destHelper {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.addDocumentPage .destStatus {
+  margin-top: 10px;
+  display: none;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.addDocumentPage .destStatus::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 999px;
+  flex: 0 0 8px;
+  background: currentColor;
+  opacity: 0.75;
+}
+
+.addDocumentPage .destStatus.is-info {
+  background: rgba(15, 23, 42, 0.05);
+  color: #475569;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.addDocumentPage .destStatus.is-success {
+  background: rgba(22, 163, 74, 0.08);
+  color: #166534;
+  border: 1px solid rgba(22, 163, 74, 0.16);
+}
+
+.addDocumentPage .destStatus.is-warning {
+  background: rgba(245, 158, 11, 0.12);
+  color: #92400e;
+  border: 1px solid rgba(245, 158, 11, 0.22);
+}
+
+.addDocumentPage .destStatus.is-danger {
+  background: rgba(220, 38, 38, 0.08);
+  color: #991b1b;
+  border: 1px solid rgba(220, 38, 38, 0.15);
+}
+
+.addDocumentPage .destHelperChip,
+.addDocumentPage .destFactChip,
+.addDocumentPage .destSummaryChip,
+.addDocumentPage .destInlineChip,
+.addDocumentPage .destModeLock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.addDocumentPage .destHelperChip,
+.addDocumentPage .destFactChip,
+.addDocumentPage .destInlineChip {
+  background: rgba(15, 23, 42, 0.05);
+  color: #475569;
+  border: 1px solid rgba(15, 23, 42, 0.05);
+}
+
+.addDocumentPage .destSummaryBox {
+  margin-top: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.07);
+  border-radius: 16px;
+  background: #fff;
+  padding: 12px 14px;
+}
+
+.addDocumentPage .destSummaryTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.addDocumentPage .destHeadline {
+  font-size: 14px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.addDocumentPage .destSubline {
+  margin-top: 3px;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.addDocumentPage .destCounter {
+  min-width: 72px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: rgba(37, 99, 235, 0.06);
+  color: #1d4ed8;
+  text-align: center;
+  font-weight: 900;
+  flex-shrink: 0;
+}
+
+.addDocumentPage .destCounter strong {
+  display: block;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.addDocumentPage .destCounter span {
+  font-size: 11px;
+}
+
+.addDocumentPage .destSummaryChips {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.addDocumentPage .destSummaryChip {
+  max-width: 100%;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.07);
+  color: #334155;
+}
+
+.addDocumentPage .destSummaryEmpty {
+  color: #64748b;
+  font-size: 12px;
+  padding: 2px 0;
+}
+
+.addDocumentPage .destModeBar {
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.05);
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.addDocumentPage .destinationsGrid {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.addDocumentPage .destCard {
+  border: 1px solid rgba(15, 23, 42, 0.07);
+  border-radius: 16px;
+  background: #fff;
+  padding: 12px 14px;
+}
+
+.addDocumentPage .destCardTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.addDocumentPage .destCardTitleWrap {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.addDocumentPage .destCardTitle {
+  font-size: 14px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.45;
+}
+
+.addDocumentPage .destFacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.addDocumentPage .destCardBody {
+  margin-top: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.addDocumentPage .destCompactSummary {
+  font-size: 12px;
+  color: #475569;
+  line-height: 1.55;
+}
+
+.addDocumentPage .destCompactSummary strong {
+  color: #0f172a;
+}
+
+.addDocumentPage .destCardMeta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.addDocumentPage .destMetaBlock {
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 9px 10px;
+}
+
+.addDocumentPage .destMetaLabel {
+  font-size: 10px;
+  font-weight: 800;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.addDocumentPage .destMetaValue {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.45;
+}
+
+.addDocumentPage .destModePills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.addDocumentPage .destModeOption {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 999px;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  color: #334155;
+  cursor: pointer;
+}
+
+.addDocumentPage .destModeLock {
+  background: rgba(37, 99, 235, 0.08);
+  color: #1d4ed8;
+  border-color: rgba(37, 99, 235, 0.08);
+}
+
+.addDocumentPage .destDeadlineWrap,
+.addDocumentPage .destUsersPanel {
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  padding-top: 10px;
+}
+
+.addDocumentPage .destDeadlineLabel,
+.addDocumentPage .destSectionLabel {
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  color: #64748b;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.addDocumentPage .destDeadlineGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.addDocumentPage .destDeadlineNote {
+  margin-top: 5px;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.addDocumentPage .destUsersHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.addDocumentPage .destUsersActions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.addDocumentPage .destUsersBox {
+  border: 1px solid rgba(15, 23, 42, 0.07);
+  border-radius: 12px;
+  padding: 8px;
+  max-height: 220px;
+  overflow: auto;
+  background: #f8fafc;
+}
+
+.addDocumentPage .destUserRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.addDocumentPage .destUserRow:hover {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.addDocumentPage .destUserBadge {
+  margin-left: auto;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.addDocumentPage .destBuilder.is-detailed .destCard,
+.addDocumentPage .destBuilder.is-detailed .destSummaryBox {
+  padding: 14px;
+}
+
+.addDocumentPage .destBuilder:not(.is-detailed) .destSummaryBox {
+  padding: 10px 12px;
+}
+
+.addDocumentPage .destBuilder:not(.is-detailed) .destCard {
+  padding: 10px 12px;
+}
+
+.addDocumentPage .destBuilder:not(.is-detailed) .destCardBody,
+.addDocumentPage .destBuilder:not(.is-detailed) .destFacts,
+.addDocumentPage .destBuilder:not(.is-detailed) .destModeBar,
+.addDocumentPage .destBuilder:not(.is-detailed) .destHelper,
+.addDocumentPage .destBuilder:not(.is-detailed) .destCompactSummary,
+.addDocumentPage .destBuilder:not(.is-detailed) .destModePills,
+.addDocumentPage .destBuilder:not(.is-detailed) .destModeLock,
+.addDocumentPage .destBuilder:not(.is-detailed) .destCardMeta,
+.addDocumentPage .destBuilder:not(.is-detailed) .destDeadlineWrap,
+.addDocumentPage .destBuilder:not(.is-detailed) .destUsersPanel {
+  display: none;
+}
+
+.addDocumentPage .destSimpleList {
+  display: grid;
+  gap: 8px;
+}
+
+.addDocumentPage .destSimpleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.addDocumentPage .destSimpleInfo {
+  min-width: 0;
+}
+
+.addDocumentPage .destSimpleName {
+  font-size: 13px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.3;
+}
+
+.addDocumentPage .destSimpleMeta {
+  margin-top: 3px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.addDocumentPage .destSimpleMeta span {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  color: #475569;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.addDocumentPage .destSimpleSide {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.addDocumentPage .destSimpleSide .destInlineChip {
+  background: rgba(37, 99, 235, 0.06);
+  color: #1d4ed8;
+  border-color: rgba(37, 99, 235, 0.08);
+}
+
+.addDocumentPage #btnRemoveSavedAttachment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+}
+
+@media (max-width: 820px) {
+  .addDocumentPage .destToolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .addDocumentPage .destTopMeta {
+    align-items: stretch;
+  }
+
+  .addDocumentPage .destActionBtn,
+  .addDocumentPage .destInlineBtn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .addDocumentPage .destViewToggle {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .addDocumentPage .destViewBtn {
+    flex: 1 1 0;
+    text-align: center;
+  }
+
+  .addDocumentPage .destCardMeta,
+  .addDocumentPage .destDeadlineGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .addDocumentPage .destSimpleRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .addDocumentPage .destSimpleSide {
+    width: 100%;
+    justify-content: space-between;
+  }
+}

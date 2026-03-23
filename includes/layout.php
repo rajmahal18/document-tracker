@@ -25,6 +25,11 @@ $pageTitle = $pageTitle ?? "Document Tracker";
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="<?= ASSETS_PATH ?>/css/style.css?v=16.1">
+  <?php if (!empty($pageStyles) && is_array($pageStyles)): ?>
+    <?php foreach ($pageStyles as $href): ?>
+      <link rel="stylesheet" href="<?= htmlspecialchars((string)$href, ENT_QUOTES, "UTF-8") ?>">
+    <?php endforeach; ?>
+  <?php endif; ?>
 
 <script>
   window.__APP__ = {
