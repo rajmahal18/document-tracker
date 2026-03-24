@@ -39,7 +39,7 @@ $docId = (int)$a["document_id"];
 /**
  * ✅ NEW centralized permission rule
  */
-if (!can_view_document($conn, $docId)) {
+if (!can_view_attachment($conn, $id)) {
   http_response_code(403);
   echo "Forbidden";
   exit;

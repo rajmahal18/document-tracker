@@ -43,6 +43,70 @@ function workflow_branch_mode_enabled(mysqli $conn): bool
 }
 
 
+
+function workflow_branch_attachment_scope_enabled(mysqli $conn): bool
+{
+    return workflow_has_column($conn, 'document_attachments', 'branch_id');
+}
+
+function workflow_user_can_access_branch(mysqli $conn, int $documentId, int $branchId, int $userId): bool
+{
+    if ($documentId <= 0 || $branchId <= 0 || $userId <= 0) {
+        return false;
+    }
+
+    if (!workflow_branch_mode_enabled($conn) || !workflow_has_table($conn, 'document_branches')) {
+        return false;
+    }
+
+    $hasFromUserId = workflow_has_column($conn, 'routes', 'from_user_id');
+    $routeFromUserClause = $hasFromUserId ? ' OR r.from_user_id = ?' : '';
+
+    $sql = "
+        SELECT 1
+        FROM document_branches b
+        JOIN documents d ON d.id = b.document_id
+        WHERE b.id = ?
+          AND b.document_id = ?
+          AND (
+            d.created_by_user_id = ?
+            OR b.created_by_user_id = ?
+            OR b.current_assignee_user_id = ?
+            OR b.completed_by_user_id = ?
+            OR EXISTS (
+              SELECT 1
+              FROM routes r
+              WHERE r.document_id = d.id
+                AND r.branch_id = b.id
+                AND (
+                  r.to_user_id = ?
+                  OR r.sent_by_user_id = ?
+                  OR r.received_by_user_id = ?" . $routeFromUserClause . "
+                )
+            )
+            OR EXISTS (
+              SELECT 1
+              FROM document_user_visibility duv
+              WHERE duv.document_id = d.id
+                AND duv.user_id = ?
+                AND (duv.branch_id IS NULL OR duv.branch_id = b.id)
+            )
+          )
+        LIMIT 1
+    ";
+
+    $stmt = $conn->prepare($sql);
+
+    if ($hasFromUserId) {
+        $stmt->bind_param('iiiiiiiiiii', $branchId, $documentId, $userId, $userId, $userId, $userId, $userId, $userId, $userId, $userId, $userId);
+    } else {
+        $stmt->bind_param('iiiiiiiiii', $branchId, $documentId, $userId, $userId, $userId, $userId, $userId, $userId, $userId, $userId);
+    }
+
+    $stmt->execute();
+    return (bool)$stmt->get_result()->fetch_row();
+}
+
 function workflow_document_has_real_branches(mysqli $conn, int $documentId): bool
 {
     static $cache = [];

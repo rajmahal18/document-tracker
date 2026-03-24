@@ -5,6 +5,7 @@ require __DIR__ . "/../includes/bootstrap.php";
 require_login();
 
 $docId = (int)($_GET["document_id"] ?? 0);
+$requestedBranchId = (int)($_GET["branch_id"] ?? 0);
 if ($docId <= 0) {
   http_response_code(400);
   echo "Bad request";
@@ -34,7 +35,27 @@ if ($row && !empty($row["tracking_no"])) {
  * - then PPD slip
  * - then main/append by time
  */
-$stmt = $conn->prepare("
+$scope = attachment_branch_scope_for_document($conn, $docId, $requestedBranchId);
+$selectedBranchId = (int)($scope['selected_branch_id'] ?? 0);
+$isScoped = (($scope['scoped'] ?? false) === true);
+$branchFieldSql = workflow_branch_attachment_scope_enabled($conn)
+  ? 'branch_id'
+  : 'NULL AS branch_id';
+
+$whereSql = 'document_id = ? AND is_deleted = 0';
+$bindTypes = 'i';
+$bindValues = [$docId];
+if ($isScoped) {
+  if ($selectedBranchId > 0) {
+    $whereSql .= ' AND (branch_id IS NULL OR branch_id = 0 OR branch_id = ?)';
+    $bindTypes .= 'i';
+    $bindValues[] = $selectedBranchId;
+  } else {
+    $whereSql .= ' AND (branch_id IS NULL OR branch_id = 0)';
+  }
+}
+
+$sql = "
   SELECT
     id,
     original_name,
@@ -42,21 +63,23 @@ $stmt = $conn->prepare("
     mime,
     is_append,
     uploaded_at,
-    note
+    note,
+    {$branchFieldSql}
   FROM document_attachments
-  WHERE document_id = ?
-    AND is_deleted = 0
+  WHERE {$whereSql}
   ORDER BY
     CASE
       WHEN note = 'AUTO:TRANSMITTAL_MEMO' THEN 0
       WHEN note = 'AUTO:PPD_TRACKING_SLIP' THEN 1
       ELSE 2
     END ASC,
+    CASE WHEN branch_id IS NULL OR branch_id = 0 THEN 0 ELSE 1 END ASC,
     is_append ASC,
     uploaded_at ASC,
     id ASC
-");
-$stmt->bind_param("i", $docId);
+";
+$stmt = $conn->prepare($sql);
+$stmt->bind_param($bindTypes, ...$bindValues);
 $stmt->execute();
 $atts = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 

@@ -1,24 +1,23 @@
 (function () {
-  // Server-side merged PDF viewer (memo first, then attachments)
-  // This disables the old in-browser PDF-lib merge (blob URLs + wrong order).
   const btn = document.getElementById("btnViewDocument");
   if (!btn) return;
 
   const APP = window.__CTX__ || {};
   const PUBLIC = APP.public || "/document-tracker/public";
 
-  function openMerged(docId) {
+  function openMerged(docId, branchId = 0) {
     if (!docId) return;
-    const url =
-      `${PUBLIC}/view_document.php?document_id=${encodeURIComponent(docId)}&v=${Date.now()}`;
+    const resolvedBranchId = Number(branchId || (typeof window.DTGetSelectedBranchId === "function" ? window.DTGetSelectedBranchId() : 0) || 0);
+    const qs = new URLSearchParams({ document_id: String(docId), v: String(Date.now()) });
+    const bid = resolvedBranchId;
+    if (bid > 0) qs.set("branch_id", String(bid));
+    const url = `${PUBLIC}/view_document.php?${qs.toString()}`;
     window.open(url, "_blank", "noopener");
   }
 
-  // Make it available to app.js (it calls window.DTMergeView.open(docId))
   window.DTMergeView = window.DTMergeView || {};
   window.DTMergeView.open = openMerged;
 
-  // Also intercept click in CAPTURE phase so no other handler runs (prevents double-open)
   btn.addEventListener(
     "click",
     (e) => {

@@ -281,3 +281,61 @@ function can_view_document(mysqli $conn, int $docId): bool {
 
   return (bool)$stmt->get_result()->fetch_row();
 }
+function attachment_branch_scope_for_document(mysqli $conn, int $docId, int $requestedBranchId = 0): array {
+  $branchMode = workflow_branch_mode_enabled($conn);
+  $hasBranchColumn = workflow_branch_attachment_scope_enabled($conn);
+  $docHasBranches = $branchMode && workflow_document_has_real_branches($conn, $docId);
+
+  $selectedBranchId = 0;
+  if ($docHasBranches && $hasBranchColumn && $requestedBranchId > 0) {
+    $userId = (int)($_SESSION['user_id'] ?? 0);
+    if (is_admin_user() || workflow_user_can_access_branch($conn, $docId, $requestedBranchId, $userId)) {
+      $selectedBranchId = $requestedBranchId;
+    }
+  }
+
+  return [
+    'branch_mode' => $branchMode,
+    'has_branch_column' => $hasBranchColumn,
+    'doc_has_branches' => $docHasBranches,
+    'selected_branch_id' => $selectedBranchId,
+    'scoped' => ($docHasBranches && $hasBranchColumn),
+  ];
+}
+
+function can_view_attachment(mysqli $conn, int $attachmentId): bool {
+  if ($attachmentId <= 0) {
+    return false;
+  }
+
+  $hasBranchColumn = workflow_branch_attachment_scope_enabled($conn);
+  $sql = $hasBranchColumn
+    ? "SELECT document_id, branch_id FROM document_attachments WHERE id = ? AND is_deleted = 0 LIMIT 1"
+    : "SELECT document_id, NULL AS branch_id FROM document_attachments WHERE id = ? AND is_deleted = 0 LIMIT 1";
+
+  $stmt = $conn->prepare($sql);
+  $stmt->bind_param('i', $attachmentId);
+  $stmt->execute();
+  $row = $stmt->get_result()->fetch_assoc();
+
+  if (!$row) {
+    return false;
+  }
+
+  $docId = (int)($row['document_id'] ?? 0);
+  if ($docId <= 0 || !can_view_document($conn, $docId)) {
+    return false;
+  }
+
+  $branchId = (int)($row['branch_id'] ?? 0);
+  if ($branchId <= 0 || !workflow_branch_mode_enabled($conn) || !workflow_document_has_real_branches($conn, $docId)) {
+    return true;
+  }
+
+  if (is_admin_user()) {
+    return true;
+  }
+
+  $userId = (int)($_SESSION['user_id'] ?? 0);
+  return workflow_user_can_access_branch($conn, $docId, $branchId, $userId);
+}

@@ -301,6 +301,10 @@
     return currentBranches.find((b) => Number(b.id || 0) === Number(currentBranchId || 0)) || null;
   }
 
+  window.DTGetSelectedBranchId = function () {
+    return currentBranchMode ? Number(getSelectedBranch()?.id || 0) : 0;
+  };
+
 
   function getBranchPrefStorageKey(docId) {
     const id = Number(docId || currentPayload?.id || 0);
@@ -463,6 +467,9 @@
     currentCanForward = !!(branch && Number(branch.can_forward || 0) === 1);
     syncAttachmentButtonVisibility();
     updateForwardUI();
+    if (currentPayload?.id) {
+      loadAttachments(currentPayload.id);
+    }
 
     if (btnAckReceived) {
       const canReceive = !!(
@@ -939,9 +946,12 @@
           const note = clean(a.note);
           const meta = [
             fmt(a.uploaded_at || a.created_at || ""),
-            clean(a.uploaded_by_name || a.actor || ""),
+            clean(a.uploaded_by || a.uploaded_by_name || a.actor || ""),
             fmtBytes(a.size_bytes || a.size || 0),
           ].filter(Boolean).join(" • ");
+          const scopeLabel = Number(a.branch_id || 0) > 0
+            ? (clean(a.branch_label) || `Branch ${Number(a.branch_id || 0)}`)
+            : (currentBranchMode ? "Global" : "");
 
           const viewUrl = `${PUBLIC}/view_attachment.php?id=${Number(a.id || 0)}`;
           const dlUrl = `${PUBLIC}/download_attachment.php?id=${Number(a.id || 0)}`;
@@ -952,6 +962,7 @@
                 <div style="min-width:0;">
                   <div style="font-weight:900; line-height:1.25; word-break:break-word;">${esc(name)}</div>
                   ${meta ? `<div class="mini" style="opacity:.7; margin-top:4px;">${esc(meta)}</div>` : ""}
+                  ${scopeLabel ? `<div class="mini" style="margin-top:6px;"><strong>Scope:</strong> ${esc(scopeLabel)}</div>` : ""}
                   ${note ? `<div class="mini" style="margin-top:8px;"><strong>Note:</strong> ${esc(note)}</div>` : ""}
                 </div>
                 <div style="display:flex; gap:8px; flex-shrink:0;">
@@ -970,7 +981,10 @@
     if (!elAttachments) return;
 
     try {
-      const url = `${API}/attachments_list.php?document_id=${encodeURIComponent(docId)}`;
+      const qs = new URLSearchParams({ document_id: String(docId) });
+      const branch = currentBranchMode ? getSelectedBranch() : null;
+      if (currentBranchMode && Number(branch?.id || 0) > 0) qs.set("branch_id", String(Number(branch.id || 0)));
+      const url = `${API}/attachments_list.php?${qs.toString()}`;
       const res = await fetch(url, { cache: "no-store", headers: { Accept: "application/json" } });
       const data = await res.json().catch(() => null);
 
@@ -2095,12 +2109,14 @@
     const docId = btnViewDocument.dataset.docId || elId?.value || "";
     if (!docId) return;
 
+    const selectedBranchId = currentBranchMode ? Number(getSelectedBranch()?.id || 0) : 0;
+
     if (window.DTMergeView && typeof window.DTMergeView.open === "function") {
-      window.DTMergeView.open(docId);
+      window.DTMergeView.open(docId, selectedBranchId);
       return;
     }
 
-    document.dispatchEvent(new CustomEvent("dt:view_document", { detail: { documentId: docId } }));
+    document.dispatchEvent(new CustomEvent("dt:view_document", { detail: { documentId: docId, branchId: selectedBranchId } }));
   });
 
   syncToggleLabels();

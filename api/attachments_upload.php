@@ -105,6 +105,7 @@ try {
   $docHasRealBranches = ($branchMode && workflow_document_has_real_branches($conn, $docId));
   $isPrivileged = in_array($role, ["admin", "records"], true);
   $attachmentBranchId = 0;
+  $branchAttachmentScopeEnabled = workflow_branch_attachment_scope_enabled($conn);
 
   // Only ACTIVE docs can accept attachments (keeps audit sane)
   if ($status !== "ACTIVE") {
@@ -289,30 +290,55 @@ try {
 
   $uploadedBySectionId = $mySectionId > 0 ? $mySectionId : null;
 
-  $stmt = $conn->prepare("
-    INSERT INTO document_attachments
-      (document_id, original_name, stored_name, stored_path, mime, size_bytes, note, is_append, uploaded_by_user_id, uploaded_by_section_id)
-    VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  ");
+  if ($branchAttachmentScopeEnabled) {
+    $stmt = $conn->prepare("
+      INSERT INTO document_attachments
+        (document_id, branch_id, original_name, stored_name, stored_path, mime, size_bytes, note, is_append, uploaded_by_user_id, uploaded_by_section_id)
+      VALUES
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ");
 
-  // NOTE: keep your existing bind types. If your mysqli complains about null section_id,
-  // you can switch to bind_param with "issssisiii" and pass 0 instead of null.
-  $secId = $uploadedBySectionId; // can be null (mysqli accepts null for "i" in many setups)
-  $stmt->bind_param(
-    "issssisiii",
-    $docId,
-    $origName,
-    $storedName,
-    $relPath,
-    $mime,
-    $size,
-    $note,
-    $isAppend,
-    $userId,
-    $secId
-  );
-  $stmt->execute();
+    $secId = $uploadedBySectionId;
+    $branchIdToStore = $attachmentBranchId > 0 ? $attachmentBranchId : null;
+    $stmt->bind_param(
+      "iissssisiii",
+      $docId,
+      $branchIdToStore,
+      $origName,
+      $storedName,
+      $relPath,
+      $mime,
+      $size,
+      $note,
+      $isAppend,
+      $userId,
+      $secId
+    );
+    $stmt->execute();
+  } else {
+    $stmt = $conn->prepare("
+      INSERT INTO document_attachments
+        (document_id, original_name, stored_name, stored_path, mime, size_bytes, note, is_append, uploaded_by_user_id, uploaded_by_section_id)
+      VALUES
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ");
+
+    $secId = $uploadedBySectionId;
+    $stmt->bind_param(
+      "issssisiii",
+      $docId,
+      $origName,
+      $storedName,
+      $relPath,
+      $mime,
+      $size,
+      $note,
+      $isAppend,
+      $userId,
+      $secId
+    );
+    $stmt->execute();
+  }
 
   $attachId = (int)$conn->insert_id;
 

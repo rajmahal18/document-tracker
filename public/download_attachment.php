@@ -35,8 +35,7 @@ try {
 
   $docId = (int)($row["document_id"] ?? 0);
 
-  // ✅ NEW centralized permission rule
-  if ($docId <= 0 || !can_view_document($conn, $docId)) {
+  if ($docId <= 0 || !can_view_attachment($conn, $attachId)) {
     http_response_code(403);
     echo "Forbidden";
     exit;
