@@ -1168,7 +1168,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           }
         }
 
-        redirect(PUBLIC_PATH . "/documents.php");
+        $_SESSION["documents_created_flash"] = [
+          "doc_id" => $docId,
+          "tracking_no" => $tracking_no,
+          "created_at" => time(),
+        ];
+
+        redirect(PUBLIC_PATH . "/documents.php?sort=newest&page=1");
 
       } catch (Throwable $e) {
         try {
@@ -1187,8 +1193,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
 
 $savedTempAttachment = get_saved_temp_attachment();
 
-$pageStyles = [ASSETS_PATH . "/css/add-document.css?v=20260323b"];
-$pageScripts = [ASSETS_PATH . "/js/add-document.js?v=20260323b"];
+$pageStyles = [asset_url("assets/css/add-document.css")];
+$pageScripts = [asset_url("assets/js/add-document.js")];
 
 require __DIR__ . "/../includes/layout.php";
 ?>

@@ -15,16 +15,20 @@ $pageTitle = $pageTitle ?? "Document Tracker";
   <meta name="mobile-web-app-capable" content="yes">
   <title><?= htmlspecialchars($pageTitle) ?></title>
 
-  <link rel="manifest" href="<?= PUBLIC_PATH ?>/manifest.webmanifest">
-  <link rel="apple-touch-icon" href="<?= ASSETS_PATH ?>/icons/icon-192.png">
-  <link rel="icon" type="image/png" sizes="192x192" href="<?= ASSETS_PATH ?>/icons/icon-192.png">
-  <link rel="icon" type="image/png" sizes="512x512" href="<?= ASSETS_PATH ?>/icons/icon-512.png">
+  <link rel="manifest" href="<?= asset_url("public/manifest.webmanifest") ?>">
+  <link rel="apple-touch-icon" href="<?= asset_url("assets/icons/icon-192.png") ?>">
+  <link rel="icon" type="image/png" sizes="192x192" href="<?= asset_url("assets/icons/icon-192.png") ?>">
+  <link rel="icon" type="image/png" sizes="512x512" href="<?= asset_url("assets/icons/icon-512.png") ?>">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="<?= ASSETS_PATH ?>/css/style.css?v=16.1">
+  <link rel="stylesheet" href="<?= asset_url("assets/css/base.css") ?>">
+  <link rel="stylesheet" href="<?= asset_url("assets/css/components.css") ?>">
+  <link rel="stylesheet" href="<?= asset_url("assets/css/app-shell.css") ?>">
+  <link rel="stylesheet" href="<?= asset_url("assets/css/org-chart.css") ?>">
+  <link rel="stylesheet" href="<?= asset_url("assets/css/documents.css") ?>">
   <?php if (!empty($pageStyles) && is_array($pageStyles)): ?>
     <?php foreach ($pageStyles as $href): ?>
       <link rel="stylesheet" href="<?= htmlspecialchars((string)$href, ENT_QUOTES, "UTF-8") ?>">
@@ -38,7 +42,8 @@ $pageTitle = $pageTitle ?? "Document Tracker";
     public: "<?= PUBLIC_PATH ?>",
     assets: "<?= ASSETS_PATH ?>",
     csrf: "<?= htmlspecialchars(csrf_token(), ENT_QUOTES, "UTF-8") ?>",
-    currentPage: "<?= htmlspecialchars($currentPage ?? basename($_SERVER['PHP_SELF'])) ?>"
+    currentPage: "<?= htmlspecialchars($currentPage ?? basename($_SERVER['PHP_SELF'])) ?>",
+    isDevelopment: <?= app_is_dev_environment() ? "true" : "false" ?>
   };
 </script>
 </head>

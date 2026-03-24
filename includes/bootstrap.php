@@ -16,6 +16,59 @@ require_once __DIR__ . "/../core/db.php";
 require_once __DIR__ . "/../core/workflow.php";
 require_once __DIR__ . "/constants.php";
 
+
+function app_is_dev_environment(): bool {
+  $host = strtolower((string)($_SERVER["HTTP_HOST"] ?? $_SERVER["SERVER_NAME"] ?? ""));
+  $serverAddr = (string)($_SERVER["SERVER_ADDR"] ?? "");
+
+  if ($host === '' && $serverAddr === '') {
+    return false;
+  }
+
+  $hostOnly = $host;
+  if (str_contains($hostOnly, ':')) {
+    $hostOnly = explode(':', $hostOnly, 2)[0];
+  }
+
+  if (in_array($hostOnly, ['localhost', '127.0.0.1', '::1'], true)) {
+    return true;
+  }
+
+  if (preg_match('/^192\.168\./', $hostOnly) === 1) {
+    return true;
+  }
+
+  if (preg_match('/^10\./', $hostOnly) === 1) {
+    return true;
+  }
+
+  if (preg_match('/^172\.(1[6-9]|2\d|3[0-1])\./', $hostOnly) === 1) {
+    return true;
+  }
+
+  return in_array($serverAddr, ['127.0.0.1', '::1'], true);
+}
+
+function asset_url(string $relativePath): string {
+  $relativePath = ltrim($relativePath, '/');
+  $absolutePath = realpath(__DIR__ . '/../' . $relativePath);
+  $version = null;
+
+  if (is_string($absolutePath) && is_file($absolutePath)) {
+    $mtime = filemtime($absolutePath);
+    if ($mtime !== false) {
+      $version = (string)$mtime;
+    }
+  }
+
+  $url = BASE_PATH . '/' . $relativePath;
+  if ($version !== null) {
+    $url .= '?v=' . rawurlencode($version);
+  }
+
+  return $url;
+}
+
 function redirect(string $path): void {
   // If dev accidentally passes "public/login.php", normalize it.
   if ($path !== "" && $path[0] !== "/" && !str_starts_with($path, "http://") && !str_starts_with($path, "https://")) {

@@ -37,6 +37,24 @@ require __DIR__ . "/../includes/layout.php";
 </script>
 
 <?php
+$createdDocFlash = $_SESSION["documents_created_flash"] ?? null;
+unset($_SESSION["documents_created_flash"]);
+$createdDocId = is_array($createdDocFlash) ? (int)($createdDocFlash["doc_id"] ?? 0) : 0;
+$createdTrackingNo = is_array($createdDocFlash) ? trim((string)($createdDocFlash["tracking_no"] ?? "")) : "";
+?>
+<?php if ($createdDocId > 0): ?>
+<script>
+  try {
+    sessionStorage.setItem("dt_restore_drawer", JSON.stringify({
+      docId: <?= (int)$createdDocId ?>,
+      branchId: 0,
+      at: Date.now()
+    }));
+  } catch (_) {}
+</script>
+<?php endif; ?>
+
+<?php
 // -------------------------
 // Filters (GET)
 // -------------------------
@@ -189,42 +207,6 @@ if ($date_to !== "") {
 }
 
 // -------------------------
-// Quick filters (from stat cards)
-// -------------------------
-if ($quick !== "") {
-  if ($quick === "active") {
-    $where[] = "d.current_status = 'ACTIVE'";
-  } elseif ($quick === "archived") {
-    $where[] = "d.current_status = 'ARCHIVED'";
-  } elseif ($quick === "released_today") {
-    $where[] = "d.current_status = 'RELEASED' AND DATE(d.updated_at) = CURDATE()";
-  } elseif ($quick === "overdue") {
-    $where[] = "d.current_status = 'ACTIVE' AND d.deadline_at IS NOT NULL AND d.deadline_at < NOW()";
-  }
-}
-// -------------------------
-// COUNT query for pagination
-// (Use same WHERE + joins needed by filters)
-// -------------------------
-$countSql = "
-  SELECT COUNT(DISTINCT d.id) AS total
-  FROM documents d
-  LEFT JOIN sections sh ON sh.id = d.current_holder_section_id
-";
-if ($where) $countSql .= " WHERE " . implode(" AND ", $where);
-
-$countStmt = $conn->prepare($countSql);
-if ($params) $countStmt->bind_param($types, ...$params);
-$countStmt->execute();
-$total = (int)($countStmt->get_result()->fetch_assoc()["total"] ?? 0);
-
-$totalPages = max(1, (int)ceil($total / $perPage));
-if ($page > $totalPages) {
-  $page = $totalPages;
-  $offset = ($page - 1) * $perPage;
-}
-
-// -------------------------
 // Main list query (NEW SCHEMA)
 // -------------------------
 $mySid = (int)$mySectionId;
@@ -232,15 +214,180 @@ $myUid = (int)$myUserId;
 $myChiefInt = $isChief ? 1 : 0;
 $branchModeInt = $branchMode ? 1 : 0;
 
+$hasRealBranchesPredicate = "EXISTS (
+  SELECT 1
+  FROM document_branches b_chk
+  WHERE b_chk.document_id = d.id
+)";
+
+$myIsOriginPredicate = "d.created_by_user_id = {$myUid}";
+
+$myHasOpenInboundPredicate = "EXISTS (
+  SELECT 1
+  FROM routes r_in
+  WHERE r_in.document_id = d.id
+    AND r_in.received_at IS NULL
+    AND r_in.cancelled_at IS NULL
+    AND (
+      (
+        {$hasRealBranchesPredicate}
+        AND r_in.route_kind = 'ACTION'
+        AND r_in.to_user_id = {$myUid}
+      )
+      OR
+      (
+        NOT EXISTS (
+          SELECT 1
+          FROM document_branches b_chk2
+          WHERE b_chk2.document_id = d.id
+        )
+        AND (
+          r_in.to_user_id = {$myUid}
+          OR ({$myChiefInt} = 1 AND r_in.to_user_id IS NULL AND r_in.to_section_id = {$mySid})
+        )
+      )
+    )
+)";
+
+$myHasActionableRolePredicate = "(
+  (
+    {$hasRealBranchesPredicate}
+    AND EXISTS (
+      SELECT 1
+      FROM document_branches b_act2
+      WHERE b_act2.document_id = d.id
+        AND b_act2.branch_status = 'ACTIVE'
+        AND b_act2.current_assignee_user_id = {$myUid}
+        AND b_act2.is_reference = 0
+        AND NOT EXISTS (
+          SELECT 1
+          FROM routes r_act
+          WHERE r_act.branch_id = b_act2.id
+            AND r_act.route_kind = 'ACTION'
+            AND r_act.received_at IS NULL
+            AND r_act.cancelled_at IS NULL
+        )
+    )
+  )
+  OR
+  (
+    NOT EXISTS (
+      SELECT 1
+      FROM document_branches b_flat
+      WHERE b_flat.document_id = d.id
+    )
+    AND d.current_status = 'ACTIVE'
+    AND d.current_holder_section_id = {$mySid}
+    AND NOT EXISTS (
+      SELECT 1
+      FROM routes r_act_legacy
+      WHERE r_act_legacy.document_id = d.id
+        AND r_act_legacy.received_at IS NULL
+        AND r_act_legacy.cancelled_at IS NULL
+    )
+  )
+)";
+
+$myHasParticipationPredicate = "(
+  {$myIsOriginPredicate}
+  OR EXISTS (
+    SELECT 1
+    FROM routes r_part
+    WHERE r_part.document_id = d.id
+      AND (
+        r_part.to_user_id = {$myUid}
+        OR r_part.sent_by_user_id = {$myUid}
+        OR r_part.received_by_user_id = {$myUid}
+      )
+  )
+)";
+
+$myIsVisibleOnlyPredicate = $branchMode
+  ? "EXISTS (
+      SELECT 1
+      FROM document_user_visibility duv_vis
+      WHERE duv_vis.document_id = d.id
+        AND duv_vis.user_id = {$myUid}
+    )"
+  : "0=1";
+
+$myIsForReferencePredicate = "(
+  {$hasRealBranchesPredicate}
+  AND EXISTS (
+    SELECT 1
+    FROM document_branches b_ref
+    WHERE b_ref.document_id = d.id
+      AND b_ref.is_reference = 1
+      AND (
+        b_ref.current_assignee_user_id = {$myUid}
+        OR EXISTS (
+          SELECT 1
+          FROM routes r_ref
+          WHERE r_ref.document_id = d.id
+            AND r_ref.branch_id = b_ref.id
+            AND (
+              r_ref.to_user_id = {$myUid}
+              OR r_ref.sent_by_user_id = {$myUid}
+              OR r_ref.received_by_user_id = {$myUid}
+            )
+        )
+      )
+  )
+)";
+
+$myIsReceiveOnlyPredicate = "(
+  {$hasRealBranchesPredicate}
+  AND EXISTS (
+    SELECT 1
+    FROM document_branches b_ro
+    WHERE b_ro.document_id = d.id
+      AND b_ro.branch_status = 'ACTIVE'
+      AND b_ro.current_assignee_user_id = {$myUid}
+      AND b_ro.is_reference = 1
+  )
+)";
+
+$myCompletePredicate = "(
+  NOT ({$myHasOpenInboundPredicate})
+  AND NOT ({$myHasActionableRolePredicate})
+  AND (
+    {$myHasParticipationPredicate}
+    OR {$myIsOriginPredicate}
+    OR {$myIsForReferencePredicate}
+  )
+)";
+
 $personalDeadlineSelectSql = "NULL AS my_personal_deadline_at";
 $personalDeadlineJoinSql = "";
 $effectiveDeadlineOrderExpr = "d.deadline_at";
+$effectiveDeadlineFilterExpr = "d.deadline_at";
 
 if ($routePersonalDeadlineEnabled) {
   $effectiveDeadlineOrderExpr = "COALESCE(rpd_me.personal_deadline_at, d.deadline_at)";
   $personalDeadlineSelectSql = "rpd_me.personal_deadline_at AS my_personal_deadline_at";
 
   if ($branchMode) {
+    $effectiveDeadlineFilterExpr = "COALESCE((
+      SELECT MAX(rpd.personal_deadline_at)
+      FROM routes rpd
+      LEFT JOIN document_branches bpd ON bpd.id = rpd.branch_id
+      LEFT JOIN documents dpd ON dpd.id = rpd.document_id
+      WHERE rpd.document_id = d.id
+        AND rpd.to_user_id = {$myUid}
+        AND rpd.personal_deadline_at IS NOT NULL
+        AND (
+          rpd.received_at IS NULL
+          OR (
+            bpd.id IS NOT NULL
+            AND bpd.branch_status = 'ACTIVE'
+            AND bpd.current_assignee_user_id = {$myUid}
+          )
+          OR (
+            bpd.id IS NULL
+            AND dpd.current_holder_section_id = {$mySid}
+          )
+        )
+    ), d.deadline_at)";
     $personalDeadlineJoinSql = "
   LEFT JOIN (
     SELECT
@@ -268,6 +415,19 @@ if ($routePersonalDeadlineEnabled) {
   LEFT JOIN routes rpd_me ON rpd_me.id = rpd_pick.my_personal_route_id
 ";
   } else {
+    $effectiveDeadlineFilterExpr = "COALESCE((
+      SELECT MAX(rpd.personal_deadline_at)
+      FROM routes rpd
+      JOIN documents dpd ON dpd.id = rpd.document_id
+      WHERE rpd.document_id = d.id
+        AND rpd.to_user_id = {$myUid}
+        AND rpd.personal_deadline_at IS NOT NULL
+        AND (
+          rpd.received_at IS NULL
+          OR dpd.current_holder_section_id = {$mySid}
+        )
+    ), d.deadline_at)";
+
     $personalDeadlineJoinSql = "
   LEFT JOIN (
     SELECT
@@ -286,6 +446,50 @@ if ($routePersonalDeadlineEnabled) {
   LEFT JOIN routes rpd_me ON rpd_me.id = rpd_pick.my_personal_route_id
 ";
   }
+}
+
+// -------------------------
+// Quick filters (from cards / queue pills)
+// -------------------------
+if ($quick !== "") {
+  if ($quick === "incoming") {
+    $where[] = "d.current_status = 'ACTIVE' AND ({$myHasOpenInboundPredicate})";
+  } elseif ($quick === "pending") {
+    $where[] = "d.current_status = 'ACTIVE' AND ({$myHasActionableRolePredicate})";
+  } elseif ($quick === "completed") {
+    $where[] = "({$myCompletePredicate})";
+  } elseif ($quick === "overdue") {
+    $where[] = "d.current_status = 'ACTIVE' AND {$effectiveDeadlineFilterExpr} IS NOT NULL AND {$effectiveDeadlineFilterExpr} < NOW()";
+  } elseif ($quick === "released") {
+    $where[] = "d.current_status = 'RELEASED'";
+  } elseif ($quick === "archived") {
+    $where[] = "d.current_status = 'ARCHIVED'";
+  } elseif ($quick === "active") {
+    $where[] = "d.current_status = 'ACTIVE'";
+  } elseif ($quick === "released_today") {
+    $where[] = "d.current_status = 'RELEASED' AND DATE(d.updated_at) = CURDATE()";
+  }
+}
+
+// -------------------------
+// COUNT query for pagination
+// -------------------------
+$countSql = "
+  SELECT COUNT(DISTINCT d.id) AS total
+  FROM documents d
+  LEFT JOIN sections sh ON sh.id = d.current_holder_section_id
+";
+if ($where) $countSql .= " WHERE " . implode(" AND ", $where);
+
+$countStmt = $conn->prepare($countSql);
+if ($params) $countStmt->bind_param($types, ...$params);
+$countStmt->execute();
+$total = (int)($countStmt->get_result()->fetch_assoc()["total"] ?? 0);
+
+$totalPages = max(1, (int)ceil($total / $perPage));
+if ($page > $totalPages) {
+  $page = $totalPages;
+  $offset = ($page - 1) * $perPage;
 }
 
 $sql = "
@@ -315,6 +519,7 @@ $sql = "
     COALESCE(ro.open_count, 0) AS open_route_count,
 
     {$personalDeadlineSelectSql},
+    {$effectiveDeadlineOrderExpr} AS effective_deadline_at,
 
     rr_latest.latest_route_remark,
     rr_latest.latest_remark_sent_by_user_id,
@@ -549,27 +754,44 @@ if ($where) $sql .= " WHERE " . implode(" AND ", $where);
 $orderBySql = "
   ORDER BY
     CASE
-      WHEN d.current_status='ACTIVE'
-       AND (r_open.id IS NULL)
-       AND d.current_holder_section_id = {$mySid}
+      WHEN d.current_status = 'ACTIVE'
+       AND ({$myHasActionableRolePredicate})
+       AND effective_deadline_at IS NOT NULL
+       AND effective_deadline_at < NOW()
       THEN 0
 
-      WHEN d.current_status='ACTIVE'
-       AND (r_open.id IS NOT NULL)
-       AND r_open.to_section_id = {$mySid}
+      WHEN d.current_status = 'ACTIVE'
+       AND ({$myHasOpenInboundPredicate})
+       AND effective_deadline_at IS NOT NULL
+       AND effective_deadline_at < NOW()
       THEN 1
 
-      WHEN d.current_status='ACTIVE'
-       AND (r_open.id IS NOT NULL)
+      WHEN d.current_status = 'ACTIVE'
+       AND ({$myHasActionableRolePredicate})
       THEN 2
 
-      WHEN d.current_status='ACTIVE' THEN 3
-      WHEN d.current_status='RELEASED' THEN 4
-      WHEN d.current_status='ARCHIVED' THEN 5
+      WHEN d.current_status = 'ACTIVE'
+       AND ({$myHasOpenInboundPredicate})
+      THEN 3
+
+      WHEN d.current_status = 'ACTIVE'
+       AND effective_deadline_at IS NOT NULL
+       AND effective_deadline_at < NOW()
+      THEN 4
+
+      WHEN d.current_status = 'ACTIVE'
+       AND ({$myCompletePredicate})
+      THEN 5
+
+      WHEN d.current_status = 'ACTIVE' THEN 6
+      WHEN d.current_status = 'RELEASED' THEN 7
+      WHEN d.current_status = 'ARCHIVED' THEN 8
       ELSE 9
     END ASC,
 
-    TIMESTAMPDIFF(DAY, d.updated_at, NOW()) DESC,
+    CASE WHEN effective_deadline_at IS NULL THEN 1 ELSE 0 END ASC,
+    effective_deadline_at ASC,
+    d.updated_at DESC,
     d.document_date DESC,
     d.id DESC
 ";
@@ -585,18 +807,23 @@ if ($sort === "newest") {
 } elseif ($sort === "urgent") {
   $orderBySql = "
     ORDER BY
-      CASE WHEN {$effectiveDeadlineOrderExpr} IS NULL THEN 1 ELSE 0 END ASC,
-      {$effectiveDeadlineOrderExpr} ASC,
-      d.document_date DESC,
+      CASE WHEN effective_deadline_at IS NULL THEN 1 ELSE 0 END ASC,
+      effective_deadline_at ASC,
+      CASE WHEN d.current_status = 'ACTIVE' AND ({$myHasActionableRolePredicate}) THEN 0
+           WHEN d.current_status = 'ACTIVE' AND ({$myHasOpenInboundPredicate}) THEN 1
+           ELSE 2 END ASC,
+      d.updated_at DESC,
       d.id DESC
   ";
 } elseif ($sort === "overdue_longest") {
   $orderBySql = "
     ORDER BY
-      CASE WHEN d.deadline_at IS NOT NULL AND d.deadline_at < NOW() THEN 0 ELSE 1 END ASC,
-      CASE WHEN {$effectiveDeadlineOrderExpr} IS NULL THEN 1 ELSE 0 END ASC,
-      {$effectiveDeadlineOrderExpr} ASC,
-      d.document_date DESC,
+      CASE WHEN effective_deadline_at IS NOT NULL AND effective_deadline_at < NOW() THEN 0 ELSE 1 END ASC,
+      effective_deadline_at ASC,
+      CASE WHEN d.current_status = 'ACTIVE' AND ({$myHasActionableRolePredicate}) THEN 0
+           WHEN d.current_status = 'ACTIVE' AND ({$myHasOpenInboundPredicate}) THEN 1
+           ELSE 2 END ASC,
+      d.updated_at DESC,
       d.id DESC
   ";
 }
@@ -717,10 +944,13 @@ if (!$isPrivileged) {
 
 $statSql = "
   SELECT
-    SUM(d.current_status='ACTIVE') AS active,
-    SUM(d.current_status='ARCHIVED') AS archived,
-    SUM(d.current_status='RELEASED' AND DATE(d.updated_at)=CURDATE()) AS released_today,
-    SUM(d.current_status='ACTIVE' AND d.deadline_at IS NOT NULL AND d.deadline_at < NOW()) AS overdue
+    SUM(d.current_status = 'ACTIVE' AND ({$myHasOpenInboundPredicate})) AS incoming,
+    SUM(d.current_status = 'ACTIVE' AND ({$myHasActionableRolePredicate})) AS pending,
+    SUM({$myCompletePredicate}) AS completed,
+    SUM(d.current_status = 'ACTIVE' AND {$effectiveDeadlineFilterExpr} IS NOT NULL AND {$effectiveDeadlineFilterExpr} < NOW()) AS overdue,
+    SUM(d.current_status = 'RELEASED') AS released,
+    SUM(d.current_status = 'ARCHIVED') AS archived,
+    SUM(d.current_status = 'ACTIVE') AS active
   FROM documents d
 ";
 if ($statWhere) $statSql .= " WHERE " . implode(" AND ", $statWhere);
@@ -731,10 +961,13 @@ $statStmt->execute();
 $statRows = $statStmt->get_result()->fetch_assoc();
 
 $stats = [
-  "active" => (int)($statRows["active"] ?? 0),
-  "archived" => (int)($statRows["archived"] ?? 0),
+  "incoming" => (int)($statRows["incoming"] ?? 0),
+  "pending" => (int)($statRows["pending"] ?? 0),
+  "completed" => (int)($statRows["completed"] ?? 0),
   "overdue" => (int)($statRows["overdue"] ?? 0),
-  "released_today" => (int)($statRows["released_today"] ?? 0),
+  "released" => (int)($statRows["released"] ?? 0),
+  "archived" => (int)($statRows["archived"] ?? 0),
+  "active" => (int)($statRows["active"] ?? 0),
 ];
 
 // Helper for pagination URLs (preserve current filters)
@@ -746,9 +979,11 @@ function pageUrl(int $p): string {
 
 function quickUrl(string $target): string {
   $q = $_GET;
+  $currentQuick = strtolower(trim($q["quick"] ?? ""));
 
-  // ✅ toggle off if the same card is clicked
-  if (strtolower(trim($q["quick"] ?? "")) === $target) {
+  if ($target === "") {
+    unset($q["quick"]);
+  } elseif ($currentQuick === $target) {
     unset($q["quick"]);
   } else {
     $q["quick"] = $target;
@@ -759,18 +994,19 @@ function quickUrl(string $target): string {
 }
 ?>
 
+<?php $hasActiveFilters = ($search !== "" || $statusGet !== "" || $date_from !== "" || $date_to !== "" || $quick !== "" || ($sort !== "" && $sort !== "workflow")); ?>
 <div class="docsPageShell">
   <section class="docsHero">
     <div class="docsHeroCopy">
-      <div class="docsEyebrow">Workflow dashboard</div>
+      <div class="docsEyebrow">My work queue</div>
       <h1 class="docsTitle">Document List</h1>
-      <p class="docsLead">Track movement, spot pending work fast, and open any row for complete routing details.</p>
+      <p class="docsLead">See what is incoming, what still needs your action, and what is already done — without digging through routing details first.</p>
     </div>
 
     <div class="docsHeroActions">
       <div class="docsSummaryPill">
         <span class="docsSummaryValue"><?= (int)$total ?></span>
-        <span class="docsSummaryLabel">visible documents</span>
+        <span class="docsSummaryLabel">documents in this view</span>
       </div>
 
       <a href="<?= PUBLIC_PATH ?>/add_document.php" class="btnComp docsAddBtn" style="text-decoration:none;">
@@ -780,65 +1016,74 @@ function quickUrl(string $target): string {
   </section>
 
   <div class="stats docsStatsGrid">
-    <a class="statCard statCardLink docsStatCard <?= $quick === 'active' ? 'isActive' : '' ?>"
-       href="<?= htmlspecialchars(quickUrl('active')) ?>">
+    <a class="statCard statCardLink docsStatCard toneIncoming <?= $quick === 'incoming' ? 'isActive' : '' ?>"
+       href="<?= htmlspecialchars(quickUrl('incoming')) ?>">
       <div class="docsStatHeader">
         <div>
-          <div class="statTitle">Active</div>
-          <div class="docsStatHint">Still moving in workflow</div>
+          <div class="statTitle">Incoming</div>
+          <div class="docsStatHint">Waiting for your receive</div>
         </div>
-        <div class="chip incoming">Ongoing</div>
+        <div class="chip action">Receive</div>
       </div>
-      <div class="statValue"><?= $stats["active"] ?></div>
+      <div class="statValue"><?= $stats["incoming"] ?></div>
     </a>
 
-    <a class="statCard statCardLink docsStatCard <?= $quick === 'overdue' ? 'isActive' : '' ?>"
+    <a class="statCard statCardLink docsStatCard tonePending <?= $quick === 'pending' ? 'isActive' : '' ?>"
+       href="<?= htmlspecialchars(quickUrl('pending')) ?>">
+      <div class="docsStatHeader">
+        <div>
+          <div class="statTitle">Pending</div>
+          <div class="docsStatHint">Already with you for action</div>
+        </div>
+        <div class="chip overdue">Act now</div>
+      </div>
+      <div class="statValue"><?= $stats["pending"] ?></div>
+    </a>
+
+    <a class="statCard statCardLink docsStatCard toneComplete <?= $quick === 'completed' ? 'isActive' : '' ?>"
+       href="<?= htmlspecialchars(quickUrl('completed')) ?>">
+      <div class="docsStatHeader">
+        <div>
+          <div class="statTitle">Completed</div>
+          <div class="docsStatHint">Your part is already done</div>
+        </div>
+        <div class="chip released">Done</div>
+      </div>
+      <div class="statValue"><?= $stats["completed"] ?></div>
+    </a>
+
+    <a class="statCard statCardLink docsStatCard toneOverdue <?= $quick === 'overdue' ? 'isActive' : '' ?>"
        href="<?= htmlspecialchars(quickUrl('overdue')) ?>">
       <div class="docsStatHeader">
         <div>
           <div class="statTitle">Overdue</div>
-          <div class="docsStatHint">Needs attention soonest</div>
+          <div class="docsStatHint">Effective deadline already passed</div>
         </div>
-        <div class="chip overdue">Deadline passed</div>
+        <div class="chip overdue">Past due</div>
       </div>
       <div class="statValue"><?= $stats["overdue"] ?></div>
-    </a>
-
-    <a class="statCard statCardLink docsStatCard <?= $quick === 'released_today' ? 'isActive' : '' ?>"
-       href="<?= htmlspecialchars(quickUrl('released_today')) ?>">
-      <div class="docsStatHeader">
-        <div>
-          <div class="statTitle">Released Today</div>
-          <div class="docsStatHint">Closed out today</div>
-        </div>
-        <div class="chip released">Done</div>
-      </div>
-      <div class="statValue"><?= $stats["released_today"] ?></div>
-    </a>
-
-    <a class="statCard statCardLink docsStatCard <?= $quick === 'archived' ? 'isActive' : '' ?>"
-       href="<?= htmlspecialchars(quickUrl('archived')) ?>">
-      <div class="docsStatHeader">
-        <div>
-          <div class="statTitle">Archived</div>
-          <div class="docsStatHint">Filed records</div>
-        </div>
-        <div class="chip archived">Filed</div>
-      </div>
-      <div class="statValue"><?= $stats["archived"] ?></div>
     </a>
   </div>
 
   <section class="docsControlsCard">
     <div class="docsControlsTop">
       <div>
-        <div class="docsSectionTitle">Find documents quickly</div>
-        <div class="docsSectionSub">Search, filter, and sort without leaving the workflow view.</div>
+        <div class="docsSectionTitle">Find what you need fast</div>
       </div>
 
-      <?php if ($search !== "" || $statusGet !== "" || $date_from !== "" || $date_to !== "" || $quick !== "" || ($sort !== "" && $sort !== "workflow")): ?>
+      <?php if ($hasActiveFilters): ?>
         <a class="docsClearFilters" href="<?= PUBLIC_PATH ?>/documents.php">Reset filters</a>
       <?php endif; ?>
+    </div>
+
+    <div class="docsQuickFilters" aria-label="Quick filters">
+      <a class="docsQuickFilter <?= $quick === '' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('')) ?>">All visible <span><?= (int)$stats['active'] + (int)$stats['released'] + (int)$stats['archived'] ?></span></a>
+      <a class="docsQuickFilter <?= $quick === 'incoming' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('incoming')) ?>">Incoming <span><?= $stats['incoming'] ?></span></a>
+      <a class="docsQuickFilter <?= $quick === 'pending' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('pending')) ?>">Pending <span><?= $stats['pending'] ?></span></a>
+      <a class="docsQuickFilter <?= $quick === 'completed' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('completed')) ?>">Completed <span><?= $stats['completed'] ?></span></a>
+      <a class="docsQuickFilter <?= $quick === 'overdue' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('overdue')) ?>">Overdue <span><?= $stats['overdue'] ?></span></a>
+      <a class="docsQuickFilter <?= $quick === 'released' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('released')) ?>">Released <span><?= $stats['released'] ?></span></a>
+      <a class="docsQuickFilter <?= $quick === 'archived' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('archived')) ?>">Archived <span><?= $stats['archived'] ?></span></a>
     </div>
 
     <div class="docsControlsGrid">
@@ -851,18 +1096,18 @@ function quickUrl(string $target): string {
         <div class="control docsSearchControl">
           <label>Search documents</label>
           <input class="search" type="text" name="q"
-                 placeholder="Tracking no, subject, requester, holder..."
+                 placeholder="Tracking no, subject, requester, current holder..."
                  value="<?= htmlspecialchars($search) ?>">
         </div>
 
         <div class="control docsSortControl">
           <label>Sort</label>
           <select class="select" name="sort">
-            <option value="workflow" <?= ($sort === "" || $sort === "workflow") ? "selected" : "" ?>>Workflow priority</option>
-            <option value="newest" <?= $sort === "newest" ? "selected" : "" ?>>Newest first</option>
-            <option value="urgent" <?= $sort === "urgent" ? "selected" : "" ?>>Most urgent first</option>
-            <option value="overdue_longest" <?= $sort === "overdue_longest" ? "selected" : "" ?>>Longest overdue first</option>
-            <option value="oldest" <?= $sort === "oldest" ? "selected" : "" ?>>Oldest first</option>
+            <option value="workflow" <?= ($sort === "" || $sort === "workflow") ? "selected" : "" ?>>My work priority</option>
+            <option value="urgent" <?= $sort === "urgent" ? "selected" : "" ?>>Nearest effective deadline</option>
+            <option value="overdue_longest" <?= $sort === "overdue_longest" ? "selected" : "" ?>>Overdue first</option>
+            <option value="newest" <?= $sort === "newest" ? "selected" : "" ?>>Newest document date</option>
+            <option value="oldest" <?= $sort === "oldest" ? "selected" : "" ?>>Oldest document date</option>
           </select>
         </div>
 
@@ -901,10 +1146,6 @@ function quickUrl(string $target): string {
 
   <div class="tableWrap docsTableWrap">
     <div class="docsTableTopbar">
-      <div>
-        <div class="docsSectionTitle">Documents in view</div>
-        <div class="docsSectionSub">Click any row to open the drawer and see full routing history.</div>
-      </div>
       <div class="docsResultsMeta">
         Showing <b><?= (int)($total ? $offset + 1 : 0) ?></b>–<b><?= (int)min($offset + $perPage, $total) ?></b> of <b><?= (int)$total ?></b>
       </div>
@@ -1026,6 +1267,8 @@ function quickUrl(string $target): string {
               $docStateHint = "Within workflow";
             }
 
+            $isJustCreatedDoc = ($createdDocId > 0 && (int)$d["id"] === $createdDocId);
+
             $statusBadges = [];
             if ($myIsOrigin) {
               $statusBadges[] = ["label" => "ORIGIN", "class" => "docMiniBadge"];
@@ -1038,6 +1281,9 @@ function quickUrl(string $target): string {
             }
             if ($myIsVisibleOnly && !$myHasParticipation && !$myIsOrigin && !$myIsForReference) {
               $statusBadges[] = ["label" => "VISIBLE", "class" => "docMiniBadge muted"];
+            }
+            if ($isJustCreatedDoc) {
+              $statusBadges[] = ["label" => "NEW", "class" => "docMiniBadge muted"];
             }
 
             $movementText = "—";
@@ -1121,7 +1367,8 @@ function quickUrl(string $target): string {
               : ($docTypeText !== "" ? $docTypeText : ($docCommText !== "" ? $docCommText : "—"));
           ?>
           <tr
-            class="rowHover docsRow <?= htmlspecialchars(trim($rowToneClass . " " . $deadlineToneClass)) ?>"
+            class="rowHover docsRow <?= htmlspecialchars(trim($rowToneClass . " " . $deadlineToneClass . ($isJustCreatedDoc ? " docsRowJustCreated" : ""))) ?>"
+            <?= $isJustCreatedDoc ? 'data-created-doc="1"' : '' ?>
             data-doc='<?= htmlspecialchars(
               json_encode([
                 "id" => (int)$d["id"],
@@ -1262,6 +1509,21 @@ function quickUrl(string $target): string {
     </table>
   </div>
 </div>
+
+<?php if ($createdDocId > 0): ?>
+<script>
+  window.addEventListener("load", function () {
+    const row = document.querySelector('tr[data-created-doc="1"]');
+    if (!row) return;
+
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+
+    if (window.DTToast?.success) {
+      window.DTToast.success("Document added successfully.");
+    }
+  });
+</script>
+<?php endif; ?>
 
 <?php
 // Pagination UI
@@ -1514,5 +1776,5 @@ $end   = min($totalPages, $page + 2);
   </div>
 </div>
 
-<?php $pageScripts = [ASSETS_PATH . "/js/documents-page.js?v=20260323b"]; ?>
+<?php $pageScripts = [asset_url("assets/js/documents-page.js")]; ?>
 <?php require __DIR__ . "/../includes/footer.php"; ?>

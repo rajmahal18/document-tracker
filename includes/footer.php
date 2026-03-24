@@ -7,10 +7,10 @@
   </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js"></script>
-  <script src="<?= ASSETS_PATH ?>/js/app.js?v=<?= time() ?>"></script>
-  <script src="<?= ASSETS_PATH ?>/js/view_document_merge.js?v=<?= time() ?>"></script>
-  <script src="<?= ASSETS_PATH ?>/js/login.js?v=<?= time() ?>"></script>
-  <script src="<?= ASSETS_PATH ?>/js/pwa-ui.js?v=<?= time() ?>"></script>
+  <script src="<?= asset_url("assets/js/app.js") ?>"></script>
+  <script src="<?= asset_url("assets/js/view_document_merge.js") ?>"></script>
+  <script src="<?= asset_url("assets/js/login.js") ?>"></script>
+  <script src="<?= asset_url("assets/js/pwa-ui.js") ?>"></script>
 
 
   <?php if (!empty($pageScripts) && is_array($pageScripts)): ?>

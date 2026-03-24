@@ -824,6 +824,26 @@ body[data-theme="dark"] .aLink {
   color: var(--app-text);
 }
 
+.docMiniBadge.new {
+  background: linear-gradient(135deg, #16a34a, #15803d);
+  color: #ffffff;
+  border: 1px solid rgba(21, 128, 61, 0.45);
+  box-shadow:
+    0 0 0 1px rgba(34, 197, 94, 0.18),
+    0 6px 14px rgba(21, 128, 61, 0.28);
+  font-weight: 900;
+  animation: docNewPulse 1.6s ease-in-out infinite;
+}
+
+body[data-theme="dark"] .docMiniBadge.new {
+  background: linear-gradient(135deg, #16a34a, #15803d);
+  color: #ffffff;
+  border: 1px solid rgba(21, 128, 61, 0.45);
+  box-shadow:
+    0 0 0 1px rgba(34, 197, 94, 0.18),
+    0 6px 14px rgba(21, 128, 61, 0.28);
+}
+
 body[data-theme="dark"] .docsLead,
 body[data-theme="dark"] .docsSectionSub,
 body[data-theme="dark"] .docInfoMeta,

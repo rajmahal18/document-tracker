@@ -604,6 +604,6 @@ require __DIR__ . "/../includes/layout.php";
 </div>
 
 
-<script src="<?= ASSETS_PATH ?>/js/drill-down.js?v=<?= time() ?>"></script>
+<script src="<?= asset_url("assets/js/drill-down.js") ?>"></script>
 
 <?php require __DIR__ . "/../includes/footer.php"; ?>

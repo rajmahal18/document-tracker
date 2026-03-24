@@ -132,9 +132,43 @@
     });
   }
 
+  function isDevelopmentEnvironment() {
+    if (APP.isDevelopment === true) return true;
+    const hostname = window.location.hostname || '';
+    return hostname === 'localhost'
+      || hostname === '127.0.0.1'
+      || hostname === '::1'
+      || /^192\.168\./.test(hostname)
+      || /^10\./.test(hostname)
+      || /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
+  }
+
+  async function clearServiceWorkerCaches() {
+    if (!('caches' in window)) return;
+    try {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(function (key) { return caches.delete(key); }));
+    } catch (e) {}
+  }
+
+  async function unregisterServiceWorkers() {
+    if (!('serviceWorker' in navigator)) return;
+    try {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map(function (registration) {
+        return registration.unregister();
+      }));
+    } catch (e) {}
+  }
+
   function initServiceWorker() {
     if (!('serviceWorker' in navigator) || !APP.base) return;
     window.addEventListener('load', function () {
+      if (isDevelopmentEnvironment()) {
+        void unregisterServiceWorkers().then(clearServiceWorkerCaches);
+        return;
+      }
+
       navigator.serviceWorker.register(APP.base + '/sw.js').catch(function () {});
     });
   }

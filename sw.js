@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mpw-doc-tracker-v2';
+const CACHE_NAME = 'mpw-doc-tracker-v3';
 const APP_BASE = '/document-tracker';
 const OFFLINE_URL = APP_BASE + '/public/offline.php';
 const CORE_ASSETS = [
@@ -6,8 +6,6 @@ const CORE_ASSETS = [
   APP_BASE + '/public/login.php',
   APP_BASE + '/public/scan.php',
   OFFLINE_URL,
-  APP_BASE + '/assets/css/style.css',
-  APP_BASE + '/assets/js/pwa-ui.js',
   APP_BASE + '/assets/mpwlogo1.png',
   APP_BASE + '/assets/icons/icon-192.png',
   APP_BASE + '/assets/icons/icon-512.png'
@@ -32,9 +30,18 @@ self.addEventListener('fetch', (event) => {
 
   const isApi = url.pathname.startsWith(APP_BASE + '/api/');
   const isDynamicPhp = url.pathname.endsWith('.php');
+  const isCodeAsset = url.pathname.startsWith(APP_BASE + '/assets/css/') || url.pathname.startsWith(APP_BASE + '/assets/js/');
 
-  if (isApi) {
-    event.respondWith(fetch(request, { cache: 'no-store' }));
+  if (isApi || isCodeAsset) {
+    event.respondWith(
+      fetch(request, { cache: 'no-store' }).catch(async () => {
+        if (isCodeAsset) {
+          const cached = await caches.match(request);
+          if (cached) return cached;
+        }
+        return caches.match(OFFLINE_URL);
+      })
+    );
     return;
   }
 
