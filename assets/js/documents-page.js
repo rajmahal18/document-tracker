@@ -2136,3 +2136,45 @@ document.addEventListener("click", function (e) {
 
   list.classList.toggle("collapsed");
 });
+
+(function () {
+  const tabs = Array.from(document.querySelectorAll('[data-scroll-tab]'));
+  if (!tabs.length) return;
+
+  const sections = tabs
+    .map((tab) => {
+      const id = tab.getAttribute('href') || '';
+      if (!id.startsWith('#')) return null;
+      const el = document.querySelector(id);
+      return el ? { tab, el } : null;
+    })
+    .filter(Boolean);
+
+  if (!sections.length) return;
+
+  const setActive = (activeId) => {
+    tabs.forEach((tab) => {
+      const isActive = tab.getAttribute('href') === `#${activeId}`;
+      tab.classList.toggle('isActive', isActive);
+      if (isActive) tab.setAttribute('aria-current', 'true');
+      else tab.removeAttribute('aria-current');
+    });
+  };
+
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const id = (tab.getAttribute('href') || '').replace('#', '');
+      if (id) setActive(id);
+    });
+  });
+
+  const observer = new IntersectionObserver((entries) => {
+    const visible = entries
+      .filter((entry) => entry.isIntersecting)
+      .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+
+    if (visible?.target?.id) setActive(visible.target.id);
+  }, { rootMargin: '-25% 0px -55% 0px', threshold: [0.15, 0.35, 0.6] });
+
+  sections.forEach(({ el }) => observer.observe(el));
+})();

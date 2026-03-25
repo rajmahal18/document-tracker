@@ -13,7 +13,7 @@ require __DIR__ . '/../includes/layout.php';
   </p>
   <div class="scanActions" style="margin-top:16px;">
     <a href="<?= PUBLIC_PATH ?>/documents.php" class="btnComp" style="text-decoration:none;">Go to dashboard</a>
-    <a href="<?= PUBLIC_PATH ?>/scan.php" class="btnSecondary" style="text-decoration:none;">Open scan page</a>
+    <a href="<?= PUBLIC_PATH ?>/scan.php" class="btnSecondary" style="text-decoration:none;">Open QR page</a>
   </div>
 </div>
 <?php require __DIR__ . '/../includes/footer.php'; ?>

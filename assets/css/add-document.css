@@ -605,3 +605,38 @@
     justify-content: space-between;
   }
 }
+
+
+@media (max-width: 560px) {
+  .addDocumentPage {
+    font-size: 13px;
+  }
+
+  .addDocumentPage .destBuilder,
+  .addDocumentPage .destSummaryBox,
+  .addDocumentPage .destCard {
+    padding: 10px 11px;
+    border-radius: 14px;
+  }
+
+  .addDocumentPage .destHeadline,
+  .addDocumentPage .destCardTitle {
+    font-size: 13px;
+  }
+
+  .addDocumentPage .destSubline,
+  .addDocumentPage .destSimpleMeta span,
+  .addDocumentPage .destSummaryChip,
+  .addDocumentPage .destHelperChip,
+  .addDocumentPage .destFactChip,
+  .addDocumentPage .destInlineChip {
+    font-size: 10.5px;
+  }
+
+  .addDocumentPage .destCounter {
+    min-width: 64px;
+    padding: 6px 8px;
+  }
+
+  .addDocumentPage .destCounter strong { font-size: 16px; }
+}

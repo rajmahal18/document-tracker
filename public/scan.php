@@ -1,227 +1,138 @@
 <?php
+
 declare(strict_types=1);
 require __DIR__ . '/../includes/bootstrap.php';
 require_login();
-$pageTitle = 'Scan QR - Document Tracker';
+
+$pageTitle = 'Open QR / Token - Document Tracker';
+$pageScripts = [asset_url('assets/js/scan-page.js')];
 require __DIR__ . '/../includes/layout.php';
 ?>
-<div class="scanPage">
-  <section class="scanHero">
-    <div class="docsEyebrow">Mobile scanning</div>
-    <h1 class="scanTitle">Scan a document QR fast</h1>
-    <p class="scanLead">Built for phone-first receiving. Open this page from the installed app, point the camera at a QR code, and jump straight to the document status screen.</p>
+<div class="scanPage scanPageZoho">
+  <section class="scanHero scanHeroCompact">
+    <div class="scanHeroTopline">
+      <span class="docsEyebrow">QR access</span>
+      <span class="scanHeroPill">Honest mode</span>
+    </div>
+
+    <div class="scanHeroBody">
+      <div>
+        <h1 class="scanTitle">Open document QR</h1>
+        <p class="scanLead">For reliability, in-app camera scanning has been removed from this page. Use your regular phone camera app to scan the document QR, then open or paste the link/token here.</p>
+      </div>
+      <div class="scanMiniStats" aria-label="Quick guidance">
+        <div class="scanMiniStat">
+          <span class="scanMiniLabel">Recommended</span>
+          <strong>Phone camera app</strong>
+        </div>
+        <div class="scanMiniStat">
+          <span class="scanMiniLabel">Fallback</span>
+          <strong>Paste link / token</strong>
+        </div>
+      </div>
+    </div>
   </section>
 
-  <section class="scanShell">
-    <div class="scanActions" style="margin-bottom:12px;">
-      <button type="button" class="btnComp" id="scanStartBtn">Start camera</button>
-      <button type="button" class="btnSecondary" id="scanStopBtn" disabled>Stop camera</button>
-      <label class="btnSecondary" style="cursor:pointer; text-decoration:none;">
-        Scan from image
-        <input type="file" id="scanImageInput" accept="image/*" hidden>
-      </label>
+  <nav class="scanTabs" aria-label="Open QR sections">
+    <a href="#scan-open" class="scanTabLink">Open</a>
+    <a href="#scan-how" class="scanTabLink">How</a>
+    <a href="#scan-help" class="scanTabLink">Help</a>
+  </nav>
+
+  <section class="scanShell scanShellCompact" id="scan-open">
+    <div class="scanSectionHead">
+      <div>
+        <div class="docsSectionTitle">Use your phone camera app</div>
+        <p class="scanSectionSub">This is the official and most reliable way to open document QR codes on mobile.</p>
+      </div>
+      <div class="scanStatusBadge" id="scanCapabilityBadge" data-tone="good">Recommended</div>
     </div>
 
-    <div class="scanVideoWrap">
-      <video id="scanVideo" playsinline muted></video>
-      <div class="scanFrame"></div>
+    <div class="scanHelpGrid">
+      <article class="scanHelpCard">
+        <div class="scanHelpTitle">Step 1</div>
+        <p>Open your normal phone camera app and point it at the document QR.</p>
+      </article>
+      <article class="scanHelpCard">
+        <div class="scanHelpTitle">Step 2</div>
+        <p>Tap the link preview shown by your phone. It should open the document status page directly.</p>
+      </article>
+      <article class="scanHelpCard">
+        <div class="scanHelpTitle">Step 3</div>
+        <p>If your phone does not open it automatically, copy the QR link or token and paste it below.</p>
+      </article>
     </div>
 
-    <p class="scanHint" id="scanHint" style="margin:12px 0 0;">Tip: center the QR inside the frame. Latest Android phones work best in Chrome. iPhone users can still use image upload fallback.</p>
+    <div class="scanStatusPanel">
+      <div class="scanStatus mini" id="scanStatus">Paste a QR link or token below to open the document status page.</div>
+      <div class="scanTinyNote">No false promises: this page no longer pretends to offer built-in scanning. It focuses on the reliable path only.</div>
+    </div>
+  </section>
 
-    <form id="scanTokenForm" class="scanTokenForm" autocomplete="off">
-      <input id="scanTokenInput" class="search" type="text" placeholder="Paste QR link or token here if camera is unavailable">
-      <button type="submit" class="btnPrimary">Open</button>
+  <section class="scanShell scanShellCompact" id="scan-how">
+    <div class="scanSectionHead">
+      <div>
+        <div class="docsSectionTitle">Paste QR link or token</div>
+        <p class="scanSectionSub">Accepts a full QR URL or the token itself.</p>
+      </div>
+    </div>
+
+    <form id="scanTokenForm" class="scanTokenForm scanTokenFormCompact" autocomplete="off">
+      <input id="scanTokenInput" class="search" type="text" placeholder="Paste QR link or token" inputmode="text" autocapitalize="off" spellcheck="false">
+      <button type="submit" class="btnComp">Open</button>
     </form>
 
-    <div class="scanStatus mini" id="scanStatus" style="margin-top:10px;"></div>
+    <div class="scanDebugList" id="scanDebugList" aria-live="polite"></div>
   </section>
 
-  <section class="scanResultCard" id="scanResultCard" hidden>
-    <div class="docsSectionTitle">Scan result</div>
-    <div class="scanResultTracking" id="scanResultTracking">—</div>
-    <div class="scanResultMeta" id="scanResultMeta">—</div>
-    <div class="scanActions" style="margin-top:14px;">
-      <a href="#" id="scanOpenLink" class="btnComp" style="text-decoration:none;">Open document status</a>
+  <section class="scanResultCard scanResultCardCompact" id="scanResultCard" hidden>
+    <div class="scanSectionHead">
+      <div>
+        <div class="docsSectionTitle">Ready to open</div>
+        <p class="scanSectionSub">The QR content was converted into a document status link.</p>
+      </div>
+    </div>
+
+    <div class="scanResultStack">
+      <div class="scanResultRow">
+        <span class="scanResultLabel">Status</span>
+        <div class="scanResultTracking" id="scanResultTracking">—</div>
+      </div>
+      <div class="scanResultRow">
+        <span class="scanResultLabel">Target</span>
+        <div class="scanResultMeta" id="scanResultMeta">—</div>
+      </div>
+    </div>
+
+    <div class="scanActions scanPrimaryActions">
+      <a href="#" id="scanOpenLink" class="btnComp scanOpenLink">Open document status</a>
       <button type="button" id="scanCopyLinkBtn" class="btnSecondary">Copy link</button>
+    </div>
+  </section>
+
+  <section class="scanShell scanShellCompact" id="scan-help">
+    <div class="scanSectionHead">
+      <div>
+        <div class="docsSectionTitle">Troubleshooting</div>
+        <p class="scanSectionSub">Simple guidance when the QR does not open immediately.</p>
+      </div>
+    </div>
+
+    <div class="scanHelpGrid">
+      <article class="scanHelpCard">
+        <div class="scanHelpTitle">Phone camera shows no link</div>
+        <p>Move closer, improve lighting, and keep the QR square fully visible. Printed copies and screenshots usually scan better when the code is sharp and not cropped.</p>
+      </article>
+      <article class="scanHelpCard">
+        <div class="scanHelpTitle">You only have the token</div>
+        <p>Paste the token into the field above. The page will build the correct document status link for you.</p>
+      </article>
+      <article class="scanHelpCard">
+        <div class="scanHelpTitle">Need a clear workflow</div>
+        <p>Use the phone camera app first. Use this page only to open pasted QR links or tokens. That keeps the experience stable and predictable.</p>
+      </article>
     </div>
   </section>
 </div>
 
-<script>
-(function () {
-  const APP = window.__APP__ || {};
-  const video = document.getElementById('scanVideo');
-  const startBtn = document.getElementById('scanStartBtn');
-  const stopBtn = document.getElementById('scanStopBtn');
-  const imageInput = document.getElementById('scanImageInput');
-  const tokenForm = document.getElementById('scanTokenForm');
-  const tokenInput = document.getElementById('scanTokenInput');
-  const statusEl = document.getElementById('scanStatus');
-  const resultCard = document.getElementById('scanResultCard');
-  const openLink = document.getElementById('scanOpenLink');
-  const resultTracking = document.getElementById('scanResultTracking');
-  const resultMeta = document.getElementById('scanResultMeta');
-  const copyBtn = document.getElementById('scanCopyLinkBtn');
-  let stream = null;
-  let detector = null;
-  let rafId = 0;
-  let found = false;
-
-  if ('BarcodeDetector' in window) {
-    try {
-      detector = new BarcodeDetector({ formats: ['qr_code'] });
-    } catch (e) {
-      detector = null;
-    }
-  }
-
-  function setStatus(text, isError = false) {
-    if (!statusEl) return;
-    statusEl.textContent = text || '';
-    statusEl.style.color = isError ? '#b42318' : '';
-  }
-
-  function extractTarget(raw) {
-    const value = (raw || '').trim();
-    if (!value) return '';
-    try {
-      const url = new URL(value, window.location.origin);
-      if (url.searchParams.get('t')) {
-        return APP.public + '/qr.php?t=' + encodeURIComponent(url.searchParams.get('t'));
-      }
-    } catch (e) {}
-
-    const tokenMatch = value.match(/(?:^|[?&]t=)([A-Za-z0-9]{16,64})$/) || value.match(/^([A-Za-z0-9]{16,64})$/);
-    if (tokenMatch && tokenMatch[1]) {
-      return APP.public + '/qr.php?t=' + encodeURIComponent(tokenMatch[1]);
-    }
-    return '';
-  }
-
-  function renderResult(target) {
-    resultCard.hidden = false;
-    openLink.href = target;
-    const url = new URL(target, window.location.origin);
-    resultTracking.textContent = url.searchParams.get('t') ? 'QR token detected' : 'Document QR found';
-    resultMeta.textContent = target;
-    setStatus('QR detected. Ready to open.');
-  }
-
-  async function stopCamera() {
-    found = true;
-    if (rafId) cancelAnimationFrame(rafId);
-    rafId = 0;
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
-      stream = null;
-    }
-    if (video) video.srcObject = null;
-    startBtn.disabled = false;
-    stopBtn.disabled = true;
-  }
-
-  async function handleDetected(rawValue) {
-    const target = extractTarget(rawValue);
-    if (!target) {
-      setStatus('QR detected but the value is not a valid document token.', true);
-      return;
-    }
-    await stopCamera();
-    renderResult(target);
-  }
-
-  async function scanLoop() {
-    if (!detector || !video || video.readyState < 2 || found) {
-      rafId = requestAnimationFrame(scanLoop);
-      return;
-    }
-    try {
-      const barcodes = await detector.detect(video);
-      if (barcodes && barcodes.length) {
-        found = true;
-        await handleDetected(barcodes[0].rawValue || '');
-        return;
-      }
-    } catch (e) {}
-    rafId = requestAnimationFrame(scanLoop);
-  }
-
-  async function startCamera() {
-    resultCard.hidden = true;
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setStatus('Camera access is not available in this browser. Use image upload or paste the token.', true);
-      return;
-    }
-    if (!detector) {
-      setStatus('Live QR detection is not supported here. Use image upload or paste the token.', true);
-      return;
-    }
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1280 },
-          height: { ideal: 1280 }
-        },
-        audio: false
-      });
-      video.srcObject = stream;
-      await video.play();
-      found = false;
-      startBtn.disabled = true;
-      stopBtn.disabled = false;
-      setStatus('Camera is live. Hold the QR steady inside the frame.');
-      scanLoop();
-    } catch (err) {
-      setStatus('Could not start camera. Check permissions, then try again.', true);
-    }
-  }
-
-  startBtn.addEventListener('click', startCamera);
-  stopBtn.addEventListener('click', stopCamera);
-
-  copyBtn.addEventListener('click', async () => {
-    if (!openLink.href) return;
-    try {
-      await navigator.clipboard.writeText(openLink.href);
-      setStatus('Link copied.');
-    } catch (e) {
-      setStatus('Could not copy the link.', true);
-    }
-  });
-
-  tokenForm.addEventListener('submit', (event) => {
-    event.preventDefault();
-    const target = extractTarget(tokenInput.value || '');
-    if (!target) {
-      setStatus('Paste a valid QR link or token.', true);
-      return;
-    }
-    renderResult(target);
-  });
-
-  imageInput.addEventListener('change', async (event) => {
-    const file = event.target.files && event.target.files[0];
-    if (!file) return;
-    if (!detector) {
-      setStatus('Image decoding is not supported in this browser. Paste the token instead.', true);
-      return;
-    }
-    try {
-      const bitmap = await createImageBitmap(file);
-      const barcodes = await detector.detect(bitmap);
-      if (!barcodes || !barcodes.length) {
-        setStatus('No QR code found in the selected image.', true);
-        return;
-      }
-      await handleDetected(barcodes[0].rawValue || '');
-    } catch (e) {
-      setStatus('Could not read the selected image.', true);
-    }
-  });
-
-  window.addEventListener('beforeunload', stopCamera);
-})();
-</script>
 <?php require __DIR__ . '/../includes/footer.php'; ?>

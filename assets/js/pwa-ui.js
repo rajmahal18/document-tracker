@@ -9,6 +9,28 @@
   const themeButtons = Array.from(document.querySelectorAll('[data-theme-value]'));
   let deferredPrompt = null;
 
+
+  function resetNavState() {
+    if (mainNav) {
+      mainNav.classList.remove('isOpen');
+      mainNav.setAttribute('aria-hidden', 'true');
+      mainNav.style.pointerEvents = '';
+    }
+
+    if (navToggle) {
+      navToggle.setAttribute('aria-expanded', 'false');
+    }
+
+    if (navBackdrop) {
+      navBackdrop.classList.remove('isOpen');
+      navBackdrop.hidden = true;
+      navBackdrop.style.opacity = '0';
+      navBackdrop.style.pointerEvents = 'none';
+    }
+
+    document.body.classList.remove('nav-drawer-open');
+  }
+
   function safeTheme(value) {
     return ['light', 'dark'].includes(value) ? value : 'light';
   }
@@ -52,7 +74,13 @@
     document.body.classList.add('nav-drawer-open');
     if (navBackdrop) {
       navBackdrop.hidden = false;
-      requestAnimationFrame(() => navBackdrop.classList.add('isOpen'));
+      navBackdrop.style.pointerEvents = 'none';
+      navBackdrop.style.opacity = '0';
+      requestAnimationFrame(() => {
+        navBackdrop.classList.add('isOpen');
+        navBackdrop.style.pointerEvents = 'auto';
+        navBackdrop.style.opacity = '1';
+      });
     }
   }
 
@@ -64,6 +92,8 @@
     document.body.classList.remove('nav-drawer-open');
     if (navBackdrop) {
       navBackdrop.classList.remove('isOpen');
+      navBackdrop.style.opacity = '0';
+      navBackdrop.style.pointerEvents = 'none';
       window.setTimeout(() => {
         if (!mainNav.classList.contains('isOpen')) navBackdrop.hidden = true;
       }, 220);
@@ -195,6 +225,11 @@
     }
   }
 
+  window.addEventListener('pageshow', function () {
+    resetNavState();
+  });
+
+  resetNavState();
   initTheme();
   initNav();
   initInstallPrompt();

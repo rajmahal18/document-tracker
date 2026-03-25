@@ -996,7 +996,13 @@ function quickUrl(string $target): string {
 
 <?php $hasActiveFilters = ($search !== "" || $statusGet !== "" || $date_from !== "" || $date_to !== "" || $quick !== "" || ($sort !== "" && $sort !== "workflow")); ?>
 <div class="docsPageShell">
-  <section class="docsHero">
+  <nav class="docsMobileTabs" aria-label="Documents sections">
+    <a href="#docsOverview" class="docsMobileTab isActive" data-scroll-tab>Overview</a>
+    <a href="#docsFilters" class="docsMobileTab" data-scroll-tab>Find</a>
+    <a href="#docsList" class="docsMobileTab" data-scroll-tab>List</a>
+  </nav>
+
+  <section class="docsHero" id="docsOverview">
     <div class="docsHeroCopy">
       <div class="docsEyebrow">My work queue</div>
       <h1 class="docsTitle">Document List</h1>
@@ -1015,7 +1021,7 @@ function quickUrl(string $target): string {
     </div>
   </section>
 
-  <div class="stats docsStatsGrid">
+  <div class="stats docsStatsGrid" id="docsStats">
     <a class="statCard statCardLink docsStatCard toneIncoming <?= $quick === 'incoming' ? 'isActive' : '' ?>"
        href="<?= htmlspecialchars(quickUrl('incoming')) ?>">
       <div class="docsStatHeader">
@@ -1065,7 +1071,7 @@ function quickUrl(string $target): string {
     </a>
   </div>
 
-  <section class="docsControlsCard">
+  <section class="docsControlsCard" id="docsFilters">
     <div class="docsControlsTop">
       <div>
         <div class="docsSectionTitle">Find what you need fast</div>
@@ -1144,7 +1150,7 @@ function quickUrl(string $target): string {
     </div>
   </section>
 
-  <div class="tableWrap docsTableWrap">
+  <div class="tableWrap docsTableWrap" id="docsList">
     <div class="docsTableTopbar">
       <div class="docsResultsMeta">
         Showing <b><?= (int)($total ? $offset + 1 : 0) ?></b>–<b><?= (int)min($offset + $perPage, $total) ?></b> of <b><?= (int)$total ?></b>
@@ -1416,7 +1422,7 @@ function quickUrl(string $target): string {
               "UTF-8"
             ) ?>'
           >
-            <td>
+            <td data-label="My status">
               <div class="docStatusCell">
                 <span class="<?= htmlspecialchars($myStatusChipClass) ?>">
                   <?= htmlspecialchars($myStatusLabel) ?>
@@ -1432,7 +1438,7 @@ function quickUrl(string $target): string {
               </div>
             </td>
 
-            <td>
+            <td data-label="Document">
               <div class="docInfoCell">
                 <div class="docInfoTitle"><?= htmlspecialchars((string)$d["subject"]) ?></div>
                 <div class="docInfoMeta">
@@ -1445,7 +1451,7 @@ function quickUrl(string $target): string {
               </div>
             </td>
 
-            <td>
+            <td data-label="Route">
               <div class="routeInfoCell">
                 <div class="routeLine">
                   <span class="routeLabel"><?= htmlspecialchars($routeLine1Label) ?></span>
@@ -1466,7 +1472,7 @@ function quickUrl(string $target): string {
               </div>
             </td>
 
-            <td>
+            <td data-label="Doc state">
               <div class="docStateCell">
                 <div class="docStateMain <?= htmlspecialchars($docStateToneClass) ?>">
                   <span class="docStateDot"></span>
@@ -1476,7 +1482,7 @@ function quickUrl(string $target): string {
               </div>
             </td>
 
-            <td>
+            <td data-label="Latest remark">
               <div class="latestRemarkCell<?= $latestRemarkForList !== '' ? ' hasRemark' : '' ?>">
                 <?php if ($latestRemarkForList !== ''): ?>
                   <div class="latestRemarkText" title="<?= htmlspecialchars($latestRemarkForList) ?>">
@@ -1488,7 +1494,7 @@ function quickUrl(string $target): string {
               </div>
             </td>
 
-            <td>
+            <td data-label="Deadline">
               <div class="deadlineCell <?= htmlspecialchars($deadlineBadgeClass) ?>">
                 <div class="deadlineBadge <?= htmlspecialchars($deadlineBadgeClass) ?>"><?= htmlspecialchars($deadlineBadgeText) ?></div>
                 <?php foreach ($deadlineMetaLines as $deadlineMetaLine): ?>
@@ -1497,7 +1503,7 @@ function quickUrl(string $target): string {
               </div>
             </td>
 
-            <td>
+            <td data-label="Requester">
               <div class="requesterCell">
                 <div class="requesterName"><?= htmlspecialchars((string)$d["requester"]) ?></div>
                 <div class="requesterMeta">Days stuck: <?= (int)$days ?></div>

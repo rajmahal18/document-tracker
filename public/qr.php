@@ -76,94 +76,115 @@ if ($isLoggedIn && $mySectionId > 0 && $route) {
 require __DIR__ . "/../includes/layout.php";
 ?>
 
-<div class="card" style="max-width: 860px; margin-top:14px;">
-  <h2 style="margin:0 0 6px;">Document Status</h2>
-  <div class="mini" style="margin-bottom:12px;">
-    Minimal public view. Login is required to receive.
-  </div>
-
-  <div style="display:grid; grid-template-columns: 170px 1fr; gap:10px; align-items:start;">
-    <div class="mini">Tracking No</div>
-    <div><b><?= htmlspecialchars((string)$doc["tracking_no"]) ?></b></div>
-
-    <div class="mini">Document Date</div>
-    <div><?= htmlspecialchars((string)$doc["document_date"]) ?></div>
-
-    <div class="mini">Subject</div>
-    <div><?= htmlspecialchars((string)$doc["subject"]) ?></div>
-
-    <div class="mini">Status</div>
-    <div><?= htmlspecialchars((string)$doc["current_status"]) ?></div>
-
-    <div class="mini">Current Holder</div>
-    <div><?= htmlspecialchars((string)($doc["holder_name"] ?? "N/A")) ?></div>
-
-    <div class="mini">In Transit</div>
-    <div>
-      <?php if ($route): ?>
-        Yes — pending recipient: <b><?= htmlspecialchars((string)($route["to_name"] ?? "Unknown")) ?></b>
-        <div class="mini" style="margin-top:4px;">Sent at: <?= htmlspecialchars((string)($route["sent_at"] ?? "")) ?></div>
-      <?php else: ?>
-        No (no open route)
-      <?php endif; ?>
+<div class="qrPageZoho">
+  <section class="qrDocCard qrDocCardCompact">
+    <div class="qrHeroTop">
+      <div>
+        <div class="docsEyebrow">Document status</div>
+        <h2 style="margin:4px 0 6px;">Track document</h2>
+        <div class="qrLead">Minimal public view. Login is required to receive the document.</div>
+      </div>
+      <span class="qrStatusPill"><?= htmlspecialchars((string)$doc["current_status"]) ?></span>
     </div>
-  </div>
 
-  <hr style="margin:16px 0; border:0; border-top:1px solid #e3e6ea;">
+    <div class="qrDocGrid" style="margin-top:12px;">
+      <div class="qrDocRow">
+        <div class="qrDocLabel">Tracking No</div>
+        <div class="qrDocValue"><strong><?= htmlspecialchars((string)$doc["tracking_no"]) ?></strong></div>
+      </div>
+      <div class="qrDocRow">
+        <div class="qrDocLabel">Document Date</div>
+        <div class="qrDocValue"><?= htmlspecialchars((string)$doc["document_date"]) ?></div>
+      </div>
+      <div class="qrDocRow">
+        <div class="qrDocLabel">Subject</div>
+        <div class="qrDocValue"><?= htmlspecialchars((string)$doc["subject"]) ?></div>
+      </div>
+      <div class="qrDocRow">
+        <div class="qrDocLabel">Current Holder</div>
+        <div class="qrDocValue"><?= htmlspecialchars((string)($doc["holder_name"] ?? "N/A")) ?></div>
+      </div>
+      <div class="qrDocRow">
+        <div class="qrDocLabel">In Transit</div>
+        <div class="qrDocValue">
+          <?php if ($route): ?>
+            Yes — pending recipient: <strong><?= htmlspecialchars((string)($route["to_name"] ?? "Unknown")) ?></strong>
+            <div class="qrMuted" style="margin-top:4px;">Sent at: <?= htmlspecialchars((string)($route["sent_at"] ?? "")) ?></div>
+          <?php else: ?>
+            No open route
+          <?php endif; ?>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <?php if (!$isLoggedIn): ?>
-    <div class="notice">
-      You are not logged in. To receive this document, login using your section account, then scan again.
-    </div>
-    <a class="btnPrimary" href="<?= PUBLIC_PATH ?>/login.php" style="text-decoration:none;">Login</a>
+    <section class="qrInfoCard">
+      <div class="docsSectionTitle">Login required</div>
+      <p class="qrLead" style="margin:6px 0 0;">You are not logged in. To receive this document, login using your section account, then scan again.</p>
+      <div class="qrActionRow">
+        <a class="btnPrimary" href="<?= PUBLIC_PATH ?>/login.php" style="text-decoration:none;">Login</a>
+      </div>
+    </section>
 
   <?php elseif (!$route): ?>
-    <div class="notice">No pending route to receive.</div>
+    <section class="qrInfoCard">
+      <div class="docsSectionTitle">No pending route</div>
+      <p class="qrLead" style="margin:6px 0 0;">This document has no active route to receive right now.</p>
+    </section>
 
   <?php elseif ($mySectionId <= 0): ?>
-    <div class="notice">Your account has no section assignment. Cannot receive.</div>
+    <section class="qrInfoCard">
+      <div class="docsSectionTitle">Section missing</div>
+      <p class="qrLead" style="margin:6px 0 0;">Your account has no section assignment, so receiving is blocked.</p>
+    </section>
 
   <?php elseif (!$canReceive): ?>
-    <div class="notice">
-      Not eligible to receive.
-      Pending recipient is <b><?= htmlspecialchars((string)($route["to_name"] ?? "Unknown")) ?></b>.
-    </div>
+    <section class="qrInfoCard">
+      <div class="docsSectionTitle">Not eligible to receive</div>
+      <p class="qrLead" style="margin:6px 0 0;">Pending recipient is <strong><?= htmlspecialchars((string)($route["to_name"] ?? "Unknown")) ?></strong>.</p>
+    </section>
 
   <?php else: ?>
-    <h3 style="margin:0 0 10px;">Receive Document</h3>
+    <section class="qrReceiveCard">
+      <div class="docsSectionTitle">Receive document</div>
+      <p class="qrLead" style="margin:6px 0 12px;">Add an optional remark, then mark the document as received.</p>
 
-    <div class="authField" style="margin-bottom:10px;">
-      <label>Remarks (optional)</label>
-      <input id="remarks" type="text" placeholder="e.g., Received by records staff">
-    </div>
+      <div class="authField" style="margin-bottom:10px;">
+        <label>Remarks (optional)</label>
+        <input id="remarks" type="text" placeholder="e.g., Received by records staff">
+      </div>
 
-    <button class="btnPrimary" type="button" onclick="receiveNow()">Mark as Received</button>
-    <div id="msg" class="mini" style="margin-top:10px;"></div>
+      <div class="qrActionRow">
+        <button class="btnPrimary" type="button" onclick="receiveNow()">Mark as Received</button>
+      </div>
+      <div id="msg" class="mini" style="margin-top:10px;"></div>
 
-    <script>
-      window.__CSRF__ = "<?= htmlspecialchars(csrf_token(), ENT_QUOTES, "UTF-8") ?>";
+      <script>
+        window.__CSRF__ = "<?= htmlspecialchars(csrf_token(), ENT_QUOTES, "UTF-8") ?>";
 
-      async function receiveNow() {
-        const msg = document.getElementById("msg");
-        msg.textContent = "Processing...";
+        async function receiveNow() {
+          const msg = document.getElementById("msg");
+          msg.textContent = "Processing...";
 
-        const fd = new FormData();
-        fd.set("csrf_token", window.__CSRF__ || "");
-        fd.set("document_id", "<?= (int)$docId ?>");
-        fd.set("remarks", document.getElementById("remarks")?.value || "");
+          const fd = new FormData();
+          fd.set("csrf_token", window.__CSRF__ || "");
+          fd.set("document_id", "<?= (int)$docId ?>");
+          fd.set("remarks", document.getElementById("remarks")?.value || "");
 
-        const res = await fetch("<?= API_PATH ?>/ack_received.php", { method: "POST", body: fd });
-        const data = await res.json().catch(() => null);
+          const res = await fetch("<?= API_PATH ?>/ack_received.php", { method: "POST", body: fd });
+          const data = await res.json().catch(() => null);
 
-        if (!res.ok || !data || !data.ok) {
-          msg.textContent = (data && data.error) ? data.error : "Failed.";
-          return;
+          if (!res.ok || !data || !data.ok) {
+            msg.textContent = (data && data.error) ? data.error : "Failed.";
+            return;
+          }
+
+          msg.textContent = "✅ Received. Refreshing...";
+          setTimeout(() => location.reload(), 600);
         }
-
-        msg.textContent = "✅ Received. Refreshing...";
-        setTimeout(() => location.reload(), 600);
-      }
-    </script>
+      </script>
+    </section>
   <?php endif; ?>
 </div>
 

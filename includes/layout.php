@@ -103,7 +103,7 @@ $pageTitle = $pageTitle ?? "Document Tracker";
 
     <a href="<?= PUBLIC_PATH ?>/scan.php" class="<?= $currentPage === 'scan.php' ? 'navActive' : '' ?>">
       <span class="navIcon">⌁</span>
-      <span class="navText">Scan QR</span>
+      <span class="navText">Open QR</span>
     </a>
 
     <a href="#" class="navPlaceholder" onclick="event.preventDefault()">
@@ -146,7 +146,7 @@ $pageTitle = $pageTitle ?? "Document Tracker";
 <?php endif; ?>
 
 <?php if (isset($_SESSION["user_id"]) && $currentPage !== "scan.php"): ?>
-  <a href="<?= PUBLIC_PATH ?>/scan.php" class="mobileScanFab" aria-label="Scan document QR">Scan</a>
+  <a href="<?= PUBLIC_PATH ?>/scan.php" class="mobileScanFab" aria-label="Open document QR or token">Open QR</a>
 <?php endif; ?>
 
 <main class="page">
