@@ -3,14 +3,78 @@ declare(strict_types=1);
 
 session_start();
 
-/**
- * Base URL paths (change BASE_PATH only if folder name changes)
- * Example: http://localhost/document-tracker/...
- */
-const BASE_PATH   = "/document-tracker";
-const PUBLIC_PATH = BASE_PATH . "/public";
-const API_PATH    = BASE_PATH . "/api";
-const ASSETS_PATH = BASE_PATH . "/assets";
+require_once __DIR__ . '/app_config.php';
+
+function app_normalize_url_path(string $path): string {
+  $path = str_replace('\\', '/', trim($path));
+  $path = preg_replace('#/+#', '/', $path) ?? $path;
+
+  if ($path === '' || $path === '.') {
+    return '';
+  }
+
+  if ($path[0] !== '/') {
+    $path = '/' . $path;
+  }
+
+  if ($path !== '/') {
+    $path = rtrim($path, '/');
+  }
+
+  return $path === '/' ? '' : $path;
+}
+
+function app_join_url_path(string ...$parts): string {
+  $joined = '';
+
+  foreach ($parts as $index => $part) {
+    $part = trim(str_replace('\\', '/', $part));
+    if ($part === '') {
+      continue;
+    }
+
+    if ($joined === '') {
+      $joined = ($index === 0)
+        ? app_normalize_url_path($part)
+        : '/' . ltrim($part, '/');
+      continue;
+    }
+
+    $joined .= '/' . ltrim($part, '/');
+  }
+
+  $joined = preg_replace('#/+#', '/', $joined) ?? $joined;
+
+  if ($joined === '') {
+    return '';
+  }
+
+  return $joined === '/' ? '' : rtrim($joined, '/');
+}
+
+function app_detect_base_path(): string {
+  $scriptName = (string)($_SERVER['SCRIPT_NAME'] ?? $_SERVER['PHP_SELF'] ?? '');
+  $scriptName = str_replace('\\', '/', $scriptName);
+
+  if ($scriptName === '') {
+    return '';
+  }
+
+  $scriptDir = str_replace('\\', '/', dirname($scriptName));
+  if ($scriptDir === '/' || $scriptDir === '.' || $scriptDir === '\\') {
+    $scriptDir = '';
+  }
+
+  $basePath = preg_replace('#/(public|api)$#', '', $scriptDir) ?? $scriptDir;
+  return app_normalize_url_path($basePath);
+}
+
+$detectedBasePath = app_detect_base_path();
+$basePathOverride = defined('APP_BASE_PATH_OVERRIDE') ? (string)APP_BASE_PATH_OVERRIDE : '';
+define('BASE_PATH', $basePathOverride !== '' ? app_normalize_url_path($basePathOverride) : $detectedBasePath);
+define('PUBLIC_PATH', app_join_url_path(BASE_PATH, 'public'));
+define('API_PATH', app_join_url_path(BASE_PATH, 'api'));
+define('ASSETS_PATH', app_join_url_path(BASE_PATH, 'assets'));
 
 require_once __DIR__ . "/../core/db.php";
 require_once __DIR__ . "/../core/workflow.php";
@@ -49,6 +113,61 @@ function app_is_dev_environment(): bool {
   return in_array($serverAddr, ['127.0.0.1', '::1'], true);
 }
 
+function app_request_scheme(): string {
+  if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO'])) {
+    $forwardedProto = strtolower(trim(explode(',', (string)$_SERVER['HTTP_X_FORWARDED_PROTO'])[0]));
+    if (in_array($forwardedProto, ['http', 'https'], true)) {
+      return $forwardedProto;
+    }
+  }
+
+  if (!empty($_SERVER['HTTPS']) && strtolower((string)$_SERVER['HTTPS']) !== 'off') {
+    return 'https';
+  }
+
+  $serverPort = (string)($_SERVER['SERVER_PORT'] ?? '');
+  return $serverPort === '443' ? 'https' : 'http';
+}
+
+function app_origin(): string {
+  $configuredOrigin = defined('APP_URL_ORIGIN') ? trim((string)APP_URL_ORIGIN) : '';
+  if ($configuredOrigin !== '') {
+    return rtrim($configuredOrigin, '/');
+  }
+
+  $host = trim((string)($_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? ''));
+  if ($host === '') {
+    return '';
+  }
+
+  return app_request_scheme() . '://' . $host;
+}
+
+function app_url(string $path = ''): string {
+  $origin = app_origin();
+  $normalizedPath = $path;
+
+  if ($path !== '' && !preg_match('#^https?://#i', $path)) {
+    $normalizedPath = ($path[0] === '/')
+      ? app_normalize_url_path($path)
+      : app_join_url_path(BASE_PATH, $path);
+
+    if ($normalizedPath === '') {
+      $normalizedPath = '/';
+    }
+  }
+
+  if ($origin === '') {
+    return $normalizedPath === '' ? '/' : $normalizedPath;
+  }
+
+  if ($normalizedPath === '' || $normalizedPath === '/') {
+    return $origin . '/';
+  }
+
+  return $origin . $normalizedPath;
+}
+
 function asset_url(string $relativePath): string {
   $relativePath = ltrim($relativePath, '/');
   $absolutePath = realpath(__DIR__ . '/../' . $relativePath);
@@ -61,7 +180,7 @@ function asset_url(string $relativePath): string {
     }
   }
 
-  $url = BASE_PATH . '/' . $relativePath;
+  $url = app_join_url_path(BASE_PATH, $relativePath);
   if ($version !== null) {
     $url .= '?v=' . rawurlencode($version);
   }
@@ -70,11 +189,12 @@ function asset_url(string $relativePath): string {
 }
 
 function redirect(string $path): void {
-  // If dev accidentally passes "public/login.php", normalize it.
-  if ($path !== "" && $path[0] !== "/" && !str_starts_with($path, "http://") && !str_starts_with($path, "https://")) {
-    $path = "/" . $path;
+  if ($path !== '' && !preg_match('#^https?://#i', $path)) {
+    $path = ($path[0] === '/')
+      ? app_normalize_url_path($path)
+      : app_join_url_path(BASE_PATH, $path);
   }
-  header("Location: " . $path);
+  header('Location: ' . $path);
   exit;
 }
 

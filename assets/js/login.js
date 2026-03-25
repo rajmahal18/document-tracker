@@ -25,7 +25,8 @@ async function submitAccessRequest(e){
   msg.textContent = "";
 
   const APP = window.__APP__ || {};
-  const API = APP.api || "/document-tracker/api";
+  const fallbackBase = ((window.location.pathname.match(/^(.*?)(?:\/public\/|\/api\/|\/public$|\/api$)/) || [])[1] || '');
+  const API = APP.api || (fallbackBase + '/api');
 
   try{
     const res = await fetch(`${API}/request_access.php`, {

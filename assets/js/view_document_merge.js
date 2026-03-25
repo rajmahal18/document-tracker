@@ -3,7 +3,8 @@
   if (!btn) return;
 
   const APP = window.__CTX__ || {};
-  const PUBLIC = APP.public || "/document-tracker/public";
+  const fallbackBase = ((window.location.pathname.match(/^(.*?)(?:\/public\/|\/api\/|\/public$|\/api$)/) || [])[1] || '');
+  const PUBLIC = APP.public || (fallbackBase + '/public');
 
   function openMerged(docId, branchId = 0) {
     if (!docId) return;

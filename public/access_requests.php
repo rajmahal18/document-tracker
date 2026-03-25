@@ -357,7 +357,7 @@ async function submitApprove(e) {
   // Useful for email draft
   fd.set('login_url', window.location.origin + window.__APP__.public + '/login.php');
 
-  const API = (window.__APP__ && window.__APP__.api) ? window.__APP__.api : '/document-tracker/api';
+  const API = (window.__APP__ && window.__APP__.api) ? window.__APP__.api : (((window.location.pathname.match(/^(.*?)(?:\/public\/|\/api\/|\/public$|\/api$)/) || [])[1] || '') + '/api');
 
   try {
     const res = await fetch(`${API}/process_access_request.php`, {
@@ -503,7 +503,7 @@ async function showCreds(id) {
   // Useful for email draft
   fd.set('login_url', window.location.origin + window.__APP__.public + '/login.php');
 
-  const API = (window.__APP__ && window.__APP__.api) ? window.__APP__.api : '/document-tracker/api';
+  const API = (window.__APP__ && window.__APP__.api) ? window.__APP__.api : (((window.location.pathname.match(/^(.*?)(?:\/public\/|\/api\/|\/public$|\/api$)/) || [])[1] || '') + '/api');
 
   try {
     const res = await fetch(`${API}/reset_access_credentials.php`, {

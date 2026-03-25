@@ -83,8 +83,9 @@
   const attDialog = document.getElementById("attDialog");
 
   const APP = window.__APP__ || {};
-  const API = APP.api || "/document-tracker/api";
-  const PUBLIC = APP.public || "/document-tracker/public";
+  const fallbackBase = ((window.location.pathname.match(/^(.*?)(?:\/public\/|\/api\/|\/public$|\/api$)/) || [])[1] || '');
+  const API = APP.api || (fallbackBase + '/api');
+  const PUBLIC = APP.public || (fallbackBase + '/public');
 
   let currentCanForward = false;
   let currentPayload = null;

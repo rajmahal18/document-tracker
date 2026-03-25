@@ -162,14 +162,15 @@
   }
 
   function initServiceWorker() {
-    if (!('serviceWorker' in navigator) || !APP.base) return;
+    if (!('serviceWorker' in navigator)) return;
     window.addEventListener('load', function () {
       if (isDevelopmentEnvironment()) {
         void unregisterServiceWorkers().then(clearServiceWorkerCaches);
         return;
       }
 
-      navigator.serviceWorker.register(APP.base + '/sw.js').catch(function () {});
+      const swUrl = ((APP.base || '') + '/sw.js').replace(/\/+/g, '/');
+      navigator.serviceWorker.register(swUrl).catch(function () {});
     });
   }
 

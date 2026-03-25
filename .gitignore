@@ -1,0 +1,15 @@
+/includes/app_config.production.php
+
+# config (sensitive)
+includes/app_config.local.php
+includes/app_config.production.php
+
+# uploads / storage
+storage/
+
+# database dumps
+db/*.sql
+
+# misc
+node_modules/
+.env

@@ -1,12 +1,11 @@
 <?php
 declare(strict_types=1);
 
-$host = "127.0.0.1";
-$user = "root";
-$pass = "";
-$db   = "doc_tracker";
+if (!defined('DB_HOST')) {
+    require_once __DIR__ . '/../includes/app_config.php';
+}
 
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
-$conn = new mysqli($host, $user, $pass, $db);
-$conn->set_charset("utf8mb4");
+$conn = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
+$conn->set_charset('utf8mb4');

@@ -1,3 +1,3 @@
 <?php
-header("Location: /document-tracker/public/login.php");
+header('Location: public/login.php');
 exit;

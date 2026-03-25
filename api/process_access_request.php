@@ -185,9 +185,7 @@ if ($upd->affected_rows <= 0) {
 $loginUrl = (string)($_POST["login_url"] ?? "");
 if ($loginUrl === "") {
   // Fallback to current host + known public login path
-  $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-  $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-  $loginUrl = $scheme . '://' . $host . PUBLIC_PATH . '/login.php';
+  $loginUrl = app_url(PUBLIC_PATH . '/login.php');
 }
 
 $subject = "Document Tracker Access Approved";

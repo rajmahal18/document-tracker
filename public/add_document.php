@@ -977,9 +977,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             $stmt->execute();
           }
 
-          $scheme = (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off") ? "https" : "http";
-          $host = (string)($_SERVER["HTTP_HOST"] ?? "localhost");
-          $qrUrl = $scheme . "://" . $host . PUBLIC_PATH . "/qr.php?t=" . urlencode($qrToken);
+          $qrUrl = app_url(PUBLIC_PATH . "/qr.php?t=" . urlencode($qrToken));
 
           $stmt = $conn->prepare("
             SELECT
@@ -1110,9 +1108,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             $stmt->execute();
           }
 
-          $scheme = (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off") ? "https" : "http";
-          $host = (string)($_SERVER["HTTP_HOST"] ?? "localhost");
-          $qrUrl = $scheme . "://" . $host . PUBLIC_PATH . "/qr.php?t=" . urlencode($qrToken);
+          $qrUrl = app_url(PUBLIC_PATH . "/qr.php?t=" . urlencode($qrToken));
 
           PPDTrackingSlip::generateA4([
             "ppd_tracking_no"   => $tracking_no,
