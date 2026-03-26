@@ -101,11 +101,6 @@ $pageTitle = $pageTitle ?? "Document Tracker";
       <span class="navText">Home</span>
     </a>
 
-    <a href="<?= PUBLIC_PATH ?>/scan.php" class="<?= $currentPage === 'scan.php' ? 'navActive' : '' ?>">
-      <span class="navIcon">⌁</span>
-      <span class="navText">Open QR</span>
-    </a>
-
     <a href="#" class="navPlaceholder" onclick="event.preventDefault()">
       <span class="navIcon">◎</span>
       <span class="navText">Issuances</span>
@@ -113,6 +108,10 @@ $pageTitle = $pageTitle ?? "Document Tracker";
     <a href="<?= PUBLIC_PATH ?>/org_chart.php" class="<?= $currentPage === 'org_chart.php' ? 'navActive' : '' ?>">
       <span class="navIcon">▤</span>
       <span class="navText">Organizational Chart</span>
+    </a>
+    <a href="<?= PUBLIC_PATH ?>/account.php" class="<?= $currentPage === 'account.php' ? 'navActive' : '' ?>">
+      <span class="navIcon">☺</span>
+      <span class="navText">My Account</span>
     </a>
     <a href="#" class="navPlaceholder" onclick="event.preventDefault()">
       <span class="navIcon">☷</span>
@@ -145,16 +144,13 @@ $pageTitle = $pageTitle ?? "Document Tracker";
   </nav>
 <?php endif; ?>
 
-<?php if (isset($_SESSION["user_id"]) && $currentPage !== "scan.php"): ?>
-  <a href="<?= PUBLIC_PATH ?>/scan.php" class="mobileScanFab" aria-label="Open document QR or token">Open QR</a>
-<?php endif; ?>
-
 <main class="page">
   <div class="content">
 
     <?php if (isset($_SESSION["user_id"])): ?>
       <?php
         $fullName = (string)($_SESSION["full_name"] ?? "User");
+        $username = trim((string)($_SESSION["username"] ?? ""));
         $officialTitle = trim((string)($_SESSION["official_title"] ?? ""));
         $division = trim((string)($_SESSION["division_name"] ?? ""));
         $section  = trim((string)($_SESSION["section_name"] ?? ""));
@@ -169,6 +165,10 @@ $pageTitle = $pageTitle ?? "Document Tracker";
 
       <div class="mini" style="margin: 0 0 12px; opacity: .85;">
         Signed in as <b><?= htmlspecialchars($fullName) ?></b>
+        <?php if ($username !== ""): ?>
+          <br>
+          <span style="opacity:.75;">@<?= htmlspecialchars($username) ?></span>
+        <?php endif; ?>
         <?php if ($officialTitle !== ""): ?>
           <br>
           <span style="opacity:.75;"><?= htmlspecialchars($officialTitle) ?></span>

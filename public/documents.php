@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require __DIR__ . "/../includes/bootstrap.php";
+require_once __DIR__ . "/../core/division_tracking.php";
 require_login();
 
 /* ✅ Division-aware sections */
@@ -15,6 +16,10 @@ $sections = $conn->query("
 
 $branchMode = workflow_branch_mode_enabled($conn);
 $routePersonalDeadlineEnabled = workflow_has_column($conn, 'routes', 'personal_deadline_at');
+$myDivisionMeta = get_user_division_meta($conn, (int)($_SESSION['section_id'] ?? 0));
+$myDivisionCode = strtoupper(trim((string)($myDivisionMeta['code'] ?? '')));
+$hasOwnDivisionSlip = is_supported_division_tracking_code($myDivisionCode);
+$ownDivisionSlipLabel = $hasOwnDivisionSlip ? ($myDivisionCode . ' Tracking Slip') : '';
 
 $pageTitle = "Documents - Document Tracker";
 require __DIR__ . "/../includes/layout.php";
@@ -29,7 +34,9 @@ require __DIR__ . "/../includes/layout.php";
     myRole: "<?= htmlspecialchars($_SESSION["role"] ?? "user") ?>",
     isChief: <?= ((int)($_SESSION["is_chief"] ?? 0) === 1) ? "true" : "false" ?>,
     myDivisionName: "<?= htmlspecialchars($_SESSION["division_name"] ?? "") ?>",
-    isPPD: <?= (stripos((string)($_SESSION["division_name"] ?? ""), "Planning") !== false && stripos((string)($_SESSION["division_name"] ?? ""), "Programming") !== false) ? "true" : "false" ?>,
+    myDivisionCode: "<?= htmlspecialchars($myDivisionCode) ?>",
+    hasOwnDivisionSlip: <?= $hasOwnDivisionSlip ? "true" : "false" ?>,
+    ownDivisionSlipLabel: "<?= htmlspecialchars($ownDivisionSlipLabel) ?>",
     branchMode: <?= $branchMode ? "true" : "false" ?>
   };
 
@@ -1006,7 +1013,6 @@ function quickUrl(string $target): string {
     <div class="docsHeroCopy">
       <div class="docsEyebrow">My work queue</div>
       <h1 class="docsTitle">Document List</h1>
-      <p class="docsLead">See what is incoming, what still needs your action, and what is already done — without digging through routing details first.</p>
     </div>
 
     <div class="docsHeroActions">
@@ -1583,9 +1589,20 @@ $end   = min($totalPages, $page + 2);
 
 <aside id="drawer" class="drawer" aria-hidden="true">
   <div class="drawerHeader">
-    <div>
-      <h3 class="drawerTitle">Document Details</h3>
-      <div class="drawerSub">Tracking: <b id="d_tracking"></b></div>
+    <div class="drawerHeaderMain">
+      <div>
+        <h3 class="drawerTitle">Document Details</h3>
+        <div class="drawerSub">Tracking: <b id="d_tracking"></b></div>
+      </div>
+
+      <div class="drawerBranchWrap drawerBranchWrapHeader" id="d_branch_wrap" style="display:none;">
+        <div class="drawerBranchHead">
+          <span class="drawerBranchTitle">Current branch</span>
+          <span class="mini" id="d_branch_hint" style="opacity:.72;">Your lane</span>
+        </div>
+        <div id="d_branch_bar" class="branchBar branchBarCompact"></div>
+        <div id="d_branch_meta" class="branchMeta mini"></div>
+      </div>
     </div>
     <button id="drawerClose" class="drawerClose">✕</button>
   </div>
@@ -1629,7 +1646,7 @@ $end   = min($totalPages, $page + 2);
     <div class="kv"><div class="k">Days stuck</div><div class="v" id="d_days"></div></div>
     <div class="kv"><div class="k">Full Document</div><div class="v"><button type="button" class="btnComp" id="btnViewDocument">View document</button></div></div>
     <div class="drawerRow" id="rowPpdSlip" style="display:none;">
-      <div class="k">PPD Tracking Slip</div>
+      <div class="k" id="rowPpdSlipLabel"><?= htmlspecialchars($ownDivisionSlipLabel !== "" ? $ownDivisionSlipLabel : "Division Tracking Slip") ?></div>
       <div class="v" style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
         <button type="button" class="btnSecondary" id="btnPpdSlipGenerate">Generate</button>
         <button type="button" class="btnSecondary" id="btnPpdSlipAttach">Attach</button>
@@ -1662,15 +1679,6 @@ $end   = min($totalPages, $page + 2);
         <button id="btnAttachUpload" type="button" class="btnPrimary" style="margin-top:10px;">Upload</button>
         <div id="attachMsg" class="mini" style="margin-top:6px;"></div>
       </form>
-    </div>
-
-    <div class="drawerBranchWrap" id="d_branch_wrap" style="display:none;">
-      <div class="k" style="margin-bottom:8px; display:flex; align-items:center; gap:8px;">
-        <span>Branches</span>
-        <span class="mini" id="d_branch_hint" style="opacity:.7;">Select a branch to act on.</span>
-      </div>
-      <div id="d_branch_bar" class="branchBar"></div>
-      <div id="d_branch_meta" class="branchMeta mini"></div>
     </div>
 
     <div style="margin-top:14px;">

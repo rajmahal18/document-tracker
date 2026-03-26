@@ -73,6 +73,25 @@ try {
   $viewerRole = strtolower(trim((string)($_SESSION["role"] ?? "")));
   $viewerIsAdmin = ($viewerRole === "admin");
 
+  $viewerIsDocumentOrigin = false;
+
+  if ($docHasRealBranches && $viewerUserId > 0) {
+    $stmtOrigin = $conn->prepare("
+      SELECT actor_user_id
+      FROM document_events
+      WHERE document_id = ?
+        AND event_type IN ('created', 'sent')
+      ORDER BY created_at ASC, id ASC
+      LIMIT 1
+    ");
+    $stmtOrigin->bind_param("i", $docId);
+    $stmtOrigin->execute();
+    $originRow = $stmtOrigin->get_result()->fetch_assoc();
+
+    $originActorUserId = (int)($originRow['actor_user_id'] ?? 0);
+    $viewerIsDocumentOrigin = ($originActorUserId > 0 && $originActorUserId === $viewerUserId);
+  }
+
   $branches = $docHasRealBranches ? workflow_get_branch_state($conn, $docId, $viewerUserId) : [];
   $allowedBranchIds = [];
 
@@ -98,6 +117,7 @@ try {
   if (
     $docHasRealBranches
     && !$viewerIsAdmin
+    && !$viewerIsDocumentOrigin
     && $viewerDivisionId > 0
     && $viewerHasOwnBranchContext
     && is_array($branches)
@@ -211,6 +231,7 @@ try {
     $docHasRealBranches
     && $selectedBranchId > 0
     && !$viewerIsAdmin
+    && !$viewerIsDocumentOrigin
     && $viewerHasOwnBranchContext
     && $allowedBranchIds !== []
     && !in_array($selectedBranchId, $allowedBranchIds, true)
@@ -232,29 +253,6 @@ try {
 
       $selectedBranchScopeIds[] = $cursorId;
       $cursorId = (int)($allBranchesById[$cursorId]['parent_branch_id'] ?? 0);
-      $guard++;
-    }
-
-    // Also include descendants so child/grandchild acknowledgments stay visible
-    // while the viewer is focused on a parent lane.
-    $queue = [$selectedBranchId];
-    $guard = 0;
-    while ($queue !== [] && $guard < 1000) {
-      $parentId = (int)array_shift($queue);
-
-      foreach ($allBranchesById as $candidateId => $candidateBranch) {
-        if ((int)($candidateBranch['parent_branch_id'] ?? 0) !== $parentId) {
-          continue;
-        }
-
-        if (in_array($candidateId, $selectedBranchScopeIds, true)) {
-          continue;
-        }
-
-        $selectedBranchScopeIds[] = (int)$candidateId;
-        $queue[] = (int)$candidateId;
-      }
-
       $guard++;
     }
   }
@@ -640,6 +638,7 @@ try {
     if (
       $docHasRealBranches
       && !$viewerIsAdmin
+      && !$viewerIsDocumentOrigin
       && $viewerDivisionId > 0
       && $viewerHasOwnBranchContext
       && $selectedBranchId <= 0
@@ -833,6 +832,7 @@ try {
   echo json_encode([
     "ok" => true,
     "branch_mode" => $docHasRealBranches,
+    "viewer_is_document_origin" => $viewerIsDocumentOrigin,
     "branches" => $branches,
     "selected_branch_id" => $selectedBranchId > 0 ? $selectedBranchId : null,
     "history" => $history

@@ -22,10 +22,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $hasOfficialTitle = db_column_exists($conn, "users", "official_title");
     $hasAuthorityRole = db_column_exists($conn, "users", "authority_role");
 
-    $stmt = $conn->prepare("
+    $hasUsername = username_column_exists($conn);
+
+    $sql = "
       SELECT
         u.id,
         u.full_name,
+        " . ($hasUsername ? "u.username" : "NULL") . " AS username,
         u.email,
         u.password_hash,
         u.must_change_password,
@@ -40,10 +43,15 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
       FROM users u
       LEFT JOIN sections s ON s.id = u.section_id
       LEFT JOIN divisions d ON d.id = s.division_id
-      WHERE u.email = ?
+      WHERE " . ($hasUsername ? "(u.email = ? OR u.username = ?)" : "u.email = ?") . "
       LIMIT 1
-    ");
-    $stmt->bind_param("s", $username);
+    ";
+    $stmt = $conn->prepare($sql);
+    if ($hasUsername) {
+      $stmt->bind_param("ss", $username, $username);
+    } else {
+      $stmt->bind_param("s", $username);
+    }
     $stmt->execute();
     $user = $stmt->get_result()->fetch_assoc();
 
@@ -54,6 +62,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
       // ✅ Store session data
       $_SESSION["user_id"]       = (int)$user["id"];
       $_SESSION["full_name"]     = (string)$user["full_name"];
+      $_SESSION["username"]      = trim((string)($user["username"] ?? ""));
+      $_SESSION["email"]         = (string)($user["email"] ?? "");
       $_SESSION["role"]          = (string)($user["role"] ?? "user");
       $_SESSION["must_change_password"] = (int)($user["must_change_password"] ?? 0);
 

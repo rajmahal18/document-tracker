@@ -1274,3 +1274,25 @@
   .orgDivisionGrid      { grid-template-columns: 1fr; }
   .orgHeroTitle         { font-size: clamp(32px, 12vw, 44px); }
 }
+
+.orgUserTools {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  margin-top:10px;
+}
+.orgTinyEditBtn {
+  display:none;
+  border:1px solid rgba(58,143,255,.28);
+  background:rgba(58,143,255,.08);
+  color:#0b3a66;
+  border-radius:999px;
+  padding:5px 10px;
+  font-size:12px;
+  font-weight:600;
+  cursor:pointer;
+}
+.orgEditModeActive .orgTinyEditBtn { display:inline-flex; align-items:center; }
+.orgEditModeActive .orgUserCard { outline:1px dashed rgba(58,143,255,.18); }
+#orgEditModal.isOpen { display:block; }

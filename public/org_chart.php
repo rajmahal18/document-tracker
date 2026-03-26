@@ -9,8 +9,13 @@ $pageTitle = "Organizational Chart - Document Tracker";
 $hasOfficialTitle = db_column_exists($conn, "users", "official_title");
 $hasAuthorityRole = db_column_exists($conn, "users", "authority_role");
 $hasLastSeenAt = db_column_exists($conn, "users", "last_seen_at");
+$hasUsername = username_column_exists($conn);
+$hasPermanent = db_column_exists($conn, "users", "permanent");
 
 $viewerDivisionId = (int)($_SESSION["division_id"] ?? 0);
+$orgEditor = current_org_editor_context();
+$canManageOrg = can_edit_any_org_user();
+$assignableRoles = org_assignable_roles_for_editor($orgEditor);
 $nowTs = time();
 $onlineWindow = 120;
 
@@ -127,6 +132,21 @@ function render_org_user_card(array $user, bool $leader = false): string {
     (string)($user['authority_role'] ?? '')
   );
 
+  $editBtn = '';
+  if (!empty($user['can_edit'])) {
+    $editBtn = '<button type="button" class="orgTinyEditBtn" '
+      . 'data-org-edit="1" '
+      . 'data-user-id="' . (int)($user['id'] ?? 0) . '" '
+      . 'data-full-name="' . htmlspecialchars((string)($user['full_name'] ?? ''), ENT_QUOTES) . '" '
+      . 'data-email="' . htmlspecialchars((string)($user['email'] ?? ''), ENT_QUOTES) . '" '
+      . 'data-title="' . htmlspecialchars((string)($user['official_title'] ?? ''), ENT_QUOTES) . '" '
+      . 'data-authority-role="' . htmlspecialchars((string)($user['authority_role'] ?? ''), ENT_QUOTES) . '" '
+      . 'data-section-name="' . htmlspecialchars((string)($user['section_name'] ?? ''), ENT_QUOTES) . '" '
+      . 'data-division-name="' . htmlspecialchars((string)($user['division_name'] ?? ''), ENT_QUOTES) . '" '
+      . 'data-permanent="' . (int)($user['permanent'] ?? 0) . '" '
+      . 'data-can-edit="1">Edit</button>';
+  }
+
   return '<article class="' . htmlspecialchars($classes) . '" data-search="' . htmlspecialchars($search) . '">' .
     '<div class="orgUserCore">' .
       '<div class="orgUserAvatar role-' . htmlspecialchars((string)$user['authority_role']) . '" aria-hidden="true">' . htmlspecialchars(user_initials((string)$user['full_name'])) . '</div>' .
@@ -139,7 +159,7 @@ function render_org_user_card(array $user, bool $leader = false): string {
         '<p class="orgUserSection">' . htmlspecialchars((string)$user['section_name']) . '</p>' .
       '</div>' .
     '</div>' .
-    $presence .
+    '<div class="orgUserTools">' . $editBtn . $presence . '</div>' .
   '</article>';
 }
 
@@ -183,9 +203,12 @@ $userSql = "
   SELECT
     u.id,
     u.full_name,
+    " . ($hasUsername ? "u.username" : "NULL") . " AS username,
+    u.email,
     u.role,
     u.section_id,
     u.is_chief,
+    " . ($hasPermanent ? "u.permanent" : "0") . " AS permanent,
     " . ($hasOfficialTitle ? "u.official_title" : "NULL") . " AS official_title,
     " . ($hasAuthorityRole ? "u.authority_role" : "NULL") . " AS authority_role,
     " . ($hasLastSeenAt ? "u.last_seen_at" : "NULL") . " AS last_seen_at,
@@ -221,17 +244,26 @@ if ($userRes) {
       $isOnline = ($lastSeenTs !== false) && (($nowTs - $lastSeenTs) <= $onlineWindow);
     }
 
-    $divisions[$divisionId]["sections"][$sectionId]["users"][] = [
+    $target = [
       "id" => (int)($row["id"] ?? 0),
       "full_name" => (string)($row["full_name"] ?? ""),
+      "email" => (string)($row["email"] ?? ""),
+      "username" => (string)($row["username"] ?? ""),
       "authority_role" => $authorityRole,
       "authority_weight" => $authorityWeight[$authorityRole] ?? 99,
       "display_title" => $displayTitle,
+      "official_title" => trim((string)($row["official_title"] ?? "")),
       "section_name" => (string)($row["section_name"] ?? ""),
+      "section_id" => $sectionId,
+      "division_id" => $divisionId,
+      "division_name" => (string)($row["division_name"] ?? ""),
+      "permanent" => (int)($row["permanent"] ?? 0),
       "is_online" => $isOnline,
       "show_presence" => ($viewerDivisionId > 0 && $viewerDivisionId === $divisionId),
       "is_leader" => is_leadership_role($authorityRole),
     ];
+    $target["can_edit"] = $canManageOrg && can_edit_org_target($orgEditor, $target);
+    $divisions[$divisionId]["sections"][$sectionId]["users"][] = $target;
   }
 }
 
@@ -316,11 +348,12 @@ require __DIR__ . "/../includes/layout.php";
       <div>
         <p class="orgHeroEyebrow">2026 Org Atlas</p>
         <h2 class="orgHeroTitle">Technical Services, refined.</h2>
-        <p class="orgHeroSub">Hierarchy first. Search fast. Explore the ministry structure without the visual noise.</p>
+        <p class="orgHeroSub">Delivering Precision in Public Works</p>
         <div class="orgHeroRail">
-          <span class="orgHeroNote"><span class="orgHeroDot"></span>Director office first</span>
-          <span class="orgHeroNote"><span class="orgHeroDot"></span>Fast search</span>
-          <span class="orgHeroNote"><span class="orgHeroDot"></span>Members tucked away</span>
+          <span class="orgHeroNote"><span class="orgHeroDot"></span>Integrity</span>
+          <span class="orgHeroNote"><span class="orgHeroDot"></span>Reliability</span>
+          <span class="orgHeroNote"><span class="orgHeroDot"></span>Efficiency</span>
+          <span class="orgHeroNote"><span class="orgHeroDot"></span>Accountability</span>
         </div>
       </div>
 
@@ -339,6 +372,13 @@ require __DIR__ . "/../includes/layout.php";
           <button type="button" class="orgActionBtn" id="orgCollapseAllBtn">Collapse all</button>
           <button type="button" class="orgActionBtn" id="orgResetFilterBtn">Reset view</button>
         </div>
+
+        <?php if ($canManageOrg): ?>
+          <div class="orgActionRow" style="margin-top:10px;">
+            <button type="button" class="orgActionBtn" id="orgEditModeBtn" data-edit-mode="off">Enable edit mode</button>
+            <div class="mini" style="opacity:.75; align-self:center;">You can update lower-ranked users inside your allowed scope.</div>
+          </div>
+        <?php endif; ?>
 
         <div class="orgHeroStats">
           <div class="orgHeroStat">
@@ -603,7 +643,64 @@ require __DIR__ . "/../includes/layout.php";
   <?php endif; ?>
 </div>
 
+<?php if ($canManageOrg): ?>
+<div id="orgEditModal" class="modalWrap" aria-hidden="true">
+  <div class="modalBackdrop" data-org-close="1"></div>
+  <div class="modalCard" role="dialog" aria-modal="true" aria-labelledby="orgEditModalTitle">
+    <div class="modalHeader">
+      <h3 id="orgEditModalTitle">Edit org user</h3>
+      <button type="button" class="modalClose" data-org-close="1" aria-label="Close">✕</button>
+    </div>
+    <form id="orgEditForm" class="modalBody">
+      <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token(), ENT_QUOTES, 'UTF-8') ?>">
+      <input type="hidden" name="target_user_id" id="org_target_user_id">
+
+      <div class="authField">
+        <label for="org_full_name">Account owner / full name</label>
+        <input id="org_full_name" name="full_name" type="text" required maxlength="200">
+      </div>
+      <div class="authField">
+        <label for="org_username_preview">Username</label>
+        <input id="org_username_preview" type="text" readonly>
+      </div>
+      <div class="authField">
+        <label for="org_email">Email</label>
+        <input id="org_email" name="email" type="email" required maxlength="200">
+      </div>
+      <div class="authField">
+        <label for="org_official_title">Official title</label>
+        <input id="org_official_title" name="official_title" type="text" maxlength="100">
+      </div>
+      <div class="authField">
+        <label for="org_authority_role">Authority role</label>
+        <select id="org_authority_role" name="authority_role" required>
+          <?php foreach ($assignableRoles as $roleKey => $roleLabel): ?>
+            <option value="<?= htmlspecialchars($roleKey) ?>"><?= htmlspecialchars($roleLabel) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <?php if ($hasPermanent): ?>
+      <div class="authField">
+        <label class="authCheck">
+          <input id="org_permanent" name="permanent" type="checkbox" value="1">
+          <span>Permanent position holder</span>
+        </label>
+      </div>
+      <?php endif; ?>
+      <div class="mini" style="opacity:.75;margin-top:6px;">Section and division are read-only in this pass. Use this to update account ownership and org details inside your allowed scope.</div>
+      <div id="orgEditMsg" class="notice" style="display:none;margin-top:12px;"></div>
+    </form>
+    <div class="modalFooter">
+      <button type="button" class="btnComp" data-org-close="1">Cancel</button>
+      <button type="submit" class="btnSecondary" form="orgEditForm">Save changes</button>
+    </div>
+  </div>
+</div>
+<?php endif; ?>
 
 <script src="<?= asset_url("assets/js/drill-down.js") ?>"></script>
+<?php if ($canManageOrg): ?>
+<script src="<?= asset_url("assets/js/org-chart-page.js") ?>"></script>
+<?php endif; ?>
 
 <?php require __DIR__ . "/../includes/footer.php"; ?>

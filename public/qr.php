@@ -121,7 +121,7 @@ require __DIR__ . "/../includes/layout.php";
   <?php if (!$isLoggedIn): ?>
     <section class="qrInfoCard">
       <div class="docsSectionTitle">Login required</div>
-      <p class="qrLead" style="margin:6px 0 0;">You are not logged in. To receive this document, login using your section account, then scan again.</p>
+      <p class="qrLead" style="margin:6px 0 0;">You are not logged in. To receive this document, login using your section account, then open the QR link again.</p>
       <div class="qrActionRow">
         <a class="btnPrimary" href="<?= PUBLIC_PATH ?>/login.php" style="text-decoration:none;">Login</a>
       </div>

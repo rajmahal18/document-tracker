@@ -429,22 +429,109 @@
     btnToggleUpload.style.display = canAttach ? "" : "none";
   }
 
+
+  function formatBranchDestination(branch) {
+    if (!branch) return "—";
+    const assignee = clean(branch.current_assignee_name);
+    const section = clean(branch.current_assignee_section_name);
+    if (assignee && section) return `${assignee} (${section})`;
+    if (assignee) return assignee;
+    if (section) return section;
+    return clean(branch.branch_label) || "—";
+  }
+
+  function isOriginOverviewMode() {
+    return !!(currentBranchMode && Number(currentPayload?.is_origin || 0) === 1);
+  }
+
+  function bindHeaderBranchPills() {
+    if (!elBranchBar) return;
+    elBranchBar.querySelectorAll(".branchPill[data-branch-id]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const bid = Number(btn.dataset.branchId || 0);
+        const docId = Number(currentPayload?.id || 0);
+        if (bid <= 0 || docId <= 0) return;
+        applyBranchSelection(bid);
+        loadTimeline(docId, bid, { preserveSelection: true });
+      });
+    });
+  }
+
+  function renderHeaderBranchPills() {
+    if (!elBranchBar) return;
+
+    if (!currentBranchMode || !Array.isArray(currentBranches) || currentBranches.length === 0) {
+      elBranchBar.innerHTML = "";
+      return;
+    }
+
+    const pillsHtml = currentBranches
+      .filter((branch) => Number(branch?.id || 0) > 0)
+      .map((branch) => `
+        <button type="button" class="${branchPillClassList(branch, currentBranchId).join(" ")}" data-branch-id="${Number(branch.id || 0)}">${esc(branchLabel(branch))}${esc(branchPillSuffix(branch))}</button>
+      `)
+      .join("");
+
+    elBranchBar.innerHTML = pillsHtml ? `<div class="branchBar">${pillsHtml}</div>` : "";
+    bindHeaderBranchPills();
+  }
+
+  function refreshDrawerBranchContext() {
+    if (!currentPayload) return;
+
+    const branch = currentBranchMode ? getSelectedBranch() : null;
+    const inTransit = currentPayload?.in_transit === 1 || currentPayload?.in_transit === "1" || currentPayload?.in_transit === true;
+
+    const destinationText = (branch && !isOriginOverviewMode())
+      ? formatBranchDestination(branch)
+      : (currentPayload.movement_text || "—");
+
+    if (elDestinationText) {
+      elDestinationText.textContent = destinationText;
+    } else if (elDestination) {
+      elDestination.textContent = destinationText;
+    }
+
+    if (elHolder) {
+      if (branch) {
+        const statusText = ((branch.branch_status || "ACTIVE").toString().toUpperCase() === "ACTIVE")
+          ? (Number(branch.can_forward || 0) === 1 ? "With you" : (Number(branch.my_pending_route_id || 0) > 0 ? "To you" : "Active lane"))
+          : "Branch complete";
+        elHolder.textContent = statusText;
+        elHolder.className = `chip ${Number(branch.can_forward || 0) === 1 ? "action" : (Number(branch.my_pending_route_id || 0) > 0 ? "incoming" : "archived")}`;
+      } else {
+        elHolder.textContent = currentPayload.current_holder_text || "—";
+        elHolder.className = "chip incoming";
+      }
+    }
+
+    if (elLastHolder) {
+      if (branch) {
+        elLastHolder.textContent = clean(currentPayload.open_from_section_name) || clean(currentPayload.last_holder_text) || "—";
+      } else {
+        elLastHolder.textContent = currentPayload.last_holder_text || "—";
+      }
+    }
+
+    if (elDestination) {
+      const clickable = !currentBranchMode && !!inTransit && (Number(currentPayload.open_route_count || 0) > 1);
+      elDestination.classList.toggle("destClickable", clickable);
+      if (clickable) {
+        elDestination.dataset.docId = String(currentPayload.id || "");
+        elDestination.dataset.count = String(Number(currentPayload.open_route_count || 0));
+      } else {
+        delete elDestination.dataset.docId;
+        delete elDestination.dataset.count;
+      }
+    }
+  }
+
   function applyBranchSelection(branchId) {
     currentBranchId = Number(branchId || 0);
     savePreferredBranchId(currentPayload?.id || 0, currentBranchId);
     const branch = getSelectedBranch();
 
-    if (elBranchBar) {
-      if (!branch) {
-        elBranchBar.innerHTML = "";
-      } else {
-        elBranchBar.innerHTML = `
-          <div class="branchBar activeLaneBar">
-            <button type="button" class="${branchPillClassList(branch, currentBranchId).concat(["activeLanePill"]).join(" ")}" data-branch-id="${Number(branch.id || 0)}">${esc(branchLabel(branch))}${esc(branchPillSuffix(branch))}</button>
-          </div>
-        `;
-      }
-    }
+    renderHeaderBranchPills();
 
     syncInlineBranchSelection();
 
@@ -466,6 +553,7 @@
     }
 
     currentCanForward = !!(branch && Number(branch.can_forward || 0) === 1);
+    refreshDrawerBranchContext();
     syncAttachmentButtonVisibility();
     updateForwardUI();
     if (currentPayload?.id) {
@@ -498,39 +586,7 @@
   }
 
   function renderStandaloneBranchSwitcher(rawBranchIds, opts = {}) {
-    if (!currentBranchMode) return "";
-    if (opts.hidden) return "";
-
-    const branchIds = Array.from(new Set((Array.isArray(rawBranchIds) ? rawBranchIds : [])
-      .map((id) => Number(id || 0))
-      .filter((id) => id > 0)));
-
-    if (branchIds.length <= 1) return "";
-
-    const branches = branchIds
-      .map((id) => currentBranches.find((b) => Number(b.id || 0) === id))
-      .filter(Boolean);
-
-    if (branches.length <= 1) return "";
-
-    const label = clean(opts.label) || "Branches";
-    const switcherActiveId = getSwitcherActiveBranchId(branchIds);
-    const activeLineage = getBranchLineageIds(currentBranchId);
-
-    return `
-      <div class="timelineSplitBar" data-inline-branch-root="1">
-        <div class="timelineSplitLabel">${esc(label)}</div>
-        <div class="branchBar inlineBranchBar splitBranchBar">
-          ${branches.map((branch) => `
-            <button
-              type="button"
-              class="${branchPillClassList(branch, switcherActiveId).concat(activeLineage.has(Number(branch.id || 0)) ? ["isLineActive"] : [], ["inlineBranchPill"]).join(" ")}"
-              data-branch-id="${Number(branch.id || 0)}"
-            >${esc(branchLabel(branch))}${esc(branchPillSuffix(branch))}</button>
-          `).join("")}
-        </div>
-      </div>
-    `;
+    return "";
   }
 
   function resolveGroupBranchId(items) {
@@ -998,14 +1054,15 @@
       currentPpdSlipAttId = 0;
 
       for (const a of items) {
-        if ((a.note || "").toString() === "AUTO:PPD_TRACKING_SLIP") {
+        const note = (a.note || '').toString();
+        if (note === 'AUTO:PPD_TRACKING_SLIP' || note.startsWith('AUTO:DIVISION_TRACKING_SLIP:')) {
           currentPpdSlipAttId = Number(a.id || 0);
           break;
         }
       }
 
       if (btnPpdSlipPrint) {
-        btnPpdSlipPrint.disabled = !(APP.isPPD && currentPpdSlipAttId > 0);
+        btnPpdSlipPrint.disabled = !(APP.hasOwnDivisionSlip && currentPpdSlipAttId > 0);
       }
 
       renderAttachments(items);
@@ -1639,9 +1696,11 @@
     }
 
     if (rowPpdSlip) {
-      const isPPD = !!APP.isPPD;
+      const hasOwnDivisionSlip = !!APP.hasOwnDivisionSlip;
       const docId = payload.id || "";
-      rowPpdSlip.style.display = (isPPD && docId) ? "" : "none";
+      rowPpdSlip.style.display = (hasOwnDivisionSlip && docId) ? "" : "none";
+      const rowPpdSlipLabel = document.getElementById("rowPpdSlipLabel");
+      if (rowPpdSlipLabel && APP.ownDivisionSlipLabel) rowPpdSlipLabel.textContent = APP.ownDivisionSlipLabel;
 
       if (btnPpdSlipGenerate) btnPpdSlipGenerate.dataset.docId = String(docId || "");
       if (btnPpdSlipAttach) btnPpdSlipAttach.dataset.docId = String(docId || "");
@@ -1693,6 +1752,7 @@
 
     if (elLastHolder) elLastHolder.textContent = payload.last_holder_text || "—";
     if (elActionRemarks) elActionRemarks.value = "";
+    refreshDrawerBranchContext();
 
     backdrop?.classList.add("open");
     drawer?.classList.add("open");
@@ -2069,7 +2129,7 @@
       form.append("document_id", docId);
       form.append("csrf_token", window.__CSRF__ || "");
 
-      const res = await fetch(`${API}/ppd_tracking_slip_generate.php`, {
+      const res = await fetch(`${API}/division_tracking_slip_generate.php`, {
         method: "POST",
         body: form,
         headers: { Accept: "application/json" }
@@ -2095,14 +2155,14 @@
 
   btnPpdSlipPrint?.addEventListener("click", () => {
     if (!currentPpdSlipAttId) return;
-    window.open(`${PUBLIC}/ppd_tracking_slip_print.php?id=${currentPpdSlipAttId}`, "_blank", "noopener");
+    window.open(`${PUBLIC}/division_tracking_slip_print.php?id=${currentPpdSlipAttId}`, "_blank", "noopener");
   });
 
   btnPpdSlipAttach?.addEventListener("click", () => {
     setCollapsed(attachForm, false);
     if (btnToggleUpload) btnToggleUpload.textContent = "Hide upload";
     if (attachType) attachType.value = "1";
-    if (attachNote) attachNote.value = "PPD Tracking Slip (scanned/signed)";
+    if (attachNote) attachNote.value = `${APP.ownDivisionSlipLabel || 'Division Tracking Slip'} (scanned/signed)`;
     attachFile?.focus();
   });
 

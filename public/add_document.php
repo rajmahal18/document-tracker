@@ -2,7 +2,8 @@
 declare(strict_types=1);
 
 require __DIR__ . "/../includes/bootstrap.php";
-require_once __DIR__ . "/../core/PPDTrackingSlip.php";
+require_once __DIR__ . "/../core/division_tracking.php";
+require_once __DIR__ . "/../core/DivisionTrackingSlip.php";
 require_login();
 
 
@@ -430,31 +431,24 @@ $isChief = ((int)($_SESSION["is_chief"] ?? 0) === 1);
 // ✅ Used as fallback display label
 $divisionName = trim((string)($_SESSION["division_name"] ?? ""));
 
-// ✅ Robust PPD detection via DB (section -> divisions.name), NOT role-based, NOT hardcoded ID
-$isPPD = false;
+// ✅ Resolve current user division and supported own-division slip metadata
 $myDivisionId = 0;
 $myDivisionName = "";
+$myDivisionCode = "";
+$hasOwnDivisionSlip = false;
+$ownDivisionSlipLabel = "";
+$ownDivisionTrackingPreview = "";
 
-if ($fromSectionId > 0) {
-  $stmt = $conn->prepare("
-    SELECT d.id AS division_id, d.name AS division_name
-    FROM sections s
-    JOIN divisions d ON d.id = s.division_id
-    WHERE s.id = ? AND s.is_active = 1 AND d.is_active = 1
-    LIMIT 1
-  ");
-  $stmt->bind_param("i", $fromSectionId);
-  $stmt->execute();
-  $row = $stmt->get_result()->fetch_assoc();
-
-  $myDivisionId = (int)($row["division_id"] ?? 0);
-  $myDivisionName = trim((string)($row["division_name"] ?? ""));
-
-  $dn = strtolower($myDivisionName);
-  $isPPD = ($dn !== "" && (
-    str_contains($dn, "planning and programming") ||
-    str_contains($dn, "ppd")
-  ));
+$myDivisionMeta = get_user_division_meta($conn, $fromSectionId);
+if (is_array($myDivisionMeta)) {
+  $myDivisionId = (int)($myDivisionMeta['id'] ?? 0);
+  $myDivisionName = trim((string)($myDivisionMeta['name'] ?? ''));
+  $myDivisionCode = strtoupper(trim((string)($myDivisionMeta['code'] ?? '')));
+  $hasOwnDivisionSlip = is_supported_division_tracking_code($myDivisionCode);
+  if ($hasOwnDivisionSlip) {
+    $ownDivisionSlipLabel = $myDivisionCode . ' Document Tracking Slip';
+    $ownDivisionTrackingPreview = preview_next_division_tracking_number($conn, $myDivisionId, new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')));
+  }
 }
 
 // ✅ Load sections for dropdown
@@ -607,20 +601,21 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   $sendBatchId = bin2hex(random_bytes(16));
 
   // Generator choice
-  $genChoice = "none";
-  if ($isPPD) {
-    $genChoice = (string)($_POST["gen_choice"] ?? "none"); // none | transmittal | ppd_slip
-    if (!in_array($genChoice, ["none", "transmittal", "ppd_slip"], true)) {
-      $genChoice = "none";
-    }
-  } else {
-    $genChoice = (isset($_POST["gen_transmittal"]) && (string)($_POST["gen_transmittal"] ?? "") === "1")
-      ? "transmittal"
-      : "none";
+  $genChoice = (string)($_POST['gen_choice'] ?? 'none');
+  $allowedGenChoices = ['none', 'transmittal'];
+  if ($hasOwnDivisionSlip) {
+    $allowedGenChoices[] = 'division_slip';
+  }
+  if (!in_array($genChoice, $allowedGenChoices, true)) {
+    $genChoice = 'none';
   }
 
-  $transmittalMode = (string)($_POST["transmittal_mode"] ?? "attach");
-  $ppdSlipMode     = (string)($_POST["ppd_slip_mode"] ?? "attach");
+  $transmittalMode = (string)($_POST['transmittal_mode'] ?? 'attach');
+  $divisionSlipMode = (string)($_POST['division_slip_mode'] ?? 'attach');
+  $divisionTrackingInput = trim((string)($_POST['division_tracking_no'] ?? ''));
+  if ($divisionTrackingInput === '' && $hasOwnDivisionSlip) {
+    $divisionTrackingInput = $ownDivisionTrackingPreview;
+  }
 
   if ($requester === "" || $document_date === "" || $subject === "" || $content_type === "") {
     $error = "Please fill in all required fields.";
@@ -719,6 +714,17 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         );
         $stmt->execute();
         $docId = (int)$conn->insert_id;
+
+        if ($hasOwnDivisionSlip && $myDivisionId > 0) {
+          upsert_document_division_tracking(
+            $conn,
+            $docId,
+            $myDivisionId,
+            $divisionTrackingInput,
+            $userId,
+            strtoupper(trim($divisionTrackingInput)) !== strtoupper(trim($ownDivisionTrackingPreview))
+          );
+        }
 
         $branchMode = workflow_branch_mode_enabled($conn);
 
@@ -1009,6 +1015,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             "logo_right_abs" => realpath(__DIR__ . "/../assets/ocmlogo.png") ?: "",
             "from_label" => $fromLabel,
             "to_label"   => $toLabel,
+            "recipients" => resolve_transmittal_recipients($conn),
+            "mpw_tracking_no" => $tracking_no,
           ], $abs);
 
           $size = (int)@filesize($abs);
@@ -1050,7 +1058,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           }
         }
 
-        if ($genChoice === "ppd_slip") {
+        if ($genChoice === "division_slip" && $hasOwnDivisionSlip && $myDivisionId > 0) {
           $stmt = $conn->prepare("
             SELECT s.name AS section_name, d.name AS division_name
             FROM sections s
@@ -1062,7 +1070,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           $stmt->execute();
           $rFrom = $stmt->get_result()->fetch_assoc();
 
-          $fromLabel = ($divisionName !== "") ? $divisionName : "PPD";
+          $fromLabel = ($divisionName !== "") ? $divisionName : $myDivisionCode;
           if ($rFrom) {
             $fromLabel = trim((string)$rFrom["division_name"]) . " / " . trim((string)$rFrom["section_name"]);
           }
@@ -1079,7 +1087,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             mkdir($docDir, 0775, true);
           }
 
-          $storedName = "PPD_TRACKING_SLIP_" . $tracking_no . ".pdf";
+          $safeDivision = preg_replace('/[^A-Za-z0-9._-]+/', '_', $myDivisionCode) ?: 'DIVISION';
+          $storedName = $safeDivision . "_TRACKING_SLIP_" . $tracking_no . ".pdf";
           $abs = $docDir . "/" . $storedName;
           $rel = "storage/attachments/doc_" . $docId . "/" . $storedName;
 
@@ -1109,30 +1118,41 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           }
 
           $qrUrl = app_url(PUBLIC_PATH . "/qr.php?t=" . urlencode($qrToken));
+          $divisionTrackingRow = get_document_division_tracking($conn, $docId, $myDivisionId);
+          $divisionSlipNo = trim((string)($divisionTrackingRow['tracking_no'] ?? $divisionTrackingInput));
+          $divisionHead = resolve_division_head($conn, $myDivisionId);
+          $flowRows = build_division_slip_flow_rows($conn, $docId, $myDivisionId);
+          $nameEntries = build_division_name_initial_entries($conn, $myDivisionId, (int)($divisionHead['id'] ?? 0));
 
-          PPDTrackingSlip::generateA4([
-            "ppd_tracking_no"   => $tracking_no,
-            "from_label"        => $fromLabel,
-            "document_date"     => $document_date,
-            "subject"           => $subject,
-            "mpw_tracking_no"   => "",
-            "received_by"       => "",
-            "received_datetime" => "",
-            "deadline_date"     => $deadlineAt ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("m/d/Y") : "",
-            "deadline_time"     => $deadlineAt ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("g:i A") : "",
-            "qr_url"            => $qrUrl,
-            "logo_left_abs"     => realpath(__DIR__ . "/../assets/mpwlogo1.png") ?: "",
-            "logo_right_abs"    => realpath(__DIR__ . "/../assets/ocmlogo.png") ?: "",
+          DivisionTrackingSlip::generateA4([
+            "division_tracking_no" => $divisionSlipNo,
+            "division_name"        => $myDivisionName,
+            "division_code"        => $myDivisionCode,
+            "from_label"           => $fromLabel,
+            "document_date"        => $document_date,
+            "subject"              => $subject,
+            "mpw_tracking_no"      => $tracking_no,
+            "received_by"          => "",
+            "received_datetime"    => "",
+            "deadline_date"        => $deadlineAt ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("m/d/Y") : "",
+            "deadline_time"        => $deadlineAt ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("g:i A") : "",
+            "qr_url"               => $qrUrl,
+            "logo_left_abs"        => realpath(__DIR__ . "/../assets/mpwlogo1.png") ?: "",
+            "logo_right_abs"       => realpath(__DIR__ . "/../assets/ocmlogo.png") ?: "",
+            "signatory_name"       => (string)($divisionHead['full_name'] ?? ''),
+            "signatory_title"      => trim((string)($divisionHead['official_title'] ?? '')) . (trim((string)($divisionHead['official_title'] ?? '')) !== '' ? ', ' : '') . $myDivisionName,
+            "flow_rows"            => $flowRows,
+            "name_entries"         => $nameEntries,
           ], $abs);
 
           $size = (int)@filesize($abs);
           if ($size <= 0) {
-            throw new RuntimeException("Failed to generate PPD tracking slip PDF");
+            throw new RuntimeException("Failed to generate division tracking slip PDF");
           }
 
           $orig = $storedName;
           $mime = "application/pdf";
-          $note = "AUTO:PPD_TRACKING_SLIP";
+          $note = "AUTO:DIVISION_TRACKING_SLIP:" . $myDivisionCode;
 
           $stmt = $conn->prepare("
             INSERT INTO document_attachments
@@ -1142,12 +1162,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           ");
           $stmt->bind_param("issssisii", $docId, $orig, $storedName, $rel, $mime, $size, $note, $userId, $fromSectionId);
           $stmt->execute();
-          $ppdAttachId = (int)$conn->insert_id;
+          $divisionAttachId = (int)$conn->insert_id;
 
           $payloadSlip = json_encode([
-            "kind" => "ppd_tracking_slip_generated",
-            "attachment_id" => $ppdAttachId,
+            "kind" => "division_tracking_slip_generated",
+            "attachment_id" => $divisionAttachId,
             "file" => $orig,
+            "division_code" => $myDivisionCode,
           ], JSON_UNESCAPED_UNICODE);
 
           $stmt = $conn->prepare("
@@ -1159,8 +1180,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           $stmt->bind_param("iiis", $docId, $userId, $fromSectionId, $payloadSlip);
           $stmt->execute();
 
-          if ($ppdSlipMode === "print" && $ppdAttachId > 0) {
-            redirect(PUBLIC_PATH . "/transmittal_print.php?id=" . $ppdAttachId);
+          if ($divisionSlipMode === "print" && $divisionAttachId > 0) {
+            redirect(PUBLIC_PATH . "/division_tracking_slip_print.php?id=" . $divisionAttachId);
           }
         }
 
@@ -1320,8 +1341,7 @@ require __DIR__ . "/../includes/layout.php";
       </div>
     </div>
 
-    <?php if ($isPPD): ?>
-      <div class="authField span2">
+          <div class="authField span2">
         <div style="font-weight:900;margin-bottom:6px;">Auto-generate (choose one)</div>
 
         <?php $choice = (string)($_POST["gen_choice"] ?? "none"); ?>
@@ -1351,55 +1371,34 @@ require __DIR__ . "/../includes/layout.php";
           </label>
         </div>
 
-        <label style="display:flex;align-items:center;gap:8px;font-weight:800;margin-top:14px;">
-          <input type="radio" name="gen_choice" value="ppd_slip" <?= ($choice === "ppd_slip") ? "checked" : "" ?>>
-          PPD Document Tracking Slip
-        </label>
-
-        <div class="mini" style="margin-top:6px;">
-          Generates a printable <b>PPD Tracking Slip</b> based on <b>Document Date</b> + <b>Subject</b>, and auto-attaches it.
-        </div>
-
-        <div id="ppdSlipOpts" style="margin-top:10px; display:none; gap:10px; flex-wrap:wrap;">
-          <label style="display:flex;align-items:center;gap:8px;font-weight:800;">
-            <input type="radio" name="ppd_slip_mode" value="print" <?= (($_POST["ppd_slip_mode"] ?? "attach") === "print") ? "checked" : "" ?>>
-            Generate, Attach, and Print
+        <?php if ($hasOwnDivisionSlip): ?>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:800;margin-top:14px;">
+            <input type="radio" name="gen_choice" value="division_slip" <?= ($choice === "division_slip") ? "checked" : "" ?>>
+            <?= htmlspecialchars($ownDivisionSlipLabel) ?>
           </label>
-          <label style="display:flex;align-items:center;gap:8px;font-weight:800;">
-            <input type="radio" name="ppd_slip_mode" value="attach" <?= (($_POST["ppd_slip_mode"] ?? "attach") === "attach") ? "checked" : "" ?>>
-            Generate and Attach only
-          </label>
-        </div>
+
+          <div class="mini" style="margin-top:6px;">
+            Auto-generates your own division tracking slip. Tracking number is editable before save.
+          </div>
+
+          <div id="divisionSlipOpts" style="margin-top:10px; display:none; gap:10px; flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:8px;font-weight:800;">
+              <input type="radio" name="division_slip_mode" value="print" <?= (($_POST["division_slip_mode"] ?? "attach") === "print") ? "checked" : "" ?>>
+              Generate, Attach, and Print
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;font-weight:800;">
+              <input type="radio" name="division_slip_mode" value="attach" <?= (($_POST["division_slip_mode"] ?? "attach") === "attach") ? "checked" : "" ?>>
+              Generate and Attach only
+            </label>
+          </div>
+
+          <div style="margin-top:12px;">
+            <label style="font-weight:800;display:block;margin-bottom:6px;">Own Division Tracking Number</label>
+            <input type="text" name="division_tracking_no" value="<?= htmlspecialchars($_POST["division_tracking_no"] ?? $ownDivisionTrackingPreview) ?>" placeholder="<?= htmlspecialchars($ownDivisionTrackingPreview) ?>">
+            <div class="mini" style="margin-top:6px;">Format: <?= htmlspecialchars($myDivisionCode) ?> MMDDYYNN. Auto-filled but editable.</div>
+          </div>
+        <?php endif; ?>
       </div>
-    <?php else: ?>
-      <div class="authField span2">
-        <label>
-          <input
-            type="checkbox"
-            name="gen_transmittal"
-            value="1"
-            id="genTransmittal"
-            <?= (($_POST["gen_transmittal"] ?? "") === "1") ? "checked" : "" ?>
-          >
-          Transmittal Memo
-        </label>
-
-        <div class="mini" style="margin-top:6px;">
-          Generates a printable PDF memo based on <b>Document Date</b> + <b>Subject</b>, and auto-attaches it.
-        </div>
-
-        <div id="transmittalOpts" style="margin-top:10px; display:none; gap:10px; flex-wrap:wrap;">
-          <label style="display:flex;align-items:center;gap:8px;font-weight:800;">
-            <input type="radio" name="transmittal_mode" value="print" <?= (($_POST["transmittal_mode"] ?? "attach") === "print") ? "checked" : "" ?>>
-            Generate, Attach, and Print
-          </label>
-          <label style="display:flex;align-items:center;gap:8px;font-weight:800;">
-            <input type="radio" name="transmittal_mode" value="attach" <?= (($_POST["transmittal_mode"] ?? "attach") === "attach") ? "checked" : "" ?>>
-            Generate and Attach only
-          </label>
-        </div>
-      </div>
-    <?php endif; ?>
 
     <div class="docDivider span2"></div>
 
@@ -1449,7 +1448,7 @@ require __DIR__ . "/../includes/layout.php";
 
 <script>
   window.addDocumentConfig = <?= json_encode([
-    "isPPD" => $isPPD,
+    "hasOwnDivisionSlip" => $hasOwnDivisionSlip,
     "apiPath" => API_PATH,
     "sectionLabels" => $sectionLabelMap,
     "sectionMeta" => $sectionMetaMap,

@@ -130,9 +130,27 @@ $hash = password_hash($temp, PASSWORD_DEFAULT);
 $role = "user";
 $hasOfficialTitle = db_column_exists($conn, "users", "official_title");
 $hasAuthorityRole = db_column_exists($conn, "users", "authority_role");
+$hasUsername = username_column_exists($conn);
 $legacyIsChief = in_array($authorityRole, ["director", "division_head", "section_head"], true) ? 1 : 0;
+$username = $hasUsername ? generate_unique_username($conn, $fullName) : "";
 
-if ($hasOfficialTitle && $hasAuthorityRole) {
+if ($hasOfficialTitle && $hasAuthorityRole && $hasUsername) {
+  $ins = $conn->prepare("
+    INSERT INTO users (
+      full_name,
+      username,
+      email,
+      password_hash,
+      role,
+      section_id,
+      is_chief,
+      official_title,
+      authority_role,
+      must_change_password
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+  ");
+  $ins->bind_param("sssssiiss", $fullName, $username, $email, $hash, $role, $sectionId, $legacyIsChief, $officialTitle, $authorityRole);
+} elseif ($hasOfficialTitle && $hasAuthorityRole) {
   $ins = $conn->prepare("
     INSERT INTO users (
       full_name,
@@ -147,6 +165,20 @@ if ($hasOfficialTitle && $hasAuthorityRole) {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
   ");
   $ins->bind_param("ssssiiss", $fullName, $email, $hash, $role, $sectionId, $legacyIsChief, $officialTitle, $authorityRole);
+} elseif ($hasUsername) {
+  $ins = $conn->prepare("
+    INSERT INTO users (
+      full_name,
+      username,
+      email,
+      password_hash,
+      role,
+      section_id,
+      is_chief,
+      must_change_password
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+  ");
+  $ins->bind_param("sssssii", $fullName, $username, $email, $hash, $role, $sectionId, $legacyIsChief);
 } else {
   $ins = $conn->prepare("
     INSERT INTO users (

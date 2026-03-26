@@ -81,9 +81,8 @@ input::placeholder {
 }
 
 .appTopbar.topbar {
-  position: sticky;
   top: 0;
-  z-index: 2305;
+  z-index: 0;
   isolation: isolate;
   width: 100%;
   min-height: var(--app-topbar-height);
@@ -208,7 +207,7 @@ input::placeholder {
   opacity: 0;
   pointer-events: none;
   transition: opacity .2s ease;
-  z-index: 2190;
+  z-index: 2400;
 }
 
 .appNavBackdrop.isOpen { opacity: 1; pointer-events: auto; }
@@ -230,7 +229,7 @@ input::placeholder {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  z-index: 2200;
+  z-index: 2410;
   transform: translateX(calc(-100% - 20px));
   opacity: 0;
   visibility: hidden;

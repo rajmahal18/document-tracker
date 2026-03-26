@@ -13,6 +13,11 @@ declare(strict_types=1);
  */
 final class TransmittalMemo
 {
+  private static function pdfText(string $text): string
+  {
+    return function_exists('normalize_pdf_text') ? normalize_pdf_text($text) : $text;
+  }
+
   /**
    * @param array{
    *   date:string,
@@ -21,7 +26,8 @@ final class TransmittalMemo
    *   logo_left_abs?:string,
    *   logo_right_abs?:string,
    *   from_label?:string,
-   *   to_label?:string
+   *   to_label?:string,
+   *   recipients?:array<int,array{name:string,title:string}>
    * } $data
    */
   public static function generateA4(array $data, string $absOutPath): void
@@ -45,6 +51,7 @@ final class TransmittalMemo
 
     $date = trim((string)($data['date'] ?? ''));
     $subject = trim((string)($data['subject'] ?? ''));
+    $trackingNo = trim((string)($data['mpw_tracking_no'] ?? ''));
     if ($date === '' || $subject === '') {
       throw new RuntimeException('Transmittal memo requires date and subject.');
     }
@@ -130,28 +137,25 @@ final class TransmittalMemo
     $pdf->SetXY($dateX, $innerY + $bandH + 8);
     $pdf->Cell(12, 6, 'Date:', 0, 0, 'L');
     $pdf->SetFont('Helvetica', '', 10);
-    $pdf->Cell(58, 6, $date, 0, 1, 'L');
+    $pdf->Cell(58, 6, self::pdfText($date), 0, 1, 'L');
 
-    // Date underline (shortened if QR exists)
+    // Date underline directly under the date value
     $lineY = $innerY + $bandH + 13;
-    $lineStartX = $innerX + 15;
-    $lineEndX   = $innerX + $innerW - 15;
-
+    $lineStartX = $dateX + 12;
+    $lineEndX   = $dateX + 54;
     if (!empty($tmpQrPath) && $qrX !== null) {
-      $qrSafeMargin = 6.0;
-      $lineEndX = $qrX - $qrSafeMargin;
+      $lineEndX = min($lineEndX, $qrX - 6.0);
     }
     $pdf->Line($lineStartX, $lineY, $lineEndX, $lineY);
 
-    // Recipients (kept as-is)
+    // Recipients
     $y = $innerY + $bandH + 16;
     $x = $innerX + 10;
 
-    $recipients = [
-      ['name' => 'MACABAI M. PANGAMADUN', 'title' => 'Chief, Planning and Programming Division'],
-      ['name' => 'EMRAIZA D. MANGACOP', 'title' => 'Chief, Survey and Design Division'],
-      ['name' => 'FAISAL E. KUSAIN', 'title' => 'Chief, Special Project Division'],
-    ];
+    $recipients = $data['recipients'] ?? [];
+    if (!is_array($recipients) || $recipients === []) {
+      $recipients = [];
+    }
 
     foreach ($recipients as $r) {
       $box = 5.5;
@@ -160,14 +164,26 @@ final class TransmittalMemo
 
       $pdf->SetXY($x + $box + 4, $y);
       $pdf->SetFont('Helvetica', 'B', 10);
-      $pdf->Cell(0, 6, $r['name'], 0, 2, 'L');
+      $pdf->Cell(0, 6, self::pdfText((string)$r['name']), 0, 2, 'L');
 
       $pdf->SetFont('Helvetica', '', 9);
       $pdf->SetTextColor(71, 84, 103);
-      $pdf->Cell(0, 5, $r['title'], 0, 1, 'L');
+      $pdf->Cell(0, 5, self::pdfText((string)$r['title']), 0, 1, 'L');
 
       $pdf->SetTextColor(20, 24, 40);
       $y += 14;
+    }
+
+    // Global tracking number
+    if ($trackingNo !== '') {
+      $y += 1;
+      $pdf->SetFont('Helvetica', 'B', 10);
+      $pdf->SetXY($innerX + 10, $y);
+      $pdf->Cell(22, 6, 'Tracking No.: ', 0, 0, 'L');
+      $pdf->SetFont('Helvetica', '', 10);
+      $pdf->SetXY($innerX + 36, $y);
+      $pdf->Cell($innerW - 42, 6, self::pdfText($trackingNo), 0, 1, 'L');
+      $y += 7;
     }
 
     // Subject
@@ -178,7 +194,7 @@ final class TransmittalMemo
 
     $pdf->SetFont('Helvetica', '', 10);
     $pdf->SetXY($innerX + 28, $y);
-    $pdf->MultiCell($innerW - 38, 6, $subject, 0, 'L');
+    $pdf->MultiCell($innerW - 38, 6, self::pdfText($subject), 0, 'L');
 
     // Subject lines
     $lineY2 = $pdf->GetY() + 1;
@@ -236,7 +252,8 @@ final class TransmittalMemo
 
       $pdf->SetFont('Helvetica', '', 9);
       $pdf->SetTextColor(20, 24, 40);
-      $pdf->MultiCell($moveW, 5, $fromLabel . "  \xE2\x86\x92  " . $toLabel, 0, 'L');
+$moveText = trim('FROM: ' . $fromLabel . ($toLabel !== '' ? '   TO: ' . $toLabel : ''));
+      $pdf->MultiCell($moveW, 5, self::pdfText($moveText), 0, 'L');
 
       $afterActionsY = $pdf->GetY() + 4; // blank lines start after movement text
     }
@@ -254,7 +271,7 @@ final class TransmittalMemo
     $pdf->Line($sigX, $sigY + 18, $innerX + $innerW - 12, $sigY + 18);
     $pdf->SetFont('Helvetica', 'B', 10);
     $pdf->SetXY($sigX, $sigY + 20);
-    $pdf->Cell($innerX + $innerW - 12 - $sigX, 6, 'SALONGA A. SUMAMPAO', 0, 2, 'C');
+    $pdf->Cell($innerX + $innerW - 12 - $sigX, 6, self::pdfText('SALONGA A. SUMAMPAO'), 0, 2, 'C');
 
     $pdf->SetFont('Helvetica', '', 9);
     $pdf->SetTextColor(71, 84, 103);

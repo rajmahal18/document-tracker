@@ -301,13 +301,18 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
       $stmt->bind_param("i", $sourceBranchId);
       $stmt->execute();
 
+      $referenceParentBranchId = (int)($sourceBranch['parent_branch_id'] ?? 0);
+      if ($referenceParentBranchId <= 0) {
+        $referenceParentBranchId = $sourceBranchId;
+      }
+
       foreach ($recipients as $rid) {
         $rid = (int)$rid;
         $branchLabel = (string)($recipientInfo[$rid] ?? ("User #" . $rid));
 
         $childBranchId = workflow_create_branch($conn, [
           'document_id' => $docId,
-          'parent_branch_id' => $sourceBranchId,
+          'parent_branch_id' => $referenceParentBranchId,
           'branch_label' => $branchLabel,
           'current_assignee_user_id' => $rid,
           'current_assignee_section_id' => $toSectionId,

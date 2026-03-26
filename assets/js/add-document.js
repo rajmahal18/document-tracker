@@ -2,7 +2,7 @@
   const cfg = window.addDocumentConfig || null;
   if (!cfg) return;
 
-  const isPPD = !!cfg.isPPD;
+  const hasOwnDivisionSlip = !!cfg.hasOwnDivisionSlip;
   const apiPath = String(cfg.apiPath || "");
   const sectionLabels = cfg.sectionLabels && typeof cfg.sectionLabels === "object" ? cfg.sectionLabels : {};
   const sectionMeta = cfg.sectionMeta && typeof cfg.sectionMeta === "object" ? cfg.sectionMeta : {};
@@ -17,36 +17,19 @@
     el.style.display = on ? "flex" : "none";
   }
 
-  if (!isPPD) {
-    const cb = document.getElementById("genTransmittal");
+  {
     const transOpts = document.getElementById("transmittalOpts");
-    if (cb && transOpts) {
-      function sync() {
-        show(transOpts, cb.checked);
-        if (cb.checked) {
-          const any = transOpts.querySelector('input[type="radio"]:checked');
-          if (!any) {
-            const def = transOpts.querySelector('input[type="radio"][value="attach"]');
-            if (def) def.checked = true;
-          }
-        }
-      }
-      cb.addEventListener("change", sync);
-      sync();
-    }
-  } else {
-    const transOpts = document.getElementById("transmittalOpts");
-    const slipOpts = document.getElementById("ppdSlipOpts");
+    const slipOpts = document.getElementById("divisionSlipOpts");
     const radios = document.querySelectorAll('input[name="gen_choice"]');
 
-    function syncPPD() {
+    function syncGen() {
       let choice = "none";
       radios.forEach((r) => {
         if (r.checked) choice = r.value;
       });
 
       show(transOpts, choice === "transmittal");
-      show(slipOpts, choice === "ppd_slip");
+      show(slipOpts, hasOwnDivisionSlip && choice === "division_slip");
 
       if (choice === "transmittal" && transOpts) {
         const any = transOpts.querySelector('input[type="radio"]:checked');
@@ -56,7 +39,7 @@
         }
       }
 
-      if (choice === "ppd_slip" && slipOpts) {
+      if (choice === "division_slip" && slipOpts) {
         const any = slipOpts.querySelector('input[type="radio"]:checked');
         if (!any) {
           const def = slipOpts.querySelector('input[type="radio"][value="attach"]');
@@ -65,8 +48,10 @@
       }
     }
 
-    radios.forEach((r) => r.addEventListener("change", syncPPD));
-    syncPPD();
+    if (radios.length) {
+      radios.forEach((r) => r.addEventListener("change", syncGen));
+      syncGen();
+    }
   }
 
   const selSection = document.getElementById("addToSection");

@@ -1,0 +1,145 @@
+<?php
+declare(strict_types=1);
+
+require __DIR__ . '/../includes/bootstrap.php';
+header('Content-Type: application/json; charset=utf-8');
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+  http_response_code(405);
+  echo json_encode(['ok' => false, 'error' => 'Method not allowed']);
+  exit;
+}
+
+require_login();
+require_csrf();
+
+$editor = current_org_editor_context();
+if (!can_edit_any_org_user()) {
+  http_response_code(403);
+  echo json_encode(['ok' => false, 'error' => 'You are not allowed to edit the org chart.']);
+  exit;
+}
+
+$targetUserId = (int)($_POST['target_user_id'] ?? 0);
+$fullName = normalize_whitespace((string)($_POST['full_name'] ?? ''));
+$email = trim((string)($_POST['email'] ?? ''));
+$officialTitle = normalize_whitespace((string)($_POST['official_title'] ?? ''));
+$authorityRole = trim((string)($_POST['authority_role'] ?? 'staff'));
+$permanent = isset($_POST['permanent']) && (string)($_POST['permanent']) === '1' ? 1 : 0;
+
+if ($targetUserId <= 0) {
+  http_response_code(422);
+  echo json_encode(['ok' => false, 'error' => 'Missing target user.']);
+  exit;
+}
+if ($fullName === '') {
+  http_response_code(422);
+  echo json_encode(['ok' => false, 'error' => 'Full name is required.']);
+  exit;
+}
+if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+  http_response_code(422);
+  echo json_encode(['ok' => false, 'error' => 'A valid email is required.']);
+  exit;
+}
+
+$targetSql = 'SELECT u.id, u.full_name, u.email, u.section_id, u.role, u.is_chief, '
+  . (db_column_exists($conn, 'users', 'official_title') ? 'u.official_title' : 'NULL') . ' AS official_title, '
+  . (db_column_exists($conn, 'users', 'authority_role') ? 'u.authority_role' : 'NULL') . ' AS authority_role, '
+  . 's.name AS section_name, s.id AS resolved_section_id, d.id AS division_id, d.name AS division_name '
+  . 'FROM users u '
+  . 'LEFT JOIN sections s ON s.id = u.section_id '
+  . 'LEFT JOIN divisions d ON d.id = s.division_id '
+  . 'WHERE u.id = ? LIMIT 1';
+$stmt = $conn->prepare($targetSql);
+$stmt->bind_param('i', $targetUserId);
+$stmt->execute();
+$target = $stmt->get_result()->fetch_assoc();
+$stmt->close();
+if (!$target) {
+  http_response_code(404);
+  echo json_encode(['ok' => false, 'error' => 'Target user not found.']);
+  exit;
+}
+
+$targetRole = trim((string)($target['authority_role'] ?? 'staff'));
+if ($targetRole === '') {
+  $targetRole = ((int)($target['is_chief'] ?? 0) === 1) ? 'section_head' : 'staff';
+  $target['authority_role'] = $targetRole;
+}
+if (!can_edit_org_target($editor, $target)) {
+  http_response_code(403);
+  echo json_encode(['ok' => false, 'error' => 'You can only edit lower-ranked users inside your allowed scope.']);
+  exit;
+}
+
+$allowedRoles = array_keys(org_assignable_roles_for_editor($editor));
+if (!in_array($authorityRole, $allowedRoles, true)) {
+  http_response_code(422);
+  echo json_encode(['ok' => false, 'error' => 'That authority role is not allowed for your scope.']);
+  exit;
+}
+if (org_role_rank($authorityRole) >= (int)($editor['role_rank'] ?? 0) && empty($editor['is_admin'])) {
+  http_response_code(422);
+  echo json_encode(['ok' => false, 'error' => 'You cannot assign a role equal to or higher than your own.']);
+  exit;
+}
+
+$dup = $conn->prepare('SELECT id FROM users WHERE email = ? AND id <> ? LIMIT 1');
+$dup->bind_param('si', $email, $targetUserId);
+$dup->execute();
+if ($dup->get_result()->fetch_assoc()) {
+  $dup->close();
+  http_response_code(422);
+  echo json_encode(['ok' => false, 'error' => 'Email is already in use by another account.']);
+  exit;
+}
+$dup->close();
+
+$hasUsername = username_column_exists($conn);
+$hasPermanent = db_column_exists($conn, 'users', 'permanent');
+$hasEmailVerifiedAt = email_verified_at_column_exists($conn);
+$username = $hasUsername ? generate_unique_username($conn, $fullName, $targetUserId) : '';
+$isChief = in_array($authorityRole, ['director', 'division_head', 'section_head'], true) ? 1 : 0;
+$emailChanged = strcasecmp((string)($target['email'] ?? ''), $email) !== 0;
+
+$fields = ['full_name = ?', 'email = ?', 'official_title = ?', 'authority_role = ?', 'is_chief = ?'];
+$types = 'ssssi';
+$params = [$fullName, $email, $officialTitle, $authorityRole, $isChief];
+
+if ($hasUsername) {
+  $fields[] = 'username = ?';
+  $types .= 's';
+  $params[] = $username;
+}
+if ($hasPermanent) {
+  $fields[] = 'permanent = ?';
+  $types .= 'i';
+  $params[] = $permanent;
+}
+if ($hasEmailVerifiedAt && $emailChanged) {
+  $fields[] = 'email_verified_at = NULL';
+}
+$types .= 'i';
+$params[] = $targetUserId;
+
+$sql = 'UPDATE users SET ' . implode(', ', $fields) . ' WHERE id = ? LIMIT 1';
+$upd = $conn->prepare($sql);
+$bind = [];
+$bind[] = &$types;
+foreach ($params as $k => $v) {
+  $bind[] = &$params[$k];
+}
+call_user_func_array([$upd, 'bind_param'], $bind);
+if (!$upd->execute()) {
+  http_response_code(500);
+  echo json_encode(['ok' => false, 'error' => 'Failed to update org user.']);
+  exit;
+}
+$upd->close();
+
+if ($targetUserId === (int)($_SESSION['user_id'] ?? 0)) {
+  refresh_session_identity($conn, $targetUserId);
+}
+
+echo json_encode(['ok' => true, 'message' => 'Org user updated successfully.', 'username' => $username]);

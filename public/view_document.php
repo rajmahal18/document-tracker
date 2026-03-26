@@ -29,6 +29,21 @@ if ($row && !empty($row["tracking_no"])) {
   $tracking = preg_replace('/[^A-Za-z0-9._-]+/', '_', (string)$row["tracking_no"]) ?: "document";
 }
 
+require_once __DIR__ . '/../core/division_tracking.php';
+$mySectionId = (int)($_SESSION['section_id'] ?? 0);
+$myDivision = $mySectionId > 0 ? get_user_division_meta($conn, $mySectionId) : null;
+$ownDivisionCode = strtoupper(trim((string)($myDivision['code'] ?? '')));
+if ($ownDivisionCode === '') {
+  $sessionDivisionName = strtoupper(trim((string)($_SESSION['division_name'] ?? '')));
+  if (str_contains($sessionDivisionName, 'PLANNING') || str_contains($sessionDivisionName, 'PROGRAMMING')) {
+    $ownDivisionCode = 'PPD';
+  } elseif (str_contains($sessionDivisionName, 'SURVEY') || str_contains($sessionDivisionName, 'DESIGN')) {
+    $ownDivisionCode = 'SDD';
+  } elseif (str_contains($sessionDivisionName, 'SPECIAL')) {
+    $ownDivisionCode = 'SPD';
+  }
+}
+
 /**
  * Attachments order:
  * - Force Transmittal Memo first (note = AUTO:TRANSMITTAL_MEMO)
@@ -70,7 +85,7 @@ $sql = "
   ORDER BY
     CASE
       WHEN note = 'AUTO:TRANSMITTAL_MEMO' THEN 0
-      WHEN note = 'AUTO:PPD_TRACKING_SLIP' THEN 1
+      WHEN note = 'AUTO:PPD_TRACKING_SLIP' OR note LIKE 'AUTO:DIVISION_TRACKING_SLIP:%' THEN 1
       ELSE 2
     END ASC,
     CASE WHEN branch_id IS NULL OR branch_id = 0 THEN 0 ELSE 1 END ASC,
@@ -81,7 +96,36 @@ $sql = "
 $stmt = $conn->prepare($sql);
 $stmt->bind_param($bindTypes, ...$bindValues);
 $stmt->execute();
+
 $atts = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+if ($atts) {
+  foreach ($atts as $__i => &$__row) { $__row['__order_idx'] = $__i; } unset($__row);
+  usort($atts, static function (array $a, array $b) use ($ownDivisionCode): int {
+    $extractDivisionCode = static function (string $note): string {
+      if ($note === 'AUTO:PPD_TRACKING_SLIP') {
+        return 'PPD';
+      }
+      if (str_starts_with($note, 'AUTO:DIVISION_TRACKING_SLIP:')) {
+        return strtoupper(trim(substr($note, strlen('AUTO:DIVISION_TRACKING_SLIP:'))));
+      }
+      return '';
+    };
+    $priority = static function (array $row) use ($ownDivisionCode, $extractDivisionCode): int {
+      $note = (string)($row['note'] ?? '');
+      if ($note === 'AUTO:TRANSMITTAL_MEMO') return 0;
+      $rowDivisionCode = $extractDivisionCode($note);
+      if ($rowDivisionCode !== '') {
+        if ($ownDivisionCode !== '' && $rowDivisionCode === $ownDivisionCode) return 1;
+        return 2;
+      }
+      return 3;
+    };
+    $pa = $priority($a); $pb = $priority($b);
+    if ($pa !== $pb) return $pa <=> $pb;
+    return ((int)($a['__order_idx'] ?? 0)) <=> ((int)($b['__order_idx'] ?? 0));
+  });
+  foreach ($atts as &$__row) { unset($__row['__order_idx']); } unset($__row);
+}
 
 // Debug: show raw attachment rows
 if (isset($_GET['debugatts']) && $_GET['debugatts'] === '1') {

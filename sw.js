@@ -1,10 +1,9 @@
-const CACHE_NAME = 'mpw-doc-tracker-v4';
+const CACHE_NAME = 'mpw-doc-tracker-v6';
 const APP_BASE = new URL(self.registration.scope).pathname.replace(/\/$/, '');
 const OFFLINE_URL = APP_BASE + '/public/offline.php';
 const CORE_ASSETS = [
   APP_BASE + '/public/index.php',
   APP_BASE + '/public/login.php',
-  APP_BASE + '/public/scan.php',
   OFFLINE_URL,
   APP_BASE + '/assets/mpwlogo1.png',
   APP_BASE + '/assets/icons/icon-192.png',

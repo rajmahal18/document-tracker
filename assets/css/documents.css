@@ -1,6 +1,6 @@
 
 .docsPageShell [id] {
-  scroll-margin-top: 88px;
+  scroll-margin-top: calc(var(--app-topbar-height, 72px) + 24px);
 }
 
 .docsMobileTabs {
@@ -442,12 +442,12 @@
 
 @media (max-width: 900px) {
   .docsPageShell { gap: 12px; }
-  .docsPageShell [id] { scroll-margin-top: 120px; }
+  .docsPageShell [id] { scroll-margin-top: calc(var(--app-topbar-height, 62px) + 76px); }
 
   .docsMobileTabs {
     position: sticky;
-    top: calc(env(safe-area-inset-top) + 8px);
-    z-index: 15;
+    top: calc(var(--app-topbar-height, 62px) + env(safe-area-inset-top) + 8px);
+    z-index: 16;
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
