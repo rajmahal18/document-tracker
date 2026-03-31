@@ -1296,3 +1296,25 @@
 .orgEditModeActive .orgTinyEditBtn { display:inline-flex; align-items:center; }
 .orgEditModeActive .orgUserCard { outline:1px dashed rgba(58,143,255,.18); }
 #orgEditModal.isOpen { display:block; }
+
+.orgUserAssistant {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--c-ink-2);
+}
+
+.orgUserAssistant.isMuted {
+  color: var(--c-ink-4);
+}
+
+.modalBody .authField[hidden] {
+  display: none !important;
+}
+
+.modalBody input[disabled],
+.modalBody select[disabled] {
+  opacity: 0.72;
+  cursor: not-allowed;
+  background: rgba(148, 163, 184, 0.08);
+}

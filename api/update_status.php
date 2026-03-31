@@ -24,10 +24,12 @@ if ($docId <= 0 || $newStatus === "") {
   exit;
 }
 
+$identity = effective_document_identity($conn);
 $role        = (string)($_SESSION["role"] ?? "user");
-$mySectionId = (int)($_SESSION["section_id"] ?? 0);
-$userId      = (int)($_SESSION["user_id"] ?? 0);
-$isPrivileged = ($role === 'admin');
+$actualUserId = (int)($identity['actual_user_id'] ?? 0);
+$userId      = (int)($identity['effective_user_id'] ?? 0);
+$mySectionId = (int)($identity['effective_section_id'] ?? 0);
+$isPrivileged = ($role === 'admin') && !(bool)($identity['assistant_mode'] ?? false);
 
 try {
   $conn->begin_transaction();
@@ -110,7 +112,7 @@ try {
   ], JSON_UNESCAPED_UNICODE);
 
   $stmt = $conn->prepare("\n    INSERT INTO document_events\n      (document_id, event_type, actor_user_id, actor_section_id, payload_json)\n    VALUES (?, ?, ?, ?, ?)\n  ");
-  $stmt->bind_param("isiis", $docId, $eventType, $userId, $mySectionId, $payload);
+  $stmt->bind_param("isiis", $docId, $eventType, $actualUserId, $mySectionId, $payload);
   $stmt->execute();
 
   $conn->commit();

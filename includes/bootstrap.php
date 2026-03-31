@@ -301,108 +301,117 @@ function is_chief_user(): bool {
  * section chief for section-only route → allowed
  * section chief for section-held doc → allowed
  */
-function can_view_document(mysqli $conn, int $docId): bool {
 
-  if (is_admin_user()) {
-    return true;
-  }
-
-  $userId = (int)($_SESSION["user_id"] ?? 0);
-  $sectionId = (int)($_SESSION["section_id"] ?? 0);
-  $isChief = is_chief_user() ? 1 : 0;
-  $branchMode = workflow_branch_mode_enabled($conn);
-
-  if ($userId <= 0) {
-    return false;
-  }
-
-  if ($branchMode) {
-    $sql = "
-    SELECT 1
-    FROM documents d
-    WHERE d.id = ?
-      AND (
-        d.created_by_user_id = ?
-        OR EXISTS (
-          SELECT 1
-          FROM document_user_visibility duv
-          WHERE duv.document_id = d.id
-            AND duv.user_id = ?
-        )
-        OR EXISTS (
-          SELECT 1
-          FROM routes r
-          WHERE r.document_id = d.id
-            AND (
-              r.to_user_id = ?
-              OR r.sent_by_user_id = ?
-              OR r.received_by_user_id = ?
-            )
-        )
-      )
-    LIMIT 1
-    ";
-
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param(
-      "iiiiii",
-      $docId,
-      $userId,
-      $userId,
-      $userId,
-      $userId,
-      $userId
-    );
-  } else {
-    $sql = "
-    SELECT 1
-    FROM documents d
-    LEFT JOIN routes r ON r.document_id = d.id
-    WHERE d.id = ?
-    AND (
-          d.created_by_user_id = ?
-          OR r.to_user_id = ?
-          OR r.sent_by_user_id = ?
-          OR r.received_by_user_id = ?
-          OR (
-                r.to_user_id IS NULL
-                AND r.to_section_id = ?
-                AND ? = 1
-             )
-          OR (
-                d.current_holder_section_id = ?
-                AND ? = 1
-                AND NOT EXISTS (
-                  SELECT 1
-                  FROM routes rr
-                  WHERE rr.document_id = d.id
-                    AND rr.received_at IS NULL
-                    AND rr.cancelled_at IS NULL
-                )
-             )
-        )
-    LIMIT 1
-    ";
-
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param(
-      "iiiiiiiii",
-      $docId,
-      $userId,
-      $userId,
-      $userId,
-      $userId,
-      $sectionId,
-      $isChief,
-      $sectionId,
-      $isChief
-    );
-  }
-
+function assistant_fetch_assigned_principals(mysqli $conn, int $assistantUserId): array {
+  if ($assistantUserId <= 0 || !db_column_exists($conn, 'users', 'chief_assistant_user_id')) return [];
+  $hasAuthorityRole = db_column_exists($conn, 'users', 'authority_role');
+  $hasOfficialTitle = db_column_exists($conn, 'users', 'official_title');
+  $sql = '
+    SELECT u.id, u.full_name, u.section_id, u.role, u.is_chief, '
+    . ($hasAuthorityRole ? 'u.authority_role' : 'NULL') . ' AS authority_role, '
+    . ($hasOfficialTitle ? 'u.official_title' : 'NULL') . ' AS official_title, '
+    . 's.name AS section_name, d.id AS division_id, d.name AS division_name '
+    . 'FROM users u '
+    . 'LEFT JOIN sections s ON s.id = u.section_id '
+    . 'LEFT JOIN divisions d ON d.id = s.division_id '
+    . 'WHERE u.is_active = 1 AND u.chief_assistant_user_id = ? '
+    . 'ORDER BY u.full_name ASC';
+  $stmt = $conn->prepare($sql);
+  if (!$stmt) return [];
+  $stmt->bind_param('i', $assistantUserId);
   $stmt->execute();
+  $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+  $stmt->close();
+  foreach ($rows as &$row) {
+    $authority = trim((string)($row['authority_role'] ?? ''));
+    if ($authority === '') {
+      $authority = ((int)($row['is_chief'] ?? 0) === 1) ? 'section_head' : 'staff';
+    }
+    $row['authority_role'] = $authority;
+    $row['acting_label'] = match ($authority) {
+      'director' => 'Office of the Director',
+      'division_head' => 'Office of the Division Chief',
+      'section_head' => 'Office of the Section Chief',
+      default => 'Chief Office',
+    };
+  }
+  unset($row);
+  return $rows;
+}
 
+function assistant_requested_principal_id(): int {
+  return (int)($_POST['acting_principal_user_id'] ?? $_GET['acting_principal_user_id'] ?? $_REQUEST['acting_principal_user_id'] ?? 0);
+}
+
+function assistant_find_principal_by_id(mysqli $conn, int $assistantUserId, int $principalUserId): ?array {
+  foreach (assistant_fetch_assigned_principals($conn, $assistantUserId) as $principal) {
+    if ((int)($principal['id'] ?? 0) === $principalUserId) return $principal;
+  }
+  return null;
+}
+
+function effective_document_identity(mysqli $conn): array {
+  $base = [
+    'assistant_mode' => false,
+    'actual_user_id' => (int)($_SESSION['user_id'] ?? 0),
+    'actual_full_name' => trim((string)($_SESSION['full_name'] ?? '')),
+    'effective_user_id' => (int)($_SESSION['user_id'] ?? 0),
+    'effective_section_id' => (int)($_SESSION['section_id'] ?? 0),
+    'effective_division_id' => (int)($_SESSION['division_id'] ?? 0),
+    'effective_division_name' => trim((string)($_SESSION['division_name'] ?? '')),
+    'effective_role' => trim((string)($_SESSION['role'] ?? 'user')),
+    'effective_is_chief' => ((int)($_SESSION['is_chief'] ?? 0) === 1),
+    'acting_principal_user_id' => 0,
+    'acting_principal_name' => '',
+    'acting_label' => '',
+  ];
+  $requested = assistant_requested_principal_id();
+  if ($requested <= 0 || $base['actual_user_id'] <= 0) return $base;
+  $principal = assistant_find_principal_by_id($conn, $base['actual_user_id'], $requested);
+  if (!$principal) return $base;
+  $base['assistant_mode'] = true;
+  $base['effective_user_id'] = (int)($principal['id'] ?? 0);
+  $base['effective_section_id'] = (int)($principal['section_id'] ?? 0);
+  $base['effective_division_id'] = (int)($principal['division_id'] ?? 0);
+  $base['effective_division_name'] = trim((string)($principal['division_name'] ?? ''));
+  $base['effective_role'] = trim((string)($principal['role'] ?? 'user'));
+  $base['effective_is_chief'] = in_array((string)($principal['authority_role'] ?? ''), ['director','division_head','section_head'], true) || ((int)($principal['is_chief'] ?? 0) === 1);
+  $base['acting_principal_user_id'] = (int)($principal['id'] ?? 0);
+  $base['acting_principal_name'] = trim((string)($principal['full_name'] ?? ''));
+  $base['acting_label'] = trim((string)($principal['acting_label'] ?? ''));
+  return $base;
+}
+
+function can_view_document_for_identity(mysqli $conn, int $docId, int $userId, int $sectionId, bool $isChief, bool $isAdmin = false): bool {
+  if ($isAdmin) return true;
+  $branchMode = workflow_branch_mode_enabled($conn);
+  if ($userId <= 0) return false;
+  if ($branchMode) {
+    $sql = "SELECT 1 FROM documents d WHERE d.id = ? AND (d.created_by_user_id = ? OR EXISTS (SELECT 1 FROM document_user_visibility duv WHERE duv.document_id = d.id AND duv.user_id = ?) OR EXISTS (SELECT 1 FROM routes r WHERE r.document_id = d.id AND (r.to_user_id = ? OR r.sent_by_user_id = ? OR r.received_by_user_id = ?))) LIMIT 1";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param('iiiiii', $docId, $userId, $userId, $userId, $userId, $userId);
+  } else {
+    $chiefInt = $isChief ? 1 : 0;
+    $sql = "SELECT 1 FROM documents d LEFT JOIN routes r ON r.document_id = d.id WHERE d.id = ? AND (d.created_by_user_id = ? OR r.to_user_id = ? OR r.sent_by_user_id = ? OR r.received_by_user_id = ? OR (r.to_user_id IS NULL AND r.to_section_id = ? AND ? = 1) OR (d.current_holder_section_id = ? AND ? = 1 AND NOT EXISTS (SELECT 1 FROM routes rr WHERE rr.document_id = d.id AND rr.received_at IS NULL AND rr.cancelled_at IS NULL))) LIMIT 1";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param('iiiiiiiii', $docId, $userId, $userId, $userId, $userId, $sectionId, $chiefInt, $sectionId, $chiefInt);
+  }
+  $stmt->execute();
   return (bool)$stmt->get_result()->fetch_row();
 }
+
+function can_view_document(mysqli $conn, int $docId): bool {
+  $identity = effective_document_identity($conn);
+  return can_view_document_for_identity(
+    $conn,
+    $docId,
+    (int)($identity['effective_user_id'] ?? 0),
+    (int)($identity['effective_section_id'] ?? 0),
+    (bool)($identity['effective_is_chief'] ?? false),
+    is_admin_user() && !(bool)($identity['assistant_mode'] ?? false)
+  );
+}
+
 function attachment_branch_scope_for_document(mysqli $conn, int $docId, int $requestedBranchId = 0): array {
   $branchMode = workflow_branch_mode_enabled($conn);
   $hasBranchColumn = workflow_branch_attachment_scope_enabled($conn);
@@ -410,8 +419,9 @@ function attachment_branch_scope_for_document(mysqli $conn, int $docId, int $req
 
   $selectedBranchId = 0;
   if ($docHasBranches && $hasBranchColumn && $requestedBranchId > 0) {
-    $userId = (int)($_SESSION['user_id'] ?? 0);
-    if (is_admin_user() || workflow_user_can_access_branch($conn, $docId, $requestedBranchId, $userId)) {
+    $identity = effective_document_identity($conn);
+    $userId = (int)($identity['effective_user_id'] ?? 0);
+    if ((is_admin_user() && !(bool)($identity['assistant_mode'] ?? false)) || workflow_user_can_access_branch($conn, $docId, $requestedBranchId, $userId)) {
       $selectedBranchId = $requestedBranchId;
     }
   }
@@ -454,10 +464,11 @@ function can_view_attachment(mysqli $conn, int $attachmentId): bool {
     return true;
   }
 
-  if (is_admin_user()) {
+  $identity = effective_document_identity($conn);
+  if (is_admin_user() && !(bool)($identity['assistant_mode'] ?? false)) {
     return true;
   }
 
-  $userId = (int)($_SESSION['user_id'] ?? 0);
+  $userId = (int)($identity['effective_user_id'] ?? 0);
   return workflow_user_can_access_branch($conn, $docId, $branchId, $userId);
 }

@@ -41,7 +41,7 @@ $divisionId = (int)$myDivision['id'];
 $divisionCode = (string)$myDivision['code'];
 $divisionName = (string)$myDivision['name'];
 
-$stmt = $conn->prepare("SELECT id, tracking_no, document_date, deadline_at, subject, origin_section_id FROM documents WHERE id = ? LIMIT 1");
+$stmt = $conn->prepare("SELECT d.id, d.tracking_no, d.document_date, d.deadline_at, d.subject, d.origin_section_id, d.created_by_user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), '') AS created_by_name FROM documents d LEFT JOIN users u ON u.id = d.created_by_user_id WHERE d.id = ? LIMIT 1");
 $stmt->bind_param('i', $docId);
 $stmt->execute();
 $doc = $stmt->get_result()->fetch_assoc();
@@ -75,7 +75,10 @@ if ($originSectionId > 0) {
   }
 }
 
-$receivedBy = trim((string)($_SESSION['full_name'] ?? ''));
+$receivedBy = trim((string)($doc['created_by_name'] ?? ''));
+if ($receivedBy === '') {
+  $receivedBy = trim((string)($_SESSION['full_name'] ?? ''));
+}
 $receivedDT = date('m/d/y  g:ia');
 $head = resolve_division_head($conn, $divisionId);
 $flowRows = []; // movement auto-generation intentionally disabled
@@ -131,7 +134,7 @@ DivisionTrackingSlip::generateA4([
   'logo_left_abs' => realpath(__DIR__ . '/../assets/mpwlogo1.png') ?: '',
   'logo_right_abs' => realpath(__DIR__ . '/../assets/ocmlogo.png') ?: '',
   'signatory_name' => (string)($head['full_name'] ?? ''),
-  'signatory_title' => trim((string)($head['official_title'] ?? '')) . (trim((string)($head['official_title'] ?? '')) !== '' ? ', ' : '') . $divisionName,
+  'signatory_title' => 'Chief' . ($divisionName !== '' ? ', ' . $divisionName : ''),
   'flow_rows' => $flowRows,
   'name_entries' => $nameEntries,
 ], $abs);

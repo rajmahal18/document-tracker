@@ -504,6 +504,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   $document_date = trim((string)($_POST["document_date"] ?? ""));
   $subject       = trim((string)($_POST["subject"] ?? ""));
   $content_type  = trim((string)($_POST["content_type"] ?? ""));
+  $content_type_other = trim((string)($_POST["content_type_other"] ?? ""));
+  if (strcasecmp($content_type, "Others") === 0) {
+    $content_type = $content_type_other;
+  }
   $comm_type     = trim((string)($_POST["comm_type"] ?? "internal"));
   $deadlineAtRaw = trim((string)($_POST["deadline_at"] ?? ""));
   $deadlineAt    = normalize_deadline_input($deadlineAtRaw);
@@ -617,7 +621,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
     $divisionTrackingInput = $ownDivisionTrackingPreview;
   }
 
-  if ($requester === "" || $document_date === "" || $subject === "" || $content_type === "") {
+  if (strcasecmp((string)($_POST["content_type"] ?? ""), "Others") === 0 && $content_type_other === "") {
+    $error = "Please specify the content type when Others is selected.";
+  } elseif ($requester === "" || $document_date === "" || $subject === "" || $content_type === "") {
     $error = "Please fill in all required fields.";
   } elseif ($builderContractEnabled && !$hasSeededDestinations) {
     $error = "Please add at least one destination to the list.";
@@ -1132,7 +1138,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             "document_date"        => $document_date,
             "subject"              => $subject,
             "mpw_tracking_no"      => $tracking_no,
-            "received_by"          => "",
+            "received_by"          => trim((string)($_SESSION["full_name"] ?? "")),
             "received_datetime"    => "",
             "deadline_date"        => $deadlineAt ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("m/d/Y") : "",
             "deadline_time"        => $deadlineAt ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("g:i A") : "",
@@ -1140,7 +1146,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             "logo_left_abs"        => realpath(__DIR__ . "/../assets/mpwlogo1.png") ?: "",
             "logo_right_abs"       => realpath(__DIR__ . "/../assets/ocmlogo.png") ?: "",
             "signatory_name"       => (string)($divisionHead['full_name'] ?? ''),
-            "signatory_title"      => trim((string)($divisionHead['official_title'] ?? '')) . (trim((string)($divisionHead['official_title'] ?? '')) !== '' ? ', ' : '') . $myDivisionName,
+            "signatory_title"      => 'Chief' . ($myDivisionName !== '' ? ', ' . $myDivisionName : ''),
             "flow_rows"            => $flowRows,
             "name_entries"         => $nameEntries,
           ], $abs);
@@ -1210,6 +1216,31 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
 
 $savedTempAttachment = get_saved_temp_attachment();
 
+$contentTypeOptions = [
+  "Memorandum",
+  "Endorsement",
+  "Letter",
+  "Memo Order",
+  "Ministry Order",
+  "Communication (External)",
+  "Communication (Internal)",
+  "Communication (External) DEO",
+  "Program of Works and Plans",
+  "Proposal",
+  "Back to Office Report",
+  "Others",
+];
+
+$postedContentType = trim((string)($_POST["content_type"] ?? ""));
+$postedContentTypeOther = trim((string)($_POST["content_type_other"] ?? ""));
+$contentTypeSelectedValue = $postedContentType;
+if ($postedContentType !== '' && !in_array($postedContentType, $contentTypeOptions, true)) {
+  $contentTypeSelectedValue = 'Others';
+  if ($postedContentTypeOther === '') {
+    $postedContentTypeOther = $postedContentType;
+  }
+}
+
 $pageStyles = [asset_url("assets/css/add-document.css")];
 $pageScripts = [asset_url("assets/js/add-document.js")];
 
@@ -1222,82 +1253,112 @@ require __DIR__ . "/../includes/layout.php";
   </div>
 <?php endif; ?>
 
-<div class="card docFormCard addDocumentPage" style="max-width:980px;margin-top:14px;">
-  <div class="docFormHead">
+<div class="card docFormCard addDocumentPage" style="max-width:1040px;margin-top:14px;">
+  <div class="docFormHead addDocHeader">
     <div>
+      <div class="addDocEyebrow">Document Intake</div>
       <h2 style="margin:6px 0 0;">Add New Document</h2>
+      <div class="mini addDocLead">Fill in the basic details first, then choose destinations and optional auto-generated files.</div>
     </div>
-    <div class="mini" style="text-align:right;">
+    <div class="addDocRequiredNote">
       Fields with <b>*</b> are required
     </div>
   </div>
 
-  <form method="POST" enctype="multipart/form-data" class="docFormGrid" data-remove-saved-attachment-url="<?= API_PATH ?>/remove_saved_attachment.php">
+  <form method="POST" enctype="multipart/form-data" class="docFormGrid addDocForm" data-remove-saved-attachment-url="<?= API_PATH ?>/remove_saved_attachment.php">
     <input type="hidden" name="remove_saved_attachment" value="0" id="removeSavedAttachmentInput">
     <input type="hidden" name="destination_builder_contract" value="0" id="destinationBuilderContractInput">
-    <div class="authField">
-      <label>Requester <span class="req">*</span></label>
-      <input
-        type="text"
-        name="requester"
-        required
-        placeholder="Name of requester"
-        value="<?= htmlspecialchars($_POST["requester"] ?? "") ?>"
-      >
-    </div>
 
-    <div class="authField">
-      <label>Document Date <span class="req">*</span></label>
-      <input
-        type="date"
-        name="document_date"
-        required
-        value="<?= htmlspecialchars($_POST["document_date"] ?? $defaultDocDate) ?>"
-      >
-    </div>
+    <section class="addDocSection addDocSection-basic span2">
+      <div class="addDocSectionHead">
+        <div>
+          <h3>Basic Information</h3>
+          <p>Core document details used across routing, tracking, and generated files.</p>
+        </div>
+      </div>
 
-    <div class="authField">
-      <label>Deadline</label>
-      <input
-        type="datetime-local"
-        name="deadline_at"
-        value="<?= htmlspecialchars($_POST["deadline_at"] ?? "") ?>"
-      >
-      <div class="mini" style="margin-top:6px;">Optional. Used for countdown + urgency sorting.</div>
-    </div>
+      <div class="addDocSectionGrid addDocBasicGrid">
+        <div class="authField">
+          <label>Requester <span class="req">*</span></label>
+          <input
+            type="text"
+            name="requester"
+            required
+            placeholder="Name of requester"
+            value="<?= htmlspecialchars($_POST["requester"] ?? "") ?>"
+          >
+        </div>
 
-    <div class="authField span2">
-      <label>Subject <span class="req">*</span></label>
-      <input
-        type="text"
-        name="subject"
-        required
-        placeholder="Short subject / title"
-        value="<?= htmlspecialchars($_POST["subject"] ?? "") ?>"
-      >
-    </div>
+        <div class="authField">
+          <label>Document Date <span class="req">*</span></label>
+          <input
+            type="date"
+            name="document_date"
+            required
+            value="<?= htmlspecialchars($_POST["document_date"] ?? $defaultDocDate) ?>"
+          >
+        </div>
 
-    <div class="authField">
-      <label>Content Type <span class="req">*</span></label>
-      <input
-        type="text"
-        name="content_type"
-        required
-        placeholder="Memorandum, Proposal, Letter..."
-        value="<?= htmlspecialchars($_POST["content_type"] ?? "") ?>"
-      >
-    </div>
+        <div class="authField">
+          <label>Deadline</label>
+          <input
+            type="datetime-local"
+            name="deadline_at"
+            value="<?= htmlspecialchars($_POST["deadline_at"] ?? "") ?>"
+          >
+          <div class="mini">Optional. Used for countdown + urgency sorting.</div>
+        </div>
 
-    <div class="authField">
-      <label>Communication Type <span class="req">*</span></label>
-      <select name="comm_type" class="select" required>
-        <option value="internal" <?= (($_POST["comm_type"] ?? "internal") === "internal") ? "selected" : "" ?>>Internal</option>
-        <option value="external" <?= (($_POST["comm_type"] ?? "") === "external") ? "selected" : "" ?>>External</option>
-      </select>
-    </div>
+        <div class="authField addDocFieldWide">
+          <label>Subject <span class="req">*</span></label>
+          <input
+            type="text"
+            name="subject"
+            required
+            placeholder="Short subject / title"
+            value="<?= htmlspecialchars($_POST["subject"] ?? "") ?>"
+          >
+        </div>
 
-    <div class="authField span2">
-      <label>Destination Builder <span class="req">*</span></label>
+        <div class="authField authFieldStacked" id="contentTypeField">
+          <label>Content Type <span class="req">*</span></label>
+          <select name="content_type" id="contentTypeSelect" class="select" required>
+            <option value="">-- Please Select Type --</option>
+            <?php foreach ($contentTypeOptions as $typeOption): ?>
+              <option value="<?= htmlspecialchars($typeOption) ?>" <?= ($contentTypeSelectedValue === $typeOption) ? "selected" : "" ?>><?= htmlspecialchars($typeOption) ?></option>
+            <?php endforeach; ?>
+          </select>
+
+          <div class="addDocConditionalField" id="contentTypeOtherWrap">
+            <label for="contentTypeOtherInput">Please Specify <span class="req">*</span></label>
+            <input
+              type="text"
+              name="content_type_other"
+              id="contentTypeOtherInput"
+              placeholder="Enter content type"
+              value="<?= htmlspecialchars($postedContentTypeOther) ?>"
+            >
+            <div class="mini">Use this only when the document type is not in the list above.</div>
+          </div>
+        </div>
+
+        <div class="authField">
+          <label>Communication Type <span class="req">*</span></label>
+          <select name="comm_type" class="select" required>
+            <option value="internal" <?= (($_POST["comm_type"] ?? "internal") === "internal") ? "selected" : "" ?>>Internal</option>
+            <option value="external" <?= (($_POST["comm_type"] ?? "") === "external") ? "selected" : "" ?>>External</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <section class="addDocSection span2">
+      <div class="addDocSectionHead">
+        <div>
+          <h3>Destination Builder</h3>
+          <p>Choose where the document should go and whether each destination is chief-only or user-specific.</p>
+        </div>
+      </div>
 
       <div class="destBuilder">
         <div class="destToolbar">
@@ -1339,10 +1400,18 @@ require __DIR__ . "/../includes/layout.php";
           <div class="destSummaryEmpty">No destinations added yet.</div>
         </div>
       </div>
-    </div>
+    </section>
 
-          <div class="authField span2">
-        <div style="font-weight:900;margin-bottom:6px;">Auto-generate (choose one)</div>
+    <section class="addDocSection span2">
+      <div class="addDocSectionHead">
+        <div>
+          <h3>Auto-generate</h3>
+          <p>Optional PDFs you can generate right away while saving the document.</p>
+        </div>
+      </div>
+
+      <div class="authField addDocAutoField">
+        <div class="addDocInlineLabel">Auto-generate (choose one)</div>
 
         <?php $choice = (string)($_POST["gen_choice"] ?? "none"); ?>
 
@@ -1399,8 +1468,15 @@ require __DIR__ . "/../includes/layout.php";
           </div>
         <?php endif; ?>
       </div>
+    </section>
 
-    <div class="docDivider span2"></div>
+    <section class="addDocSection span2">
+      <div class="addDocSectionHead">
+        <div>
+          <h3>Notes and Attachment</h3>
+          <p>Add extra remarks only when needed, and attach the reference file if available.</p>
+        </div>
+      </div>
 
     <div class="authField span2">
       <label>Remarks <span class="mini" style="font-weight:700;">(optional)</span></label>
@@ -1439,10 +1515,11 @@ require __DIR__ . "/../includes/layout.php";
       <div class="mini" style="margin-top:6px;">If saving fails, the uploaded file is now preserved for retry on this page.</div>
     </div>
 
-    <div class="docActions span2">
+    <div class="docActions span2 addDocActions">
       <button type="submit" class="btnSecondary">Save Document</button>
       <a href="<?= PUBLIC_PATH ?>/documents.php" class="btnGhost" style="text-decoration:none;">Cancel</a>
     </div>
+    </section>
   </form>
 </div>
 

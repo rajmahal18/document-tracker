@@ -5,6 +5,69 @@ require __DIR__ . "/../includes/bootstrap.php";
 require_once __DIR__ . "/../core/division_tracking.php";
 require_login();
 
+/* -------------------------
+ * Assistant mode bootstrap
+ * ------------------------- */
+$assistantPrincipals = [];
+$assistantModeEnabled = false;
+$activeAssistantPrincipal = null;
+$requestedDocumentsTab = strtolower(trim((string)($_GET['view'] ?? 'my')));
+if ($requestedDocumentsTab !== 'assistant') {
+  $requestedDocumentsTab = 'my';
+}
+$requestedActingPrincipalUserId = (int)($_GET['acting_principal_user_id'] ?? 0);
+
+$actualUserIdForAssistantLookup = (int)($_SESSION['user_id'] ?? 0);
+if ($actualUserIdForAssistantLookup > 0) {
+  $assistantAssignmentSql = "
+    SELECT
+      principal.id,
+      principal.full_name,
+      principal.authority_role,
+      principal.section_id,
+      COALESCE(sec.name, '') AS section_name,
+      COALESCE(sec.division_id, 0) AS division_id,
+      COALESCE(dv.name, '') AS division_name
+    FROM users principal
+    LEFT JOIN sections sec ON sec.id = principal.section_id
+    LEFT JOIN divisions dv ON dv.id = sec.division_id
+    WHERE principal.chief_assistant_user_id = ?
+      AND principal.is_active = 1
+      AND principal.authority_role IN ('director', 'division_head', 'section_head')
+    ORDER BY principal.full_name ASC
+  ";
+  if ($assistantAssignmentStmt = $conn->prepare($assistantAssignmentSql)) {
+    $assistantAssignmentStmt->bind_param('i', $actualUserIdForAssistantLookup);
+    $assistantAssignmentStmt->execute();
+    $assistantAssignmentResult = $assistantAssignmentStmt->get_result();
+    while ($assistantRow = $assistantAssignmentResult->fetch_assoc()) {
+      $assistantPrincipals[] = $assistantRow;
+    }
+    $assistantAssignmentStmt->close();
+  }
+}
+
+if ($assistantPrincipals !== [] && $requestedDocumentsTab === 'assistant') {
+  if ($requestedActingPrincipalUserId > 0) {
+    foreach ($assistantPrincipals as $principal) {
+      if ((int)($principal['id'] ?? 0) === $requestedActingPrincipalUserId) {
+        $activeAssistantPrincipal = $principal;
+        break;
+      }
+    }
+  }
+
+  if ($activeAssistantPrincipal === null) {
+    $activeAssistantPrincipal = $assistantPrincipals[0];
+  }
+
+  if ($activeAssistantPrincipal !== null) {
+    $assistantModeEnabled = true;
+  }
+}
+
+/* ✅ Division-aware sections */
+
 /* ✅ Division-aware sections */
 $sections = $conn->query("
   SELECT s.id, s.name, d.name AS division_name
@@ -29,15 +92,18 @@ require __DIR__ . "/../includes/layout.php";
   window.__CSRF__ = "<?= htmlspecialchars(csrf_token(), ENT_QUOTES, "UTF-8") ?>";
 
   window.__CTX__ = {
-    myUserId: <?= (int)($_SESSION["user_id"] ?? 0) ?>,
-    mySectionId: <?= (int)($_SESSION["section_id"] ?? 0) ?>,
+    myUserId: <?= $assistantModeEnabled ? (int)($activeAssistantPrincipal['id'] ?? 0) : (int)($_SESSION["user_id"] ?? 0) ?>,
+    mySectionId: <?= $assistantModeEnabled ? (int)($activeAssistantPrincipal['section_id'] ?? 0) : (int)($_SESSION["section_id"] ?? 0) ?>,
     myRole: "<?= htmlspecialchars($_SESSION["role"] ?? "user") ?>",
-    isChief: <?= ((int)($_SESSION["is_chief"] ?? 0) === 1) ? "true" : "false" ?>,
-    myDivisionName: "<?= htmlspecialchars($_SESSION["division_name"] ?? "") ?>",
+    isChief: <?= ($assistantModeEnabled ? in_array((string)($activeAssistantPrincipal['authority_role'] ?? ''), ['director','division_head','section_head'], true) : ((int)($_SESSION["is_chief"] ?? 0) === 1)) ? "true" : "false" ?>,
+    myDivisionName: "<?= htmlspecialchars($assistantModeEnabled ? (string)($activeAssistantPrincipal['division_name'] ?? '') : (string)($_SESSION["division_name"] ?? "")) ?>",
     myDivisionCode: "<?= htmlspecialchars($myDivisionCode) ?>",
     hasOwnDivisionSlip: <?= $hasOwnDivisionSlip ? "true" : "false" ?>,
     ownDivisionSlipLabel: "<?= htmlspecialchars($ownDivisionSlipLabel) ?>",
-    branchMode: <?= $branchMode ? "true" : "false" ?>
+    branchMode: <?= $branchMode ? "true" : "false" ?>,
+    assistantMode: <?= $assistantModeEnabled ? 'true' : 'false' ?>,
+    actingPrincipalUserId: <?= (int)($activeAssistantPrincipal['id'] ?? 0) ?>,
+    actingPrincipalName: "<?= htmlspecialchars((string)($activeAssistantPrincipal['full_name'] ?? '')) ?>"
   };
 
   window.__SECTIONS__ = <?= json_encode($sections, JSON_UNESCAPED_UNICODE) ?>;
@@ -81,9 +147,12 @@ $perPage = 15;   // ✅ fixed, unchangeable
 $offset = ($page - 1) * $perPage;
 
 $role        = (string)($_SESSION["role"] ?? "user");
-$myUserId    = (int)($_SESSION["user_id"] ?? 0);
-$mySectionId = (int)($_SESSION["section_id"] ?? 0);
-$isChief     = ((int)($_SESSION["is_chief"] ?? 0) === 1);
+$actualUserId = (int)($_SESSION["user_id"] ?? 0);
+$actualSectionId = (int)($_SESSION["section_id"] ?? 0);
+$actualIsChief = ((int)($_SESSION["is_chief"] ?? 0) === 1);
+$myUserId    = $assistantModeEnabled ? (int)($activeAssistantPrincipal['id'] ?? 0) : $actualUserId;
+$mySectionId = $assistantModeEnabled ? (int)($activeAssistantPrincipal['section_id'] ?? 0) : $actualSectionId;
+$isChief     = $assistantModeEnabled ? in_array((string)($activeAssistantPrincipal['authority_role'] ?? ''), ['director','division_head','section_head'], true) : $actualIsChief;
 
 $where  = [];
 $params = [];
@@ -987,22 +1056,47 @@ function pageUrl(int $p): string {
 function quickUrl(string $target): string {
   $q = $_GET;
   $currentQuick = strtolower(trim($q["quick"] ?? ""));
-
-  if ($target === "") {
-    unset($q["quick"]);
-  } elseif ($currentQuick === $target) {
-    unset($q["quick"]);
-  } else {
-    $q["quick"] = $target;
-  }
-
-  $q["page"] = 1; // reset pagination when filtering/toggling
+  if ($target === "") unset($q["quick"]);
+  elseif ($currentQuick === $target) unset($q["quick"]);
+  else $q["quick"] = $target;
+  $q["page"] = 1;
   return PUBLIC_PATH . "/documents.php?" . http_build_query($q);
+}
+
+function documentsUrl(array $overrides = []): string {
+  $q = $_GET;
+  foreach ($overrides as $key => $value) {
+    if ($value === null || $value === '') unset($q[$key]);
+    else $q[$key] = $value;
+  }
+  return PUBLIC_PATH . '/documents.php?' . http_build_query($q);
 }
 ?>
 
 <?php $hasActiveFilters = ($search !== "" || $statusGet !== "" || $date_from !== "" || $date_to !== "" || $quick !== "" || ($sort !== "" && $sort !== "workflow")); ?>
+<style>
+.docsViewTabs{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px}.docsViewTab{padding:10px 14px;border-radius:12px;border:1px solid rgba(15,23,42,.12);background:#fff;color:#0f172a;text-decoration:none;font-weight:700}.docsViewTab.isActive{background:#0f172a;color:#fff}.docsAssistantBar{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin:0 0 16px;padding:14px;border:1px solid rgba(15,23,42,.08);border-radius:16px;background:#fff}.docsAssistantBar label{display:block;font-size:12px;font-weight:700;color:#475569;margin-bottom:6px}.docsAssistantBar select{min-width:260px;padding:10px 12px;border-radius:12px;border:1px solid rgba(15,23,42,.12)}.docsAssistantHint{font-size:12px;color:#64748b}
+</style>
 <div class="docsPageShell">
+  <div class="docsViewTabs" aria-label="Documents view tabs">
+    <a class="docsViewTab <?= !$assistantModeEnabled ? 'isActive' : '' ?>" href="<?= htmlspecialchars(documentsUrl(['view' => 'my', 'acting_principal_user_id' => null, 'page' => 1])) ?>">My documents</a>
+    <?php if ($assistantPrincipals !== []): ?>
+      <a class="docsViewTab <?= $assistantModeEnabled ? 'isActive' : '' ?>" href="<?= htmlspecialchars(documentsUrl(['view' => 'assistant', 'acting_principal_user_id' => (int)($activeAssistantPrincipal['id'] ?? $assistantPrincipals[0]['id'] ?? 0), 'page' => 1])) ?>">Assistant mode</a>
+    <?php endif; ?>
+  </div>
+  <?php if ($assistantModeEnabled): ?>
+    <form class="docsAssistantBar" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
+      <input type="hidden" name="view" value="assistant">
+      <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
+      <input type="hidden" name="status" value="<?= htmlspecialchars($statusGet) ?>">
+      <input type="hidden" name="from" value="<?= htmlspecialchars($date_from) ?>">
+      <input type="hidden" name="to" value="<?= htmlspecialchars($date_to) ?>">
+      <input type="hidden" name="quick" value="<?= htmlspecialchars($quick) ?>">
+      <input type="hidden" name="sort" value="<?= htmlspecialchars($sort) ?>">
+      <label>Acting for<select name="acting_principal_user_id" onchange="this.form.submit()"><?php foreach ($assistantPrincipals as $principal): ?><option value="<?= (int)$principal['id'] ?>" <?= (int)$principal['id'] === (int)($activeAssistantPrincipal['id'] ?? 0) ? 'selected' : '' ?>><?= htmlspecialchars((string)$principal['full_name']) ?></option><?php endforeach; ?></select></label>
+      <div class="docsAssistantHint">Separate assistant queue for <?= htmlspecialchars((string)($activeAssistantPrincipal['full_name'] ?? 'the selected chief')) ?>. Actions remain under your account, but authority checks use this chief context.</div>
+    </form>
+  <?php endif; ?>
   <nav class="docsMobileTabs" aria-label="Documents sections">
     <a href="#docsOverview" class="docsMobileTab isActive" data-scroll-tab>Overview</a>
     <a href="#docsFilters" class="docsMobileTab" data-scroll-tab>Find</a>
@@ -1011,8 +1105,8 @@ function quickUrl(string $target): string {
 
   <section class="docsHero" id="docsOverview">
     <div class="docsHeroCopy">
-      <div class="docsEyebrow">My work queue</div>
-      <h1 class="docsTitle">Document List</h1>
+      <div class="docsEyebrow"><?= $assistantModeEnabled ? "Assistant queue" : "My work queue" ?></div>
+      <h1 class="docsTitle"><?= $assistantModeEnabled ? "Assistant Mode Documents" : "Document List" ?></h1>
     </div>
 
     <div class="docsHeroActions">
@@ -1084,7 +1178,7 @@ function quickUrl(string $target): string {
       </div>
 
       <?php if ($hasActiveFilters): ?>
-        <a class="docsClearFilters" href="<?= PUBLIC_PATH ?>/documents.php">Reset filters</a>
+        <a class="docsClearFilters" href="<?= htmlspecialchars(documentsUrl(['q'=>null,'status'=>null,'from'=>null,'to'=>null,'quick'=>null,'sort'=>null,'page'=>1])) ?>">Reset filters</a>
       <?php endif; ?>
     </div>
 
@@ -1100,6 +1194,8 @@ function quickUrl(string $target): string {
 
     <div class="docsControlsGrid">
       <form class="toolbar toolbarSearch docsToolbarSearch" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
+        <input type="hidden" name="view" value="<?= htmlspecialchars($requestedDocumentsTab) ?>">
+        <?php if ($assistantModeEnabled): ?><input type="hidden" name="acting_principal_user_id" value="<?= (int)($activeAssistantPrincipal['id'] ?? 0) ?>"><?php endif; ?>
         <input type="hidden" name="status" value="<?= htmlspecialchars($statusGet) ?>">
         <input type="hidden" name="from" value="<?= htmlspecialchars($date_from) ?>">
         <input type="hidden" name="to" value="<?= htmlspecialchars($date_to) ?>">
@@ -1127,6 +1223,8 @@ function quickUrl(string $target): string {
       </form>
 
       <form class="toolbar toolbarFilters docsToolbarFilters" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
+        <input type="hidden" name="view" value="<?= htmlspecialchars($requestedDocumentsTab) ?>">
+        <?php if ($assistantModeEnabled): ?><input type="hidden" name="acting_principal_user_id" value="<?= (int)($activeAssistantPrincipal['id'] ?? 0) ?>"><?php endif; ?>
         <input type="hidden" name="quick" value="<?= htmlspecialchars($quick) ?>">
         <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
         <input type="hidden" name="sort" value="<?= htmlspecialchars($sort) ?>">
@@ -1423,6 +1521,7 @@ function quickUrl(string $target): string {
                 "current_holder_section_id" => (int)($d["current_holder_section_id"] ?? 0),
                 "current_status" => (string)($d["current_status"] ?? "ACTIVE"),
                 "days_stuck" => $days,
+                "acting_principal_user_id" => $assistantModeEnabled ? (int)($activeAssistantPrincipal['id'] ?? 0) : 0,
               ], JSON_UNESCAPED_UNICODE),
               ENT_QUOTES,
               "UTF-8"

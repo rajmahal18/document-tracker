@@ -12,6 +12,12 @@
   const roleInput = document.getElementById('org_authority_role');
   const permanentInput = document.getElementById('org_permanent');
   const targetIdInput = document.getElementById('org_target_user_id');
+  const assistantField = document.getElementById('orgAssistantField');
+  const assistantSelect = document.getElementById('org_chief_assistant_user_id');
+  const assistantHelp = document.getElementById('orgAssistantHelp');
+  const scopeNote = document.getElementById('orgEditScopeNote');
+
+  const basicFields = [nameInput, emailInput, titleInput, roleInput, permanentInput].filter(Boolean);
 
   function generateUsername(fullName) {
     const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean).map((p) => p.replace(/[^a-z0-9]/gi, ''));
@@ -34,7 +40,47 @@
     editModeBtn.textContent = on ? 'Disable edit mode' : 'Enable edit mode';
   }
 
+  function populateAssistantOptions(rawCandidates, selectedValue) {
+    if (!assistantSelect) return;
+    const candidates = Array.isArray(rawCandidates) ? rawCandidates : [];
+    assistantSelect.innerHTML = '';
+
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = '0';
+    defaultOpt.textContent = 'No assigned assistant';
+    assistantSelect.appendChild(defaultOpt);
+
+    candidates.forEach((candidate) => {
+      const opt = document.createElement('option');
+      opt.value = String(candidate.id || 0);
+      const suffix = candidate.display_title ? ` — ${candidate.display_title}` : (candidate.section_name ? ` — ${candidate.section_name}` : '');
+      opt.textContent = `${candidate.full_name || 'Unnamed user'}${suffix}`;
+      assistantSelect.appendChild(opt);
+    });
+
+    assistantSelect.value = String(selectedValue || '0');
+    if (assistantSelect.value !== String(selectedValue || '0')) {
+      assistantSelect.value = '0';
+    }
+  }
+
+  function setBasicFieldsEditable(canEditBasic) {
+    basicFields.forEach((field) => {
+      if (!field) return;
+      field.disabled = !canEditBasic;
+    });
+  }
+
   function openModal(button) {
+    const canEditBasic = button.dataset.canEditBasic === '1';
+    const canAssignAssistant = button.dataset.canAssignAssistant === '1';
+    let candidates = [];
+    try {
+      candidates = JSON.parse(button.dataset.assistantCandidates || '[]');
+    } catch (err) {
+      candidates = [];
+    }
+
     targetIdInput.value = button.dataset.userId || '';
     nameInput.value = button.dataset.fullName || '';
     emailInput.value = button.dataset.email || '';
@@ -42,10 +88,37 @@
     roleInput.value = button.dataset.authorityRole || 'staff';
     if (permanentInput) permanentInput.checked = button.dataset.permanent === '1';
     usernamePreview.value = generateUsername(nameInput.value);
+    setBasicFieldsEditable(canEditBasic);
+
+    if (assistantField && assistantSelect) {
+      assistantField.hidden = !canAssignAssistant;
+      assistantSelect.disabled = !canAssignAssistant;
+      if (canAssignAssistant) {
+        populateAssistantOptions(candidates, button.dataset.chiefAssistantUserId || '0');
+        if (assistantHelp) {
+          assistantHelp.textContent = candidates.length
+            ? 'Choose the staff user who can assist this chief inside the allowed domain.'
+            : 'No eligible staff candidate found yet in this allowed domain.';
+        }
+      } else {
+        populateAssistantOptions([], '0');
+      }
+    }
+
+    if (scopeNote) {
+      if (canEditBasic && canAssignAssistant) {
+        scopeNote.textContent = 'You can update org details here and assign an assistant for this chief within your allowed scope.';
+      } else if (canAssignAssistant) {
+        scopeNote.textContent = 'You can assign an assistant for this chief here. Basic org fields are read-only for this account.';
+      } else {
+        scopeNote.textContent = 'Section and division are read-only in this pass. Use this to update account ownership and org details inside your allowed scope.';
+      }
+    }
+
     msg.style.display = 'none';
     modal.setAttribute('aria-hidden', 'false');
     modal.classList.add('isOpen');
-    nameInput.focus();
+    (canEditBasic ? nameInput : assistantSelect || nameInput).focus();
   }
 
   function closeModal() {

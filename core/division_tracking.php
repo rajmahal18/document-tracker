@@ -217,6 +217,42 @@ function is_supported_division_tracking_code(?string $code): bool
   return in_array(strtoupper(trim((string)$code)), ['PPD', 'SDD', 'SPD'], true);
 }
 
+function get_document_creator_name(mysqli $conn, int $documentId): string
+{
+  if ($documentId <= 0) return '';
+
+  $stmt = $conn->prepare("SELECT COALESCE(NULLIF(TRIM(u.full_name), ''), '') AS full_name
+    FROM documents d
+    LEFT JOIN users u ON u.id = d.created_by_user_id
+    WHERE d.id = ?
+    LIMIT 1");
+  $stmt->bind_param('i', $documentId);
+  $stmt->execute();
+  $row = $stmt->get_result()->fetch_assoc();
+
+  return trim((string)($row['full_name'] ?? ''));
+}
+
+function build_division_head_signatory_title(?array $divisionHead, string $divisionName): string
+{
+  $officialTitle = trim((string)($divisionHead['official_title'] ?? ''));
+  $authorityRole = strtolower(trim((string)($divisionHead['authority_role'] ?? '')));
+
+  if ($officialTitle !== '') {
+    if (preg_match('/division\s+chief/i', $officialTitle)) {
+      $officialTitle = preg_replace('/division\s+chief/i', 'Chief', $officialTitle) ?? $officialTitle;
+    }
+  } elseif ($authorityRole === 'division_head') {
+    $officialTitle = 'Chief';
+  }
+
+  if ($officialTitle === '') {
+    return trim($divisionName);
+  }
+
+  return $officialTitle . ($divisionName !== '' ? ', ' . $divisionName : '');
+}
+
 function resolve_division_head(mysqli $conn, int $divisionId): ?array
 {
   if ($divisionId <= 0) return null;

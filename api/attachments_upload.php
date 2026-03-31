@@ -32,9 +32,11 @@ if (!isset($_FILES["file"])) {
   exit;
 }
 
+$identity = effective_document_identity($conn);
 $role        = (string)($_SESSION["role"] ?? "user");
-$mySectionId = (int)($_SESSION["section_id"] ?? 0);
-$userId      = (int)($_SESSION["user_id"] ?? 0);
+$actualUserId = (int)($identity['actual_user_id'] ?? 0);
+$userId      = (int)($identity['effective_user_id'] ?? 0);
+$mySectionId = (int)($identity['effective_section_id'] ?? 0);
 
 // Basic file constraints (keep sane for government LAN setups)
 $MAX_BYTES = 10 * 1024 * 1024; // 10MB
@@ -311,7 +313,7 @@ try {
       $size,
       $note,
       $isAppend,
-      $userId,
+      $actualUserId,
       $secId
     );
     $stmt->execute();
@@ -334,7 +336,7 @@ try {
       $size,
       $note,
       $isAppend,
-      $userId,
+      $actualUserId,
       $secId
     );
     $stmt->execute();
@@ -357,6 +359,9 @@ try {
     "note" => $note,
     "branch_id" => $attachmentBranchId > 0 ? $attachmentBranchId : null,
     "route_id" => $routeIdReq > 0 ? $routeIdReq : null,
+    "acting_principal_user_id" => ($userId > 0 && $userId !== $actualUserId) ? $userId : null,
+    "acting_principal_name" => ($userId > 0 && $userId !== $actualUserId) ? (string)($identity['acting_principal_name'] ?? '') : '',
+    "acting_label" => ($userId > 0 && $userId !== $actualUserId) ? (string)($identity['acting_label'] ?? '') : '',
   ], JSON_UNESCAPED_UNICODE);
 
   $actorSectionId = $mySectionId > 0 ? $mySectionId : null;
@@ -367,7 +372,7 @@ try {
     VALUES
       (?, 'updated', ?, ?, ?)
   ");
-  $stmt->bind_param("iiis", $docId, $userId, $actorSectionId, $payload);
+  $stmt->bind_param("iiis", $docId, $actualUserId, $actorSectionId, $payload);
   $stmt->execute();
 
   $conn->commit();

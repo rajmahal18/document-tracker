@@ -6,10 +6,12 @@
   const fallbackBase = ((window.location.pathname.match(/^(.*?)(?:\/public\/|\/api\/|\/public$|\/api$)/) || [])[1] || '');
   const PUBLIC = APP.public || (fallbackBase + '/public');
 
-  function openMerged(docId, branchId = 0) {
+  function openMerged(docId, branchId = 0, actingPrincipalUserId = 0) {
     if (!docId) return;
     const resolvedBranchId = Number(branchId || (typeof window.DTGetSelectedBranchId === "function" ? window.DTGetSelectedBranchId() : 0) || 0);
     const qs = new URLSearchParams({ document_id: String(docId), v: String(Date.now()) });
+    const principalId = Number(actingPrincipalUserId || APP.actingPrincipalUserId || 0);
+    if (principalId > 0) qs.set("acting_principal_user_id", String(principalId));
     const bid = resolvedBranchId;
     if (bid > 0) qs.set("branch_id", String(bid));
     const url = `${PUBLIC}/view_document.php?${qs.toString()}`;
@@ -25,7 +27,7 @@
       e.preventDefault();
       e.stopImmediatePropagation();
       const docId = btn.dataset.docId || "";
-      openMerged(docId);
+      openMerged(docId, 0, Number(APP.actingPrincipalUserId || 0));
     },
     true
   );

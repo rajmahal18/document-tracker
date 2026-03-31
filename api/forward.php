@@ -58,10 +58,12 @@ if ($docId <= 0 || $toSectionId <= 0) {
   exit;
 }
 
-$mySectionId = (int)($_SESSION["section_id"] ?? 0);
-$userId      = (int)($_SESSION["user_id"] ?? 0);
-$isChief     = ((int)($_SESSION["is_chief"] ?? 0) === 1);
-if ($mySectionId <= 0 || $userId <= 0) {
+$identity = effective_document_identity($conn);
+$actualUserId = (int)($identity['actual_user_id'] ?? 0);
+$userId      = (int)($identity['effective_user_id'] ?? 0);
+$mySectionId = (int)($identity['effective_section_id'] ?? 0);
+$isChief     = (bool)($identity['effective_is_chief'] ?? false);
+if ($mySectionId <= 0 || $userId <= 0 || $actualUserId <= 0) {
   http_response_code(400);
   echo json_encode(["ok" => false, "error" => "Missing session assignment"]);
   exit;
@@ -142,7 +144,7 @@ foreach ($recipients as $rid) {
 $fromUserName = (string)($_SESSION["full_name"] ?? $_SESSION["name"] ?? "");
 if ($fromUserName === "") {
   $stmt = $conn->prepare("SELECT full_name FROM users WHERE id = ? LIMIT 1");
-  $stmt->bind_param("i", $userId);
+  $stmt->bind_param("i", $actualUserId);
   $stmt->execute();
   $fromUserName = (string)($stmt->get_result()->fetch_assoc()["full_name"] ?? ("User #{$userId}"));
 }
@@ -288,9 +290,10 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
       $stmt->bind_param("iii", $rid, $toSectionId, $sourceBranchId);
       $stmt->execute();
 
-      workflow_grant_visibility($conn, $docId, $rid, 'PARTICIPANT', $sourceBranchId, $userId);
+      workflow_grant_visibility($conn, $docId, $rid, 'PARTICIPANT', $sourceBranchId, $actualUserId);
+      if ($userId > 0 && $userId !== $actualUserId) workflow_grant_visibility($conn, $docId, $userId, 'PARTICIPANT', $sourceBranchId, $actualUserId);
 
-      $stmtRoute->bind_param("iiiiiisiss", $docId, $sourceBranchId, $mySectionId, $toSectionId, $userId, $rid, $sendBatchId, $userId, $routeRemarks, $personalDeadlineAt);
+      $stmtRoute->bind_param("iiiiiisiss", $docId, $sourceBranchId, $mySectionId, $toSectionId, $actualUserId, $rid, $sendBatchId, $actualUserId, $routeRemarks, $personalDeadlineAt);
       $stmtRoute->execute();
       $routeIds[] = (int)$conn->insert_id;
       $newBranchIds[] = $sourceBranchId;
@@ -318,12 +321,13 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
           'current_assignee_section_id' => $toSectionId,
           'branch_status' => 'ACTIVE',
           'is_reference' => 1,
-          'created_by_user_id' => $userId,
+          'created_by_user_id' => $actualUserId,
         ]);
 
-        workflow_grant_visibility($conn, $docId, $rid, 'PARTICIPANT', $childBranchId, $userId);
+        workflow_grant_visibility($conn, $docId, $rid, 'PARTICIPANT', $childBranchId, $actualUserId);
+        if ($userId > 0 && $userId !== $actualUserId) workflow_grant_visibility($conn, $docId, $userId, 'PARTICIPANT', $childBranchId, $actualUserId);
 
-        $stmtRoute->bind_param("iiiiiisiss", $docId, $childBranchId, $mySectionId, $toSectionId, $userId, $rid, $sendBatchId, $userId, $routeRemarks, $personalDeadlineAt);
+        $stmtRoute->bind_param("iiiiiisiss", $docId, $childBranchId, $mySectionId, $toSectionId, $actualUserId, $rid, $sendBatchId, $actualUserId, $routeRemarks, $personalDeadlineAt);
         $stmtRoute->execute();
         $routeIds[] = (int)$conn->insert_id;
         $newBranchIds[] = $childBranchId;
@@ -334,16 +338,16 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
 
     foreach ($recipients as $rid) {
       $rid = (int)$rid;
-      $stmt->bind_param("iiiisiss", $docId, $holderSectionId, $toSectionId, $rid, $sendBatchId, $userId, $routeRemarks, $personalDeadlineAt);
+      $stmt->bind_param("iiiisiss", $docId, $holderSectionId, $toSectionId, $rid, $sendBatchId, $actualUserId, $routeRemarks, $personalDeadlineAt);
       $stmt->execute();
       $routeIds[] = (int)$conn->insert_id;
     }
 
     $stmt = $conn->prepare("\n      INSERT IGNORE INTO document_participants\n        (document_id, section_id, added_via, added_by_user_id)\n      VALUES (?, ?, 'movement', ?)\n    ");
-    $stmt->bind_param("iii", $docId, $toSectionId, $userId);
+    $stmt->bind_param("iii", $docId, $toSectionId, $actualUserId);
     $stmt->execute();
 
-    $stmt->bind_param("iii", $docId, $holderSectionId, $userId);
+    $stmt->bind_param("iii", $docId, $holderSectionId, $actualUserId);
     $stmt->execute();
   }
 
@@ -368,12 +372,15 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
     "source_branch_id" => $docHasRealBranches ? (int)($sourceBranch["id"] ?? 0) : null,
     "new_branch_ids" => array_values(array_unique(array_filter($newBranchIds))),
     "personal_deadline_at" => $personalDeadlineAt,
+    "acting_principal_user_id" => ($userId > 0 && $userId !== $actualUserId) ? $userId : null,
+    "acting_principal_name" => ($userId > 0 && $userId !== $actualUserId) ? (string)($identity['acting_principal_name'] ?? '') : '',
+    "acting_label" => ($userId > 0 && $userId !== $actualUserId) ? (string)($identity['acting_label'] ?? '') : '',
   ], JSON_UNESCAPED_UNICODE);
 
   $stmt = $conn->prepare("\n    INSERT INTO document_events\n      (document_id, event_type, actor_user_id, actor_section_id, from_section_id, to_section_id, payload_json)\n    VALUES (?, 'forwarded', ?, ?, ?, ?, ?)\n  ");
 
   $fromSectionForEvent = $docHasRealBranches ? $mySectionId : $holderSectionId;
-  $stmt->bind_param("iiiiis", $docId, $userId, $mySectionId, $fromSectionForEvent, $toSectionId, $payload);
+  $stmt->bind_param("iiiiis", $docId, $actualUserId, $mySectionId, $fromSectionForEvent, $toSectionId, $payload);
   $stmt->execute();
 
   $conn->commit();

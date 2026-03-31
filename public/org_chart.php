@@ -11,6 +11,7 @@ $hasAuthorityRole = db_column_exists($conn, "users", "authority_role");
 $hasLastSeenAt = db_column_exists($conn, "users", "last_seen_at");
 $hasUsername = username_column_exists($conn);
 $hasPermanent = db_column_exists($conn, "users", "permanent");
+$hasChiefAssistant = db_column_exists($conn, "users", "chief_assistant_user_id");
 
 $viewerDivisionId = (int)($_SESSION["division_id"] ?? 0);
 $orgEditor = current_org_editor_context();
@@ -129,11 +130,14 @@ function render_org_user_card(array $user, bool $leader = false): string {
     (string)($user['full_name'] ?? ''),
     (string)($user['display_title'] ?? ''),
     (string)($user['section_name'] ?? ''),
-    (string)($user['authority_role'] ?? '')
+    (string)($user['authority_role'] ?? ''),
+    (string)($user['chief_assistant_name'] ?? '')
   );
 
+  $canEdit = !empty($user['can_edit']);
+  $canAssignAssistant = !empty($user['can_assign_assistant']);
   $editBtn = '';
-  if (!empty($user['can_edit'])) {
+  if ($canEdit || $canAssignAssistant) {
     $editBtn = '<button type="button" class="orgTinyEditBtn" '
       . 'data-org-edit="1" '
       . 'data-user-id="' . (int)($user['id'] ?? 0) . '" '
@@ -144,7 +148,19 @@ function render_org_user_card(array $user, bool $leader = false): string {
       . 'data-section-name="' . htmlspecialchars((string)($user['section_name'] ?? ''), ENT_QUOTES) . '" '
       . 'data-division-name="' . htmlspecialchars((string)($user['division_name'] ?? ''), ENT_QUOTES) . '" '
       . 'data-permanent="' . (int)($user['permanent'] ?? 0) . '" '
+      . 'data-can-edit-basic="' . ($canEdit ? '1' : '0') . '" '
+      . 'data-can-assign-assistant="' . ($canAssignAssistant ? '1' : '0') . '" '
+      . 'data-chief-assistant-user-id="' . (int)($user['chief_assistant_user_id'] ?? 0) . '" '
+      . 'data-chief-assistant-name="' . htmlspecialchars((string)($user['chief_assistant_name'] ?? ''), ENT_QUOTES) . '" '
+      . 'data-assistant-candidates="' . htmlspecialchars((string)($user['assistant_candidates_json'] ?? '[]'), ENT_QUOTES) . '" '
       . 'data-can-edit="1">Edit</button>';
+  }
+
+  $assistantMeta = '';
+  if (trim((string)($user['chief_assistant_name'] ?? '')) !== '') {
+    $assistantMeta = '<p class="orgUserAssistant">Assigned assistant: ' . htmlspecialchars((string)$user['chief_assistant_name']) . '</p>';
+  } elseif ($canAssignAssistant && org_user_is_assistant_assignable_principal((string)($user['authority_role'] ?? ''))) {
+    $assistantMeta = '<p class="orgUserAssistant isMuted">No assistant assigned yet</p>';
   }
 
   return '<article class="' . htmlspecialchars($classes) . '" data-search="' . htmlspecialchars($search) . '">' .
@@ -157,6 +173,7 @@ function render_org_user_card(array $user, bool $leader = false): string {
         '</div>' .
         '<p class="orgUserMeta">' . htmlspecialchars((string)$user['display_title']) . '</p>' .
         '<p class="orgUserSection">' . htmlspecialchars((string)$user['section_name']) . '</p>' .
+        $assistantMeta .
       '</div>' .
     '</div>' .
     '<div class="orgUserTools">' . $editBtn . $presence . '</div>' .
@@ -215,15 +232,19 @@ $userSql = "
     s.name AS section_name,
     s.id AS resolved_section_id,
     d.id AS division_id,
+    " . ($hasChiefAssistant ? "u.chief_assistant_user_id" : "NULL") . " AS chief_assistant_user_id,
+    " . ($hasChiefAssistant ? "ca.full_name" : "NULL") . " AS chief_assistant_name,
     d.name AS division_name
   FROM users u
   JOIN sections s ON s.id = u.section_id
   JOIN divisions d ON d.id = s.division_id
+  " . ($hasChiefAssistant ? "LEFT JOIN users ca ON ca.id = u.chief_assistant_user_id" : "") . "
   WHERE u.is_active = 1
     AND s.is_active = 1
     AND d.is_active = 1
   ORDER BY d.id ASC, s.id ASC, u.full_name ASC
 ";
+
 $userRes = $conn->query($userSql);
 
 if ($userRes) {
@@ -258,11 +279,17 @@ if ($userRes) {
       "division_id" => $divisionId,
       "division_name" => (string)($row["division_name"] ?? ""),
       "permanent" => (int)($row["permanent"] ?? 0),
+      "chief_assistant_user_id" => (int)($row["chief_assistant_user_id"] ?? 0),
+      "chief_assistant_name" => trim((string)($row["chief_assistant_name"] ?? "")),
       "is_online" => $isOnline,
       "show_presence" => ($viewerDivisionId > 0 && $viewerDivisionId === $divisionId),
       "is_leader" => is_leadership_role($authorityRole),
     ];
     $target["can_edit"] = $canManageOrg && can_edit_org_target($orgEditor, $target);
+    $target["can_assign_assistant"] = $hasChiefAssistant && can_assign_assistant_for_target($orgEditor, $target);
+    $target["assistant_candidates_json"] = $target["can_assign_assistant"]
+      ? json_encode(org_fetch_assistant_candidates($conn, $target), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+      : '[]';
     $divisions[$divisionId]["sections"][$sectionId]["users"][] = $target;
   }
 }
@@ -687,7 +714,16 @@ require __DIR__ . "/../includes/layout.php";
         </label>
       </div>
       <?php endif; ?>
-      <div class="mini" style="opacity:.75;margin-top:6px;">Section and division are read-only in this pass. Use this to update account ownership and org details inside your allowed scope.</div>
+      <?php if ($hasChiefAssistant): ?>
+      <div class="authField" id="orgAssistantField" hidden>
+        <label for="org_chief_assistant_user_id">Assigned assistant</label>
+        <select id="org_chief_assistant_user_id" name="chief_assistant_user_id">
+          <option value="0">No assigned assistant</option>
+        </select>
+        <div class="mini" id="orgAssistantHelp" style="opacity:.8;margin-top:6px;">Choose the staff user who can assist this chief inside the allowed domain.</div>
+      </div>
+      <?php endif; ?>
+      <div class="mini" id="orgEditScopeNote" style="opacity:.75;margin-top:6px;">Section and division are read-only in this pass. Use this to update account ownership and org details inside your allowed scope.</div>
       <div id="orgEditMsg" class="notice" style="display:none;margin-top:12px;"></div>
     </form>
     <div class="modalFooter">

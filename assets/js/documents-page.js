@@ -96,6 +96,21 @@
 
   const DRAWER_RESTORE_KEY = "dt_restore_drawer";
 
+  function actingPrincipalId(payload = null) {
+    const fromPayload = Number(payload?.acting_principal_user_id || currentPayload?.acting_principal_user_id || 0);
+    const fromCtx = Number((window.__CTX__ || {}).actingPrincipalUserId || 0);
+    return fromPayload > 0 ? fromPayload : fromCtx;
+  }
+
+  function appendActingPrincipal(target, payload = null) {
+    const principalId = actingPrincipalId(payload);
+    if (principalId <= 0) return target;
+    if (target instanceof URLSearchParams || target instanceof FormData) {
+      target.append("acting_principal_user_id", String(principalId));
+    }
+    return target;
+  }
+
   function esc(s) {
     return (s ?? "").toString()
       .replaceAll("&", "&amp;")
@@ -1010,8 +1025,9 @@
             ? (clean(a.branch_label) || `Branch ${Number(a.branch_id || 0)}`)
             : (currentBranchMode ? "Global" : "");
 
-          const viewUrl = `${PUBLIC}/view_attachment.php?id=${Number(a.id || 0)}`;
-          const dlUrl = `${PUBLIC}/download_attachment.php?id=${Number(a.id || 0)}`;
+          const principalQs = actingPrincipalId() > 0 ? `&acting_principal_user_id=${actingPrincipalId()}` : "";
+          const viewUrl = `${PUBLIC}/view_attachment.php?id=${Number(a.id || 0)}${principalQs}`;
+          const dlUrl = `${PUBLIC}/download_attachment.php?id=${Number(a.id || 0)}${principalQs}`;
 
           return `
             <div class="attachCard" style="border:1px solid rgba(0,0,0,.08); border-radius:12px; padding:12px; background:#fff;">
@@ -1038,7 +1054,7 @@
     if (!elAttachments) return;
 
     try {
-      const qs = new URLSearchParams({ document_id: String(docId) });
+      const qs = appendActingPrincipal(new URLSearchParams({ document_id: String(docId) }));
       const branch = currentBranchMode ? getSelectedBranch() : null;
       if (currentBranchMode && Number(branch?.id || 0) > 0) qs.set("branch_id", String(Number(branch.id || 0)));
       const url = `${API}/attachments_list.php?${qs.toString()}`;
@@ -1524,7 +1540,7 @@
     if (!elTimeline) return;
 
     try {
-      const qs = new URLSearchParams({ document_id: String(docId) });
+      const qs = appendActingPrincipal(new URLSearchParams({ document_id: String(docId) }));
       const branchId = Number(forcedBranchId || currentBranchId || 0);
       if (currentBranchMode && branchId > 0) qs.set("branch_id", String(branchId));
 
@@ -1633,7 +1649,7 @@
     if (attachMsg) attachMsg.textContent = "Uploading…";
     if (btnAttachUpload) btnAttachUpload.disabled = true;
 
-    const form = new FormData();
+    const form = appendActingPrincipal(new FormData(), currentPayload);
     form.append("document_id", docId);
     const branch = currentBranchMode ? getSelectedBranch() : null;
     const routeId = currentBranchMode
@@ -1919,7 +1935,7 @@
     const docId = elId?.value;
     if (!docId) return;
 
-    const form = new FormData();
+    const form = appendActingPrincipal(new FormData(), currentPayload);
     form.append("document_id", docId);
     const routeId = Number.parseInt(currentPayload?.open_route_id || "0", 10) || 0;
     if (routeId > 0) form.append("route_id", String(routeId));
@@ -1949,7 +1965,7 @@
     const docId = elId?.value;
     if (!docId) return;
 
-    const form = new FormData();
+    const form = appendActingPrincipal(new FormData(), currentPayload);
     form.append("document_id", docId);
     const branch = currentBranchMode ? getSelectedBranch() : null;
     const selectedBranchBefore = currentBranchMode ? Number(branch?.id || 0) : 0;
@@ -1993,7 +2009,7 @@
     }
 
     const selected = getSelectedRecipientIds();
-    const form = new FormData();
+    const form = appendActingPrincipal(new FormData(), currentPayload);
     form.append("document_id", docId);
     const branch = currentBranchMode ? getSelectedBranch() : null;
     const routeId = currentBranchMode
@@ -2125,7 +2141,7 @@
 
     btnPpdSlipGenerate.disabled = true;
     try {
-      const form = new FormData();
+      const form = appendActingPrincipal(new FormData(), currentPayload);
       form.append("document_id", docId);
       form.append("csrf_token", window.__CSRF__ || "");
 
@@ -2144,7 +2160,8 @@
       const attId = Number(data.attachment_id || 0);
       await loadAttachments(docId);
       if (attId > 0) {
-        window.open(`${PUBLIC}/view_attachment.php?id=${attId}`, "_blank", "noopener");
+        const principalQs = actingPrincipalId() > 0 ? `&acting_principal_user_id=${actingPrincipalId()}` : "";
+        window.open(`${PUBLIC}/view_attachment.php?id=${attId}${principalQs}`, "_blank", "noopener");
       }
     } catch {
       window.DTToast?.error("Generate failed.") || console.warn("Generate failed.");
@@ -2177,7 +2194,7 @@
       return;
     }
 
-    document.dispatchEvent(new CustomEvent("dt:view_document", { detail: { documentId: docId, branchId: selectedBranchId } }));
+    document.dispatchEvent(new CustomEvent("dt:view_document", { detail: { documentId: docId, branchId: selectedBranchId, actingPrincipalUserId: actingPrincipalId() } }));
   });
 
   syncToggleLabels();

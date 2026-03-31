@@ -66,12 +66,13 @@ try {
 
   $branchMode = workflow_branch_mode_enabled($conn);
   $docHasRealBranches = ($branchMode && workflow_document_has_real_branches($conn, $docId));
-  $viewerUserId = (int)($_SESSION["user_id"] ?? 0);
-  $viewerSectionId = (int)($_SESSION["section_id"] ?? 0);
-  $viewerDivisionId = (int)($_SESSION["division_id"] ?? 0);
-  $viewerDivisionName = trim((string)($_SESSION["division_name"] ?? ""));
-  $viewerRole = strtolower(trim((string)($_SESSION["role"] ?? "")));
-  $viewerIsAdmin = ($viewerRole === "admin");
+  $identity = effective_document_identity($conn);
+  $viewerUserId = (int)($identity['effective_user_id'] ?? 0);
+  $viewerSectionId = (int)($identity['effective_section_id'] ?? 0);
+  $viewerDivisionId = (int)($identity['effective_division_id'] ?? 0);
+  $viewerDivisionName = trim((string)($identity['effective_division_name'] ?? ''));
+  $viewerRole = strtolower(trim((string)($identity['effective_role'] ?? '')));
+  $viewerIsAdmin = ($viewerRole === "admin") && !(bool)($identity['assistant_mode'] ?? false);
 
   $viewerIsDocumentOrigin = false;
 
@@ -402,6 +403,11 @@ try {
     }
 
     $actor = (string)($r["actor"] ?? "—");
+    $actingPrincipalName = trim((string)($payload["acting_principal_name"] ?? ""));
+    $actingLabel = trim((string)($payload["acting_label"] ?? ""));
+    if ($actingPrincipalName !== "") {
+      $actor = ($actingLabel !== "" ? $actingLabel : $actingPrincipalName) . " (via " . $actor . ")";
+    }
     $from  = (string)($r["from_section"] ?? "");
     $to    = (string)($r["to_section"] ?? "");
     $branchId = (int)($payload["branch_id"] ?? 0);

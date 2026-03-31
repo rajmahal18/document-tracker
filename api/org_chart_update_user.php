@@ -26,26 +26,20 @@ $email = trim((string)($_POST['email'] ?? ''));
 $officialTitle = normalize_whitespace((string)($_POST['official_title'] ?? ''));
 $authorityRole = trim((string)($_POST['authority_role'] ?? 'staff'));
 $permanent = isset($_POST['permanent']) && (string)($_POST['permanent']) === '1' ? 1 : 0;
+$hasChiefAssistant = db_column_exists($conn, 'users', 'chief_assistant_user_id');
+$chiefAssistantUserId = $hasChiefAssistant ? (int)($_POST['chief_assistant_user_id'] ?? 0) : 0;
 
 if ($targetUserId <= 0) {
   http_response_code(422);
   echo json_encode(['ok' => false, 'error' => 'Missing target user.']);
   exit;
 }
-if ($fullName === '') {
-  http_response_code(422);
-  echo json_encode(['ok' => false, 'error' => 'Full name is required.']);
-  exit;
-}
-if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-  http_response_code(422);
-  echo json_encode(['ok' => false, 'error' => 'A valid email is required.']);
-  exit;
-}
 
 $targetSql = 'SELECT u.id, u.full_name, u.email, u.section_id, u.role, u.is_chief, '
+  . (db_column_exists($conn, 'users', 'permanent') ? 'u.permanent' : '0') . ' AS permanent, '
   . (db_column_exists($conn, 'users', 'official_title') ? 'u.official_title' : 'NULL') . ' AS official_title, '
   . (db_column_exists($conn, 'users', 'authority_role') ? 'u.authority_role' : 'NULL') . ' AS authority_role, '
+  . ($hasChiefAssistant ? 'u.chief_assistant_user_id' : 'NULL') . ' AS chief_assistant_user_id, '
   . 's.name AS section_name, s.id AS resolved_section_id, d.id AS division_id, d.name AS division_name '
   . 'FROM users u '
   . 'LEFT JOIN sections s ON s.id = u.section_id '
@@ -62,39 +56,75 @@ if (!$target) {
   exit;
 }
 
-$targetRole = trim((string)($target['authority_role'] ?? 'staff'));
+$targetRole = trim((string)($target['authority_role'] ?? ''));
 if ($targetRole === '') {
   $targetRole = ((int)($target['is_chief'] ?? 0) === 1) ? 'section_head' : 'staff';
-  $target['authority_role'] = $targetRole;
 }
-if (!can_edit_org_target($editor, $target)) {
+$target['authority_role'] = $targetRole;
+
+$canEditBasic = can_edit_org_target($editor, $target);
+$canAssignAssistant = $hasChiefAssistant && can_assign_assistant_for_target($editor, $target);
+if (!$canEditBasic && !$canAssignAssistant) {
   http_response_code(403);
-  echo json_encode(['ok' => false, 'error' => 'You can only edit lower-ranked users inside your allowed scope.']);
+  echo json_encode(['ok' => false, 'error' => 'You are not allowed to update this user.']);
   exit;
 }
 
-$allowedRoles = array_keys(org_assignable_roles_for_editor($editor));
-if (!in_array($authorityRole, $allowedRoles, true)) {
-  http_response_code(422);
-  echo json_encode(['ok' => false, 'error' => 'That authority role is not allowed for your scope.']);
-  exit;
-}
-if (org_role_rank($authorityRole) >= (int)($editor['role_rank'] ?? 0) && empty($editor['is_admin'])) {
-  http_response_code(422);
-  echo json_encode(['ok' => false, 'error' => 'You cannot assign a role equal to or higher than your own.']);
-  exit;
-}
+if ($canEditBasic) {
+  if ($fullName === '') {
+    http_response_code(422);
+    echo json_encode(['ok' => false, 'error' => 'Full name is required.']);
+    exit;
+  }
+  if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    http_response_code(422);
+    echo json_encode(['ok' => false, 'error' => 'A valid email is required.']);
+    exit;
+  }
 
-$dup = $conn->prepare('SELECT id FROM users WHERE email = ? AND id <> ? LIMIT 1');
-$dup->bind_param('si', $email, $targetUserId);
-$dup->execute();
-if ($dup->get_result()->fetch_assoc()) {
+  $allowedRoles = array_keys(org_assignable_roles_for_editor($editor));
+  if (!in_array($authorityRole, $allowedRoles, true)) {
+    http_response_code(422);
+    echo json_encode(['ok' => false, 'error' => 'That authority role is not allowed for your scope.']);
+    exit;
+  }
+  if (org_role_rank($authorityRole) >= (int)($editor['role_rank'] ?? 0) && empty($editor['is_admin'])) {
+    http_response_code(422);
+    echo json_encode(['ok' => false, 'error' => 'You cannot assign a role equal to or higher than your own.']);
+    exit;
+  }
+
+  $dup = $conn->prepare('SELECT id FROM users WHERE email = ? AND id <> ? LIMIT 1');
+  $dup->bind_param('si', $email, $targetUserId);
+  $dup->execute();
+  if ($dup->get_result()->fetch_assoc()) {
+    $dup->close();
+    http_response_code(422);
+    echo json_encode(['ok' => false, 'error' => 'Email is already in use by another account.']);
+    exit;
+  }
   $dup->close();
-  http_response_code(422);
-  echo json_encode(['ok' => false, 'error' => 'Email is already in use by another account.']);
-  exit;
+} else {
+  $fullName = (string)($target['full_name'] ?? '');
+  $email = (string)($target['email'] ?? '');
+  $officialTitle = trim((string)($target['official_title'] ?? ''));
+  $authorityRole = $targetRole;
+  $permanent = (int)($target['permanent'] ?? 0);
 }
-$dup->close();
+
+if ($canAssignAssistant) {
+  if ($chiefAssistantUserId < 0) {
+    $chiefAssistantUserId = 0;
+  }
+  $candidateIds = array_map(static fn(array $row): int => (int)($row['id'] ?? 0), org_fetch_assistant_candidates($conn, $target));
+  if ($chiefAssistantUserId > 0 && !in_array($chiefAssistantUserId, $candidateIds, true)) {
+    http_response_code(422);
+    echo json_encode(['ok' => false, 'error' => 'Selected assistant is outside your allowed domain or is not an eligible staff user.']);
+    exit;
+  }
+} else {
+  $chiefAssistantUserId = (int)($target['chief_assistant_user_id'] ?? 0);
+}
 
 $hasUsername = username_column_exists($conn);
 $hasPermanent = db_column_exists($conn, 'users', 'permanent');
@@ -116,6 +146,15 @@ if ($hasPermanent) {
   $fields[] = 'permanent = ?';
   $types .= 'i';
   $params[] = $permanent;
+}
+if ($hasChiefAssistant) {
+  if ($chiefAssistantUserId > 0) {
+    $fields[] = 'chief_assistant_user_id = ?';
+    $types .= 'i';
+    $params[] = $chiefAssistantUserId;
+  } else {
+    $fields[] = 'chief_assistant_user_id = NULL';
+  }
 }
 if ($hasEmailVerifiedAt && $emailChanged) {
   $fields[] = 'email_verified_at = NULL';

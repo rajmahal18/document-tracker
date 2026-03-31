@@ -24,11 +24,14 @@ if ($docId <= 0) {
   exit;
 }
 
+$identity = effective_document_identity($conn);
 $role        = (string)($_SESSION["role"] ?? "user");
-$mySectionId = (int)($_SESSION["section_id"] ?? 0);
-$userId      = (int)($_SESSION["user_id"] ?? 0);
-$isChief     = ((int)($_SESSION["is_chief"] ?? 0) === 1);
-$isAdmin     = ($role === "admin");
+$actualUserId = (int)($identity['actual_user_id'] ?? 0);
+$principalUserId = (int)($identity['effective_user_id'] ?? 0);
+$mySectionId = (int)($identity['effective_section_id'] ?? 0);
+$userId      = $principalUserId;
+$isChief     = (bool)($identity['effective_is_chief'] ?? false);
+$isAdmin     = ($role === "admin") && !(bool)($identity['assistant_mode'] ?? false);
 
 if ($mySectionId <= 0 || $userId <= 0) {
   http_response_code(400);
@@ -47,12 +50,12 @@ try {
   if ($docHasRealBranches) {
     if ($routeId > 0) {
       $stmt = $conn->prepare("\n        SELECT\n          r.id AS route_id,\n          r.branch_id,\n          r.from_section_id,\n          r.to_section_id,\n          r.to_user_id,\n          r.send_batch_id,\n          d.current_status\n        FROM routes r\n        JOIN documents d ON d.id = r.document_id\n        WHERE r.id = ?\n          AND r.document_id = ?\n          AND r.received_at IS NULL\n          AND r.cancelled_at IS NULL\n          AND r.route_kind = 'ACTION'\n          AND r.to_user_id = ?\n        LIMIT 1\n      ");
-      $stmt->bind_param("iii", $routeId, $docId, $userId);
+      $stmt->bind_param("iii", $routeId, $docId, $principalUserId);
       $stmt->execute();
       $row = $stmt->get_result()->fetch_assoc();
     } else {
       $stmt = $conn->prepare("\n        SELECT\n          r.id AS route_id,\n          r.branch_id,\n          r.from_section_id,\n          r.to_section_id,\n          r.to_user_id,\n          r.send_batch_id,\n          d.current_status\n        FROM routes r\n        JOIN documents d ON d.id = r.document_id\n        WHERE r.document_id = ?\n          AND r.received_at IS NULL\n          AND r.cancelled_at IS NULL\n          AND r.route_kind = 'ACTION'\n          AND r.to_user_id = ?\n        ORDER BY r.id DESC\n        LIMIT 2\n      ");
-      $stmt->bind_param("ii", $docId, $userId);
+      $stmt->bind_param("ii", $docId, $principalUserId);
       $stmt->execute();
       $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
       if (count($rows) > 1) {
@@ -115,7 +118,7 @@ try {
     exit;
   }
 
-  if ($docHasRealBranches && ($toUserId === null || $toUserId !== $userId)) {
+  if ($docHasRealBranches && ($toUserId === null || $toUserId !== $principalUserId)) {
     $conn->rollback();
     http_response_code(403);
     echo json_encode(["ok" => false, "error" => "Forbidden: this route is addressed to a different user."]);
@@ -130,7 +133,7 @@ try {
   }
 
   $stmt = $conn->prepare("\n    UPDATE routes\n    SET received_by_user_id = ?,\n        received_at = NOW()\n    WHERE id = ?\n      AND received_at IS NULL\n      AND cancelled_at IS NULL\n  ");
-  $stmt->bind_param("ii", $userId, $routeId);
+  $stmt->bind_param("ii", $actualUserId, $routeId);
   $stmt->execute();
 
   if ($stmt->affected_rows <= 0) {
@@ -145,10 +148,13 @@ try {
   $stmt->execute();
 
   if ($docHasRealBranches && $branchId > 0) {
-    workflow_grant_visibility($conn, $docId, $userId, 'PARTICIPANT', $branchId, $userId);
+    workflow_grant_visibility($conn, $docId, $actualUserId, 'PARTICIPANT', $branchId, $actualUserId);
+    if ($principalUserId > 0 && $principalUserId !== $actualUserId) {
+      workflow_grant_visibility($conn, $docId, $principalUserId, 'PARTICIPANT', $branchId, $actualUserId);
+    }
   } else {
     $stmt = $conn->prepare("\n      INSERT IGNORE INTO document_participants\n        (document_id, section_id, added_via, added_by_user_id)\n      VALUES (?, ?, 'movement', ?)\n    ");
-    $stmt->bind_param("iii", $docId, $toSectionId, $userId);
+    $stmt->bind_param("iii", $docId, $toSectionId, $actualUserId);
     $stmt->execute();
   }
 
@@ -170,10 +176,13 @@ try {
     "to_user_id" => $toUserId,
     "branch_id" => $branchId > 0 ? $branchId : null,
     "open_remaining_after_receive" => $openRemaining,
+    "acting_principal_user_id" => ($principalUserId > 0 && $principalUserId !== $actualUserId) ? $principalUserId : null,
+    "acting_principal_name" => ($principalUserId > 0 && $principalUserId !== $actualUserId) ? (string)($identity['acting_principal_name'] ?? '') : '',
+    "acting_label" => ($principalUserId > 0 && $principalUserId !== $actualUserId) ? (string)($identity['acting_label'] ?? '') : '',
   ], JSON_UNESCAPED_UNICODE);
 
   $stmt = $conn->prepare("\n    INSERT INTO document_events\n      (document_id, event_type, actor_user_id, actor_section_id, from_section_id, to_section_id, payload_json)\n    VALUES (?, 'received', ?, ?, ?, ?, ?)\n  ");
-  $stmt->bind_param("iiiiis", $docId, $userId, $mySectionId, $fromSectionId, $toSectionId, $payload);
+  $stmt->bind_param("iiiiis", $docId, $actualUserId, $mySectionId, $fromSectionId, $toSectionId, $payload);
   $stmt->execute();
 
   $conn->commit();

@@ -12,6 +12,25 @@
   const seedPersonalDeadlineMap = cfg.seedPersonalDeadlineMap && typeof cfg.seedPersonalDeadlineMap === "object" ? cfg.seedPersonalDeadlineMap : {};
   const canSetPersonalDeadline = !!cfg.canSetPersonalDeadline;
 
+  const contentTypeSelect = document.getElementById("contentTypeSelect");
+  const contentTypeOtherWrap = document.getElementById("contentTypeOtherWrap");
+  const contentTypeOtherInput = document.getElementById("contentTypeOtherInput");
+
+  function syncContentTypeOther() {
+    if (!contentTypeSelect || !contentTypeOtherWrap || !contentTypeOtherInput) return;
+    const isOther = String(contentTypeSelect.value || "") === "Others";
+    contentTypeOtherWrap.style.display = isOther ? "block" : "none";
+    contentTypeOtherInput.required = isOther;
+    if (!isOther) {
+      contentTypeOtherInput.value = contentTypeOtherInput.value;
+    }
+  }
+
+  if (contentTypeSelect) {
+    contentTypeSelect.addEventListener("change", syncContentTypeOther);
+    syncContentTypeOther();
+  }
+
   function show(el, on) {
     if (!el) return;
     el.style.display = on ? "flex" : "none";
