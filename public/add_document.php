@@ -421,15 +421,17 @@ $pageTitle = "Add Document";
 $error = "";
 
 // ✅ Must be logged in only.
-$role = (string)($_SESSION["role"] ?? "user");
+$identity = effective_document_identity($conn);
+$role = (string)($identity["effective_role"] ?? ($_SESSION["role"] ?? "user"));
 $roleNorm = strtolower(trim($role));
-
-// ✅ Must have a section_id for routing
-$fromSectionId = (int)($_SESSION["section_id"] ?? 0);
-$isChief = ((int)($_SESSION["is_chief"] ?? 0) === 1);
-
-// ✅ Used as fallback display label
-$divisionName = trim((string)($_SESSION["division_name"] ?? ""));
+$actualUserId = (int)($identity["actual_user_id"] ?? ($_SESSION["user_id"] ?? 0));
+$userId = (int)($identity["effective_user_id"] ?? ($_SESSION["user_id"] ?? 0));
+$fromSectionId = (int)($identity["effective_section_id"] ?? ($_SESSION["section_id"] ?? 0));
+$isChief = (bool)($identity["effective_is_chief"] ?? (((int)($_SESSION["is_chief"] ?? 0) === 1)));
+$divisionName = trim((string)($identity["effective_division_name"] ?? ($_SESSION["division_name"] ?? "")));
+$assistantModeEnabled = (bool)($identity["assistant_mode"] ?? false);
+$actingPrincipalUserId = (int)($identity["acting_principal_user_id"] ?? 0);
+$actingPrincipalName = trim((string)($identity["acting_principal_name"] ?? ''));
 
 // ✅ Resolve current user division and supported own-division slip metadata
 $myDivisionId = 0;
@@ -516,7 +518,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
     $remarks = "";
   }
   $selectedSectionId = (int)($_POST["to_section_id"] ?? 0); // picker only
-  $userId = (int)($_SESSION["user_id"] ?? 0);
 
   $fileErrorCode = (int)($_FILES["attach_file"]["error"] ?? UPLOAD_ERR_NO_FILE);
   if ($fileErrorCode === UPLOAD_ERR_OK) {
@@ -1138,7 +1139,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             "document_date"        => $document_date,
             "subject"              => $subject,
             "mpw_tracking_no"      => $tracking_no,
-            "received_by"          => trim((string)($_SESSION["full_name"] ?? "")),
+            "received_by"          => $actingPrincipalName !== "" ? $actingPrincipalName : trim((string)($_SESSION["full_name"] ?? "")),
             "received_datetime"    => "",
             "deadline_date"        => $deadlineAt ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("m/d/Y") : "",
             "deadline_time"        => $deadlineAt ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("g:i A") : "",
@@ -1197,7 +1198,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           "created_at" => time(),
         ];
 
-        redirect(PUBLIC_PATH . "/documents.php?sort=newest&page=1");
+        $documentsRedirect = PUBLIC_PATH . "/documents.php?sort=newest&page=1";
+        if ($assistantModeEnabled && $actingPrincipalUserId > 0) {
+          $documentsRedirect .= "&view=assistant&acting_principal_user_id=" . $actingPrincipalUserId;
+        }
+
+        redirect($documentsRedirect);
 
       } catch (Throwable $e) {
         try {
@@ -1266,6 +1272,9 @@ require __DIR__ . "/../includes/layout.php";
   </div>
 
   <form method="POST" enctype="multipart/form-data" class="docFormGrid addDocForm" data-remove-saved-attachment-url="<?= API_PATH ?>/remove_saved_attachment.php">
+    <?php if ($assistantModeEnabled && $actingPrincipalUserId > 0): ?>
+      <input type="hidden" name="acting_principal_user_id" value="<?= (int)$actingPrincipalUserId ?>">
+    <?php endif; ?>
     <input type="hidden" name="remove_saved_attachment" value="0" id="removeSavedAttachmentInput">
     <input type="hidden" name="destination_builder_contract" value="0" id="destinationBuilderContractInput">
 

@@ -1115,7 +1115,7 @@ function documentsUrl(array $overrides = []): string {
         <span class="docsSummaryLabel">documents in this view</span>
       </div>
 
-      <a href="<?= PUBLIC_PATH ?>/add_document.php" class="btnComp docsAddBtn" style="text-decoration:none;">
+      <a href="<?= htmlspecialchars(PUBLIC_PATH . '/add_document.php' . ($assistantModeEnabled && (int)($activeAssistantPrincipal['id'] ?? 0) > 0 ? '?acting_principal_user_id=' . (int)($activeAssistantPrincipal['id'] ?? 0) : '')) ?>" class="btnComp docsAddBtn" style="text-decoration:none;">
         + Add Document
       </a>
     </div>
