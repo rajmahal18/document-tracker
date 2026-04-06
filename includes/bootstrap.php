@@ -142,7 +142,7 @@ function app_origin(): string {
     return '';
   }
 
-  return app_request_scheme() . '://' . $host;
+  return 'https://' . $host;
 }
 
 function app_url(string $path = ''): string {

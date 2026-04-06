@@ -13,3 +13,5 @@ db/*.sql
 # misc
 node_modules/
 .env
+
+*.zip
