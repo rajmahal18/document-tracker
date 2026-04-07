@@ -41,7 +41,7 @@ $divisionId = (int)$myDivision['id'];
 $divisionCode = (string)$myDivision['code'];
 $divisionName = (string)$myDivision['name'];
 
-$stmt = $conn->prepare("SELECT d.id, d.tracking_no, d.document_date, d.deadline_at, d.subject, d.origin_section_id, d.created_by_user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), '') AS created_by_name FROM documents d LEFT JOIN users u ON u.id = d.created_by_user_id WHERE d.id = ? LIMIT 1");
+$stmt = $conn->prepare("SELECT d.id, d.tracking_no, d.requester, d.document_date, d.deadline_at, d.subject, d.origin_section_id, d.created_by_user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), '') AS created_by_name FROM documents d LEFT JOIN users u ON u.id = d.created_by_user_id WHERE d.id = ? LIMIT 1");
 $stmt->bind_param('i', $docId);
 $stmt->execute();
 $doc = $stmt->get_result()->fetch_assoc();
@@ -64,14 +64,37 @@ if (!$trackingRow) {
 }
 
 $originSectionId = (int)($doc['origin_section_id'] ?? 0);
+
+$requester = trim((string)($doc['requester'] ?? ''));
 $fromLabel = '';
-if ($originSectionId > 0) {
-  $stmt = $conn->prepare("SELECT s.name AS section_name, d.name AS division_name FROM sections s JOIN divisions d ON d.id = s.division_id WHERE s.id = ? LIMIT 1");
+
+if ($requester !== '') {
+  $fromLabel = $requester;
+} elseif ($originSectionId > 0) {
+  $stmt = $conn->prepare("
+    SELECT
+      COALESCE(NULLIF(TRIM(s.name), ''), '') AS section_name,
+      COALESCE(NULLIF(TRIM(d.name), ''), '') AS division_name
+    FROM sections s
+    JOIN divisions d ON d.id = s.division_id
+    WHERE s.id = ?
+    LIMIT 1
+  ");
   $stmt->bind_param('i', $originSectionId);
   $stmt->execute();
   $r = $stmt->get_result()->fetch_assoc();
+
   if ($r) {
-    $fromLabel = trim((string)$r['division_name']) . ' / ' . trim((string)$r['section_name']);
+    $sectionName = trim((string)($r['section_name'] ?? ''));
+    $divisionNameFromOrigin = trim((string)($r['division_name'] ?? ''));
+
+    if ($divisionNameFromOrigin !== '' && $sectionName !== '') {
+      $fromLabel = $divisionNameFromOrigin . ' / ' . $sectionName;
+    } elseif ($divisionNameFromOrigin !== '') {
+      $fromLabel = $divisionNameFromOrigin;
+    } elseif ($sectionName !== '') {
+      $fromLabel = $sectionName;
+    }
   }
 }
 
@@ -117,6 +140,7 @@ if ($rowTok && !empty($rowTok['token'])) {
   $stmt->execute();
 }
 $qrUrl = app_url(PUBLIC_PATH . '/qr.php?t=' . urlencode($qrToken));
+$fromLabel = 'ZZZ_TEST_REQUESTER'; // TESTING PURPOSES ONLY, TO BE REMOVED
 
 DivisionTrackingSlip::generateA4([
   'mpw_tracking_no' => (string)($doc['tracking_no'] ?? ''),
@@ -127,7 +151,7 @@ DivisionTrackingSlip::generateA4([
   'document_date' => (string)($doc['document_date'] ?? ''),
   'received_by' => $receivedBy,
   'received_datetime' => $receivedDT,
-  'subject' => (string)($doc['subject'] ?? ''),
+  'subject' => 'ZZZ SUBJECT TEST',
   'deadline_date' => trim((string)($doc['deadline_at'] ?? '')) !== '' ? (new DateTime((string)$doc['deadline_at'], new DateTimeZone('Asia/Manila')))->format('m/d/Y') : '',
   'deadline_time' => trim((string)($doc['deadline_at'] ?? '')) !== '' ? (new DateTime((string)$doc['deadline_at'], new DateTimeZone('Asia/Manila')))->format('g:i A') : '',
   'qr_url' => $qrUrl,

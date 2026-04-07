@@ -102,13 +102,13 @@ final class DivisionTrackingSlip
     $w0 = $pageW - ($margin * 2);
     $h0 = $pageH - ($y0 + 10.0);
 
-    $pdf->SetDrawColor(45, 55, 72);
-    $pdf->SetLineWidth(0.55);
+    $pdf->SetDrawColor(0, 0, 0);
+    $pdf->SetLineWidth(0.7);
     $rect($x0, $y0, $w0, $h0);
 
     // ---------- Header with logos + QR ----------
     $headerH = 30.0; // more space (less sikip)
-    $pdf->SetLineWidth(0.35);
+    $pdf->SetLineWidth(0.5);
     $rect($x0, $y0, $w0, $headerH);
 
     $pad = 3.0;

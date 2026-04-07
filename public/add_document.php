@@ -1078,9 +1078,22 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           $stmt->execute();
           $rFrom = $stmt->get_result()->fetch_assoc();
 
-          $fromLabel = ($divisionName !== "") ? $divisionName : $myDivisionCode;
-          if ($rFrom) {
-            $fromLabel = trim((string)$rFrom["division_name"]) . " / " . trim((string)$rFrom["section_name"]);
+          $fromLabel = trim((string)$requester);
+
+          if ($fromLabel === '') {
+            $fromLabel = ($divisionName !== "") ? $divisionName : $myDivisionCode;
+            if ($rFrom) {
+              $divisionNameFrom = trim((string)($rFrom["division_name"] ?? ''));
+              $sectionNameFrom = trim((string)($rFrom["section_name"] ?? ''));
+
+              if ($divisionNameFrom !== '' && $sectionNameFrom !== '') {
+                $fromLabel = $divisionNameFrom . " / " . $sectionNameFrom;
+              } elseif ($divisionNameFrom !== '') {
+                $fromLabel = $divisionNameFrom;
+              } elseif ($sectionNameFrom !== '') {
+                $fromLabel = $sectionNameFrom;
+              }
+            }
           }
 
           $baseDir = realpath(__DIR__ . "/../storage/attachments");
