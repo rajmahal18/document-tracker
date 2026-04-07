@@ -39,7 +39,7 @@ $userId      = (int)($identity['effective_user_id'] ?? 0);
 $mySectionId = (int)($identity['effective_section_id'] ?? 0);
 
 // Basic file constraints (keep sane for government LAN setups)
-$MAX_BYTES = 10 * 1024 * 1024; // 10MB
+$MAX_BYTES = 100 * 1024 * 1024; // 10MB
 
 // ✅ InfinityFree-safe merge requirement: PDF + Images only
 $ALLOWED_EXT = ["pdf", "jpg", "jpeg", "png"];
