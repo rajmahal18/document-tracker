@@ -204,13 +204,32 @@ try {
   }
 
   $origName = safe_basename((string)($f["name"] ?? "file"));
-  $size = (int)($f["size"] ?? 0);
-  if ($size <= 0 || $size > $MAX_BYTES) {
+  if ($size <= 0) {
     $conn->rollback();
     http_response_code(400);
-    echo json_encode(["ok" => false, "error" => "File too large (max 10MB)"]);
+    echo json_encode([
+      "ok" => false,
+      "error" => "Invalid upload: file arrived empty or was blocked by the server."
+    ]);
     exit;
   }
+
+  if ($size > $MAX_BYTES) {
+    $conn->rollback();
+    http_response_code(400);
+    echo json_encode([
+      "ok" => false,
+      "error" => "File too large (max 100MB)"
+    ]);
+    exit;
+  }
+
+  error_log('UPLOAD DEBUG name=' . ($f['name'] ?? '') .
+  ' size=' . (string)($f['size'] ?? 'NULL') .
+  ' error=' . (string)($f['error'] ?? 'NULL') .
+  ' type=' . (string)($f['type'] ?? 'NULL') .
+  ' tmp=' . (string)($f['tmp_name'] ?? 'NULL'));
+
 
   $ext = ext_of($origName);
   if ($ext === "") {
