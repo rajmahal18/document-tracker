@@ -1,0 +1,653 @@
+:root {
+  color-scheme: dark;
+  --bg: #07111f;
+  --bg-2: #0c1628;
+  --surface: rgba(11, 22, 40, 0.76);
+  --surface-strong: rgba(14, 27, 49, 0.92);
+  --surface-soft: rgba(255, 255, 255, 0.05);
+  --border: rgba(255, 255, 255, 0.1);
+  --text: #f5f7fb;
+  --text-soft: rgba(229, 233, 242, 0.72);
+  --text-muted: rgba(229, 233, 242, 0.56);
+  --blue: #5aa6ff;
+  --blue-soft: rgba(90, 166, 255, 0.18);
+  --orange: #f29a4a;
+  --orange-soft: rgba(242, 154, 74, 0.18);
+  --green: #4fd1a1;
+  --green-soft: rgba(79, 209, 161, 0.16);
+  --shadow: 0 28px 80px rgba(0, 0, 0, 0.34);
+  --radius-xl: 28px;
+  --radius-lg: 22px;
+  --radius-md: 16px;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: 'Inter', sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(90, 166, 255, 0.22), transparent 30%),
+    radial-gradient(circle at 85% 15%, rgba(242, 154, 74, 0.2), transparent 22%),
+    linear-gradient(180deg, #07111f 0%, #091527 54%, #07111f 100%);
+  color: var(--text);
+  overflow-x: hidden;
+}
+
+a { color: inherit; text-decoration: none; }
+img { max-width: 100%; display: block; }
+
+.landingShell {
+  position: relative;
+  isolation: isolate;
+  min-height: 100vh;
+}
+
+.landingGlow {
+  position: fixed;
+  border-radius: 999px;
+  filter: blur(90px);
+  opacity: 0.55;
+  pointer-events: none;
+  z-index: -3;
+}
+
+.landingGlowA {
+  width: 320px;
+  height: 320px;
+  background: rgba(90, 166, 255, 0.22);
+  top: 90px;
+  left: -90px;
+}
+
+.landingGlowB {
+  width: 280px;
+  height: 280px;
+  background: rgba(242, 154, 74, 0.18);
+  right: -50px;
+  top: 240px;
+}
+
+.landingGrid {
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.032) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.032) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,0.4), rgba(0,0,0,0.08) 34%, transparent 82%);
+  pointer-events: none;
+  z-index: -2;
+}
+
+.landingTopbar,
+.landingMain {
+  width: min(1280px, calc(100% - 40px));
+  margin: 0 auto;
+}
+
+.landingTopbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 24px 0 12px;
+}
+
+.landingBrand {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.landingBrandMark {
+  width: 54px;
+  height: 54px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.04));
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
+  overflow: hidden;
+}
+
+.landingBrandMark img {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+}
+
+.landingBrandText {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.landingBrandText strong {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.landingBrandText span {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.landingLoginBtn,
+.heroPrimaryBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  padding: 0 18px;
+  border-radius: 999px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+}
+
+.landingLoginBtn {
+  color: var(--text);
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+}
+
+.heroPrimaryBtn {
+  background: linear-gradient(135deg, #5aa6ff 0%, #3a7fe8 52%, #f29a4a 130%);
+  color: #f8fbff;
+  box-shadow: 0 22px 44px rgba(58, 127, 232, 0.28);
+}
+
+.landingLoginBtn:hover,
+.heroPrimaryBtn:hover {
+  transform: translateY(-1px);
+}
+
+.heroPrimaryBtn:hover {
+  box-shadow: 0 28px 54px rgba(58, 127, 232, 0.34);
+}
+
+.landingMain {
+  padding: 24px 0 48px;
+}
+
+.heroSection {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(420px, 0.92fr);
+  gap: 34px;
+  align-items: center;
+}
+
+.heroCopy {
+  padding: 22px 0;
+}
+
+.eyebrow,
+.sectionEyebrow,
+.mockLabel,
+.tinyLabel,
+.heroMetaLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #b8d5ff;
+}
+
+.eyebrow::before,
+.sectionEyebrow::before,
+.mockLabel::before {
+  content: "";
+  width: 28px;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.72;
+}
+
+.heroCopy h1 {
+  margin: 18px 0 18px;
+  font-size: clamp(3.2rem, 6vw, 5.9rem);
+  line-height: 0.92;
+  letter-spacing: -0.065em;
+  font-weight: 900;
+  max-width: 10.2ch;
+}
+
+.heroLead {
+  max-width: 60ch;
+  margin: 0;
+  font-size: 1.03rem;
+  line-height: 1.75;
+  color: var(--text-soft);
+}
+
+.heroActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.heroMetaRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 26px;
+}
+
+.heroMetaCard,
+.heroPanel,
+.featureCard,
+.capabilityItem,
+.workflowBoard {
+  position: relative;
+  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.heroMetaCard {
+  padding: 18px 18px 16px;
+  border-radius: var(--radius-md);
+}
+
+.heroMetaCard strong {
+  display: block;
+  margin-top: 10px;
+  font-size: 1.02rem;
+  letter-spacing: -0.03em;
+}
+
+.heroMetaCard p {
+  margin: 10px 0 0;
+  font-size: 0.94rem;
+  line-height: 1.65;
+  color: var(--text-muted);
+}
+
+.heroVisual {
+  position: relative;
+  display: grid;
+  gap: 18px;
+}
+
+.heroPanel {
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+
+.heroPanelMain {
+  padding: 22px;
+}
+
+.heroPanelSide {
+  padding: 20px 22px 22px;
+  background: linear-gradient(180deg, rgba(10, 22, 39, 0.96), rgba(12, 26, 45, 0.86));
+}
+
+.heroPanelTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.heroPanelTop h2,
+.heroPanelTop h3,
+.sectionHeading h2 {
+  margin: 8px 0 0;
+  letter-spacing: -0.05em;
+}
+
+.heroPanelTop h2 {
+  font-size: 1.65rem;
+}
+
+.heroPanelTop h3 {
+  font-size: 1.2rem;
+}
+
+.signalPill,
+.statusPill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.signalPill {
+  color: #d9ecff;
+  background: rgba(90, 166, 255, 0.14);
+  border: 1px solid rgba(90, 166, 255, 0.24);
+}
+
+.trackingCard,
+.heroStatsStrip,
+.workflowStep {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.trackingCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 18px;
+}
+
+.trackingCard strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 1.05rem;
+  letter-spacing: -0.03em;
+}
+
+.statusPillAccent {
+  color: #fff7ef;
+  background: linear-gradient(135deg, rgba(242,154,74,0.22), rgba(90,166,255,0.18));
+  border: 1px solid rgba(242,154,74,0.24);
+}
+
+.flowRail {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.flowNode {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  padding: 12px 0;
+  opacity: 0.72;
+}
+
+.flowNode.isActive { opacity: 1; }
+
+.flowDot {
+  width: 14px;
+  height: 14px;
+  margin: 4px auto 0;
+  border-radius: 999px;
+  border: 2px solid rgba(255,255,255,0.4);
+  background: rgba(255,255,255,0.08);
+  box-shadow: 0 0 0 6px rgba(255,255,255,0.02);
+}
+
+.flowNode.isActive .flowDot {
+  border-color: rgba(90, 166, 255, 0.96);
+  background: linear-gradient(180deg, #73b5ff, #3f8eed);
+}
+
+.flowNode strong {
+  display: block;
+  font-size: 0.98rem;
+  letter-spacing: -0.03em;
+}
+
+.flowNode p,
+.insightItem p,
+.capabilityItem p,
+.workflowStep p,
+.sectionHeading p {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  line-height: 1.65;
+}
+
+.flowConnector {
+  width: 2px;
+  height: 20px;
+  margin-left: 11px;
+  background: linear-gradient(180deg, rgba(90,166,255,0.55), rgba(90,166,255,0.05));
+}
+
+.flowConnector.isMuted {
+  background: linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0.03));
+}
+
+.heroStatsStrip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+  padding: 14px;
+  border-radius: 18px;
+}
+
+.heroStatsStrip span {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.heroStatsStrip strong {
+  display: block;
+  margin-top: 7px;
+  font-size: 1.45rem;
+  letter-spacing: -0.04em;
+}
+
+.insightList {
+  display: grid;
+  gap: 14px;
+}
+
+.insightItem {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 14px;
+}
+
+.insightBullet {
+  width: 10px;
+  height: 10px;
+  margin-top: 8px;
+  border-radius: 999px;
+}
+
+.insightBullet.isBlue { background: var(--blue); box-shadow: 0 0 0 7px rgba(90,166,255,0.12); }
+.insightBullet.isOrange { background: var(--orange); box-shadow: 0 0 0 7px rgba(242,154,74,0.12); }
+.insightBullet.isGreen { background: var(--green); box-shadow: 0 0 0 7px rgba(79,209,161,0.1); }
+
+.featureBand {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 26px;
+}
+
+.featureCard {
+  padding: 22px;
+  border-radius: 22px;
+}
+
+.featureKicker {
+  display: inline-flex;
+  margin-bottom: 14px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: #b7dcff;
+}
+
+.featureCard h3,
+.capabilityItem span,
+.workflowStep h3 {
+  margin: 0;
+  font-size: 1.12rem;
+  line-height: 1.3;
+  letter-spacing: -0.04em;
+}
+
+.featureCard p {
+  margin: 12px 0 0;
+  line-height: 1.68;
+  color: var(--text-muted);
+}
+
+.capabilitySection,
+.workflowSection {
+  margin-top: 64px;
+}
+
+.sectionHeading {
+  max-width: 720px;
+}
+
+.sectionHeading h2 {
+  font-size: clamp(2rem, 3.4vw, 3.25rem);
+}
+
+.sectionHeading p {
+  font-size: 1rem;
+}
+
+.capabilityGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.capabilityItem {
+  padding: 22px;
+  border-radius: 22px;
+}
+
+.capabilityItem span {
+  display: block;
+}
+
+.workflowBoard {
+  padding: 26px;
+  border-radius: 28px;
+  background:
+    linear-gradient(140deg, rgba(14, 30, 52, 0.96), rgba(11, 21, 39, 0.92));
+}
+
+.compactLight {
+  max-width: 620px;
+}
+
+.workflowSteps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 24px;
+}
+
+.workflowStep {
+  padding: 20px;
+  border-radius: 22px;
+}
+
+.stepBadge {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin-bottom: 16px;
+  border-radius: 12px;
+  color: #eef6ff;
+  font-size: 13px;
+  font-weight: 800;
+  background: linear-gradient(135deg, rgba(90,166,255,0.8), rgba(242,154,74,0.72));
+}
+
+@media (max-width: 1120px) {
+  .heroSection,
+  .featureBand,
+  .capabilityGrid,
+  .workflowSteps,
+  .heroMetaRow {
+    grid-template-columns: 1fr;
+  }
+
+  .heroCopy h1 {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .landingTopbar,
+  .landingMain {
+    width: min(100%, calc(100% - 24px));
+  }
+
+  .landingTopbar {
+    padding-top: 16px;
+    align-items: flex-start;
+  }
+
+  .landingBrandText span {
+    max-width: 180px;
+    line-height: 1.4;
+  }
+
+  .landingLoginBtn {
+    min-width: 92px;
+    min-height: 42px;
+    padding: 0 14px;
+  }
+
+  .landingMain {
+    padding-top: 16px;
+    padding-bottom: 32px;
+  }
+
+  .heroSection {
+    gap: 22px;
+  }
+
+  .heroCopy {
+    padding-top: 6px;
+  }
+
+  .heroCopy h1 {
+    font-size: clamp(2.5rem, 12vw, 4rem);
+    line-height: 0.96;
+  }
+
+  .heroLead {
+    font-size: 0.96rem;
+    line-height: 1.72;
+  }
+
+  .heroMetaCard,
+  .heroPanelMain,
+  .heroPanelSide,
+  .featureCard,
+  .capabilityItem,
+  .workflowBoard,
+  .workflowStep {
+    padding: 18px;
+  }
+
+  .heroStatsStrip {
+    grid-template-columns: 1fr;
+  }
+
+  .trackingCard {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

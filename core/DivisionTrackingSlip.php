@@ -209,11 +209,11 @@ final class DivisionTrackingSlip
     $wrap($xR + $c1 + $c2 + 2, $y + 1.6, $c3 - 4, "Received Date\nand Time:", '', 7.0, 3.4, 'L');
 
     $docDate    = trim((string)($data['document_date'] ?? ''));
-    $receivedBy = trim((string)($data['received_by'] ?? ''));
+    $receivedBy = strtoupper(trim((string)($data['received_by'] ?? '')));
     $receivedDT = trim((string)($data['received_datetime'] ?? ''));
 
     $txt($xR + 2, $y + 7.4, $docDate, 'B', 9.0);
-    $wrap($xR + $c1 + 2, $y + 6.8, $c2 - 4, $receivedBy, 'B', 8.0, 3.5, 'L');
+    $wrap($xR + $c1 + 2, $y + 10.6, $c2 - 4, $receivedBy, 'B', 8.0, 3.5, 'L');
     $wrap($xR + $c1 + $c2 + 2, $y + 7.2, $c3 - 4, $receivedDT, 'B', 8.2, 3.8, 'L');
 
     $y += $rowH2;
@@ -231,53 +231,42 @@ final class DivisionTrackingSlip
     $pdf->SetTextColor(20, 24, 40);
     $nameEntries = is_array($data['name_entries'] ?? null) ? array_values($data['name_entries']) : [];
 
-    $entries = array_slice($nameEntries, 0, 9); // future-proof
-    $total = count($entries);
-    $leftCount = (int) ceil($total / 2);
-    $rightCount = $total - $leftCount;
-    $rows = max($leftCount, $rightCount, 3); // at least 3 rows para di pumangit pag konti
-    $rH = 6.0;
+    $entries = array_slice($nameEntries, 0, 9);
+    while (count($entries) < 9) {
+      $entries[] = '';
+    }
+
+    $cols = 3;
+    $rows = 3;
+    $rH = 6.8;
     $namesH = $rows * $rH;
+    $colW = $w0 / $cols;
 
     $rect($x0, $y, $w0, $namesH);
 
-    $midX = $x0 + ($w0 / 2.0);
-    $line($midX, $y, $midX, $y + $namesH);
-
+    for ($col = 1; $col < $cols; $col++) {
+      $lineX = $x0 + ($col * $colW);
+      $line($lineX, $y, $lineX, $y + $namesH);
+    }
     for ($rowLine = 1; $rowLine < $rows; $rowLine++) {
       $lineY = $y + ($rowLine * $rH);
       $line($x0, $lineY, $x0 + $w0, $lineY);
     }
 
-    if ($entries !== []) {
-      $pdf->SetFont('Arial', '', 6.5);
+    $pdf->SetFont('Arial', 'B', 6.4);
+    for ($idx = 0; $idx < 9; $idx++) {
+      $col = intdiv($idx, $rows);
+      $row = $idx % $rows;
+      $cellX = $x0 + ($col * $colW);
+      $cellY = $y + ($row * $rH);
 
-      $left = array_slice($entries, 0, $leftCount);
-      $right = array_slice($entries, $leftCount);
+      self::drawCheckbox($pdf, $cellX + 3.0, $cellY + 1.9);
 
-      for ($i = 0; $i < $rows; $i++) {
-        if (isset($left[$i])) {
-          $cellX = $x0 + 1.8;
-          $cellY = $y + ($i * $rH) + 1.4;
-          $cellW = ($w0 / 2.0) - 3.6;
-
-          $pdf->SetXY($cellX, $cellY);
-          $pdf->MultiCell($cellW, 3.2, self::pdfText((string)$left[$i]), 0, 'L');
-        }
-
-        if (isset($right[$i])) {
-          $cellX = $midX + 1.8;
-          $cellY = $y + ($i * $rH) + 1.4;
-          $cellW = ($w0 / 2.0) - 3.6;
-
-          $pdf->SetXY($cellX, $cellY);
-          $pdf->MultiCell($cellW, 3.2, self::pdfText((string)$right[$i]), 0, 'L');
-        }
+      $label = self::pdfText((string)($entries[$idx] ?? ''));
+      if ($label !== '') {
+        $pdf->SetXY($cellX + 8.4, $cellY + 1.4);
+        $pdf->MultiCell($colW - 10.8, 3.2, $label, 0, 'L');
       }
-    } else {
-      $pdf->SetTextColor(90, 90, 90);
-      $txt($x0 + 2, $y + 2.0, 'No permanent-position staff configured for this division.', '', 6.8);
-      $pdf->SetTextColor(20, 24, 40);
     }
 
     $y += $namesH;
@@ -353,12 +342,27 @@ final class DivisionTrackingSlip
     $txt($x0 + 2, $y + 2.0, 'OTHER ACTIONS/INSTRUCTIONS:', '', 8.0);
 
     $txt($x0 + ($w0 - $deadlineW) + 2, $y + 2.0, 'Deadline', '', 8.0);
-    $txt($x0 + ($w0 - $deadlineW) + 2, $y + 7.2, '(if applicable):', '', 7.2);
+    $txt($x0 + ($w0 - $deadlineW) + 2, $y + 6.2, '(if applicable)', '', 7.2);
 
     $deadDate = trim((string)($data['deadline_date'] ?? ''));
     $deadTime = trim((string)($data['deadline_time'] ?? ''));
-    $txt($x0 + ($w0 - $deadlineW) + 2, $y + 14.0, $deadDate, 'B', 8.6);
-    $txt($x0 + ($w0 - $deadlineW) + 2, $y + 18.5, $deadTime, 'B', 8.6);
+
+    // Date
+    $txt($x0 + ($w0 - $deadlineW) + 2, $y + 11.5, $deadDate, 'B', 8.6);
+
+    // 🔥 Divider line
+    $line(
+      $x0 + ($w0 - $deadlineW),
+      $y + 13.5,
+      $x0 + $w0,
+      $y + 13.5
+    );
+
+    // Date/Time label
+    $txt($x0 + ($w0 - $deadlineW) + 2, $y + 15.2, 'Date/Time:', '', 7.6);
+
+    // Time value
+    $txt($x0 + ($w0 - $deadlineW) + 2, $y + 18.8, $deadTime, 'B', 8.6);
 
     $y += $rowH4;
 
