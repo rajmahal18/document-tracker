@@ -816,3 +816,261 @@
   display: block;
   margin-bottom: 6px;
 }
+
+/* Destination builder simplification */
+.addDocumentPage .destToolbarTop {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.addDocumentPage .destToolbarActions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.addDocumentPage .destSectionPreview {
+  margin-top: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.92);
+  padding: 10px 12px;
+}
+
+.addDocumentPage .destPreviewLoading,
+.addDocumentPage .destPreviewMeta,
+.addDocumentPage .destCompactSubline {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.addDocumentPage .destPreviewTitle {
+  font-size: 13px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.addDocumentPage .destPreviewNames,
+.addDocumentPage .destCompactNames {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.addDocumentPage .destNameChip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.addDocumentPage .destNameChip.is-chief {
+  color: #0b3a66;
+  border-color: rgba(15, 54, 93, 0.18);
+  background: rgba(15, 54, 93, 0.06);
+}
+
+.addDocumentPage .destNameChip.is-muted {
+  color: #64748b;
+}
+
+.addDocumentPage .destCard {
+  padding: 12px;
+  border-radius: 14px;
+}
+
+.addDocumentPage .destCardTop.compact {
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.addDocumentPage .destCompactControls {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.addDocumentPage .destModeOption.compact {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.addDocumentPage .destDeadlineWrap.compact {
+  margin-top: 10px;
+}
+
+.addDocumentPage .destDeadlineWrap.compact .destDeadlineLabel {
+  margin-bottom: 4px;
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 800;
+  color: #475569;
+}
+
+.addDocumentPage .destUsersHeader.compact {
+  align-items: center;
+}
+
+.addDocumentPage .destUserRow.compact {
+  padding: 8px 10px;
+  min-height: 0;
+}
+
+.addDocumentPage .destUserName {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.addDocumentPage .destSummaryTop.compact {
+  align-items: center;
+}
+
+.addDocumentPage .destSummaryBox {
+  margin-top: 10px;
+  padding: 10px 12px;
+}
+
+.addDocumentPage .destHeadline {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.addDocumentPage .destSummaryChips {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.addDocumentPage .destinationsGrid {
+  margin-top: 10px;
+  gap: 10px;
+}
+
+.addDocumentPage .destActionBtn.is-disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.addDocumentPage .destTopMeta,
+.addDocumentPage .destHelper,
+.addDocumentPage .destViewToggle {
+  display: none !important;
+}
+
+@media (max-width: 720px) {
+  .addDocumentPage .destToolbarTop {
+    grid-template-columns: 1fr;
+  }
+
+  .addDocumentPage .destToolbarActions {
+    flex-direction: column;
+  }
+
+  .addDocumentPage .destToolbarActions .destActionBtn,
+  .addDocumentPage .destToolbarTop .destActionBtn {
+    width: 100%;
+  }
+}
+
+
+/* Destination builder recipient picker */
+.addDocumentPage .destPreviewGroup + .destPreviewGroup,
+.addDocumentPage .destRecipientGroup + .destRecipientGroup,
+.addDocumentPage .destPickerGroup + .destPickerGroup {
+  margin-top: 8px;
+}
+
+.addDocumentPage .destRecipientLabel {
+  font-size: 11px;
+  font-weight: 800;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.addDocumentPage .destRecipientGroups {
+  display: grid;
+  gap: 8px;
+}
+
+.addDocumentPage .destPickerGroups {
+  display: grid;
+  gap: 10px;
+}
+
+.addDocumentPage .destPickerList {
+  margin-top: 6px;
+  display: grid;
+  gap: 6px;
+}
+
+.addDocumentPage .destPickerEmpty {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px dashed rgba(15, 23, 42, 0.12);
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.addDocumentPage .destUsersPanel.is-open {
+  display: block;
+}
+
+.addDocumentPage .destUsersPanel.is-open,
+.addDocumentPage .destDeadlineWrap.compact {
+  margin-top: 10px;
+}
+
+.addDocumentPage .destUsersBox {
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.addDocumentPage .destUserRow {
+  border: 1px solid rgba(15, 23, 42, 0.07);
+  background: #fff;
+}
+
+.addDocumentPage .destUserRow.is-chief-row {
+  border-color: rgba(15, 54, 93, 0.14);
+  background: rgba(15, 54, 93, 0.04);
+}
+
+.addDocumentPage .destUserRow input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.addDocumentPage .destCompactSubline {
+  margin-top: 2px;
+}
+
+.addDocumentPage .destSectionPreview .destPreviewNames,
+.addDocumentPage .destCard .destCompactNames {
+  margin-top: 6px;
+}
+
+@media (max-width: 820px) {
+  .addDocumentPage .destToolbarTop {
+    grid-template-columns: 1fr;
+  }
+}

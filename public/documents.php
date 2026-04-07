@@ -389,25 +389,38 @@ $myIsVisibleOnlyPredicate = $branchMode
 
 $myIsForReferencePredicate = "(
   {$hasRealBranchesPredicate}
-  AND EXISTS (
-    SELECT 1
-    FROM document_branches b_ref
-    WHERE b_ref.document_id = d.id
-      AND b_ref.is_reference = 1
-      AND (
-        b_ref.current_assignee_user_id = {$myUid}
-        OR EXISTS (
-          SELECT 1
-          FROM routes r_ref
-          WHERE r_ref.document_id = d.id
-            AND r_ref.branch_id = b_ref.id
-            AND (
-              r_ref.to_user_id = {$myUid}
-              OR r_ref.sent_by_user_id = {$myUid}
-              OR r_ref.received_by_user_id = {$myUid}
-            )
+  AND (
+    EXISTS (
+      SELECT 1
+      FROM document_branches b_ref
+      WHERE b_ref.document_id = d.id
+        AND b_ref.is_reference = 1
+        AND (
+          b_ref.current_assignee_user_id = {$myUid}
+          OR EXISTS (
+            SELECT 1
+            FROM routes r_ref
+            WHERE r_ref.document_id = d.id
+              AND r_ref.branch_id = b_ref.id
+              AND (
+                r_ref.to_user_id = {$myUid}
+                OR r_ref.sent_by_user_id = {$myUid}
+                OR r_ref.received_by_user_id = {$myUid}
+              )
+          )
         )
-      )
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM routes r_ref_flat
+      WHERE r_ref_flat.document_id = d.id
+        AND r_ref_flat.route_kind = 'REFERENCE'
+        AND (
+          r_ref_flat.to_user_id = {$myUid}
+          OR r_ref_flat.sent_by_user_id = {$myUid}
+          OR r_ref_flat.received_by_user_id = {$myUid}
+        )
+    )
   )
 )";
 
@@ -726,25 +739,38 @@ $sql = "
         SELECT 1
         FROM document_branches b_any_ref
         WHERE b_any_ref.document_id = d.id
-      ) AND EXISTS (
-        SELECT 1
-        FROM document_branches b_ref
-        WHERE b_ref.document_id = d.id
-          AND b_ref.is_reference = 1
-          AND (
-            b_ref.current_assignee_user_id = {$myUid}
-            OR EXISTS (
-              SELECT 1
-              FROM routes r_ref
-              WHERE r_ref.document_id = d.id
-                AND r_ref.branch_id = b_ref.id
-                AND (
-                  r_ref.to_user_id = {$myUid}
-                  OR r_ref.sent_by_user_id = {$myUid}
-                  OR r_ref.received_by_user_id = {$myUid}
-                )
+      ) AND (
+        EXISTS (
+          SELECT 1
+          FROM document_branches b_ref
+          WHERE b_ref.document_id = d.id
+            AND b_ref.is_reference = 1
+            AND (
+              b_ref.current_assignee_user_id = {$myUid}
+              OR EXISTS (
+                SELECT 1
+                FROM routes r_ref
+                WHERE r_ref.document_id = d.id
+                  AND r_ref.branch_id = b_ref.id
+                  AND (
+                    r_ref.to_user_id = {$myUid}
+                    OR r_ref.sent_by_user_id = {$myUid}
+                    OR r_ref.received_by_user_id = {$myUid}
+                  )
+              )
             )
-          )
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM routes r_ref_flat
+          WHERE r_ref_flat.document_id = d.id
+            AND r_ref_flat.route_kind = 'REFERENCE'
+            AND (
+              r_ref_flat.to_user_id = {$myUid}
+              OR r_ref_flat.sent_by_user_id = {$myUid}
+              OR r_ref_flat.received_by_user_id = {$myUid}
+            )
+        )
       ) THEN 1
       ELSE 0
     END AS my_is_for_reference,
@@ -1696,10 +1722,12 @@ $end   = min($totalPages, $page + 2);
 
       <div class="drawerBranchWrap drawerBranchWrapHeader" id="d_branch_wrap" style="display:none;">
         <div class="drawerBranchHead">
-          <span class="drawerBranchTitle">Current branch</span>
-          <span class="mini" id="d_branch_hint" style="opacity:.72;">Your lane</span>
+          <span class="drawerBranchTitle">Current lane</span>
+          <span class="mini" id="d_branch_hint" style="opacity:.72;">Select the lane you want to view.</span>
         </div>
-        <div id="d_branch_bar" class="branchBar branchBarCompact"></div>
+        <div id="d_branch_bar" class="branchSelectorWrap">
+          <select id="d_branch_select" class="branchSelect" aria-label="Select lane"></select>
+        </div>
         <div id="d_branch_meta" class="branchMeta mini"></div>
       </div>
     </div>
@@ -1790,9 +1818,32 @@ $end   = min($totalPages, $page + 2);
   </div>
 
   <div class="drawerActionsWrap">
+    <div class="drawerPendingRemarks" id="drawerPendingRemarks" style="display:none;">
+      <div class="drawerPendingRemarksHead">
+        <div>
+          <div class="drawerPendingRemarksEyebrow">Pending route only</div>
+          <label for="d_pending_route_remarks" class="drawerPendingRemarksTitle" id="d_pending_route_title">Pending remarks</label>
+        </div>
+        <span class="drawerPendingRemarksBadge" id="d_pending_route_badge">Editable</span>
+      </div>
+
+      <div class="drawerPendingRemarksPreview" id="d_pending_route_preview">No pending remarks yet.</div>
+      <div class="drawerPendingRemarksHint" id="d_pending_route_hint">This stays editable until the recipient receives the route.</div>
+
+      <div class="drawerPendingRemarksComposer" id="d_pending_route_composer" style="display:none;">
+        <textarea id="d_pending_route_remarks" class="search drawerActionRemarksInput" rows="3" placeholder="Add a clear note for the pending recipient"></textarea>
+      </div>
+
+      <div class="drawerPendingRemarksActions">
+        <button type="button" class="btnSecondary" id="btnEditPendingRemarks">Add pending remarks</button>
+        <button type="button" class="btnSecondary" id="btnCancelPendingRemarks" style="display:none;">Cancel</button>
+        <button type="button" class="btnComp" id="btnSavePendingRemarks" style="display:none;">Save pending remarks</button>
+      </div>
+    </div>
+
     <div class="drawerActionRemarks">
-      <label for="d_action_remarks" class="drawerActionRemarksLabel">Remarks (optional)</label>
-      <textarea id="d_action_remarks" class="search drawerActionRemarksInput" rows="2" placeholder="Add remarks for this action only if needed"></textarea>
+      <label for="d_action_remarks" class="drawerActionRemarksLabel">Action remarks (optional)</label>
+      <textarea id="d_action_remarks" class="search drawerActionRemarksInput" rows="2" placeholder="Add remarks for receive, forward, release, or archive only if needed"></textarea>
     </div>
 
     <div class="drawerActions">
@@ -1831,9 +1882,9 @@ $end   = min($totalPages, $page + 2);
       <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer;">
         <input id="f_receive_only" type="checkbox" style="margin-top:3px;">
         <span>
-          <span style="display:block; font-size:12px; font-weight:900;">Forward as receive-only</span>
+          <span style="display:block; font-size:12px; font-weight:900;">Send as reference only</span>
           <span class="mini" id="f_receive_only_hint" style="opacity:.75;">
-            Recipient can acknowledge receive, but cannot forward or act further.
+            Recipient gets a reference copy only. Your current lane stays actionable with you.
           </span>
         </span>
       </label>

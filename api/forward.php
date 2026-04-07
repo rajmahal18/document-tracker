@@ -281,12 +281,20 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
     $stmtRoute = $conn->prepare("\n      INSERT INTO routes\n        (document_id, branch_id, from_section_id, to_section_id, from_user_id, to_user_id, route_kind, send_batch_id, received_at, sent_by_user_id, remarks, personal_deadline_at)\n      VALUES\n        (?, ?, ?, ?, ?, ?, 'ACTION', ?, NULL, ?, ?, ?)\n    ");
 
     $forceReceiveOnly = $receiveOnly || count($recipients) > 1;
+    $sourceBranchParentId = (int)($sourceBranch['parent_branch_id'] ?? 0);
+    $referenceOnlyWithoutBranching = ($forceReceiveOnly && $sourceBranchParentId > 0);
 
     if (!$forceReceiveOnly && count($recipients) === 1) {
       // Normal single forward keeps the same actionable lane.
       $rid = (int)$recipients[0];
 
-      $stmt = $conn->prepare("\n        UPDATE document_branches\n        SET current_assignee_user_id = ?,\n            current_assignee_section_id = ?,\n            updated_at = NOW()\n        WHERE id = ?\n      ");
+      $stmt = $conn->prepare("
+        UPDATE document_branches
+        SET current_assignee_user_id = ?,
+            current_assignee_section_id = ?,
+            updated_at = NOW()
+        WHERE id = ?
+      ");
       $stmt->bind_param("iii", $rid, $toSectionId, $sourceBranchId);
       $stmt->execute();
 
@@ -298,9 +306,38 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
       $routeIds[] = (int)$conn->insert_id;
       $newBranchIds[] = $sourceBranchId;
 
+    } elseif ($referenceOnlyWithoutBranching) {
+      // One-level branching only: nested lanes can send reference copies, but must not create child branches.
+      $stmtReferenceRoute = $conn->prepare("
+        INSERT INTO routes
+          (document_id, branch_id, from_section_id, to_section_id, from_user_id, to_user_id, route_kind, send_batch_id, received_at, sent_by_user_id, remarks, personal_deadline_at)
+        VALUES
+          (?, ?, ?, ?, ?, ?, 'REFERENCE', ?, NOW(), ?, ?, NULL)
+      ");
+
+      foreach ($recipients as $rid) {
+        $rid = (int)$rid;
+
+        workflow_grant_visibility($conn, $docId, $rid, 'REFERENCE', $sourceBranchId, $actualUserId);
+        if ($userId > 0 && $userId !== $actualUserId) workflow_grant_visibility($conn, $docId, $userId, 'PARTICIPANT', $sourceBranchId, $actualUserId);
+
+        $stmtReferenceRoute->bind_param("iiiiiisis", $docId, $sourceBranchId, $mySectionId, $toSectionId, $actualUserId, $rid, $sendBatchId, $actualUserId, $routeRemarks);
+        $stmtReferenceRoute->execute();
+        $routeIds[] = (int)$conn->insert_id;
+      }
+
+      $newBranchIds[] = $sourceBranchId;
+
     } else {
-      // Receive-only forward: original branch is completed, recipient branches are reference-only.
-      $stmt = $conn->prepare("\n        UPDATE document_branches\n        SET branch_status = 'COMPLETED',\n            current_assignee_user_id = NULL,\n            current_assignee_section_id = NULL,\n            updated_at = NOW()\n        WHERE id = ?\n      ");
+      // First-level branching only: root lane can still split into reference-only child lanes.
+      $stmt = $conn->prepare("
+        UPDATE document_branches
+        SET branch_status = 'COMPLETED',
+            current_assignee_user_id = NULL,
+            current_assignee_section_id = NULL,
+            updated_at = NOW()
+        WHERE id = ?
+      ");
       $stmt->bind_param("i", $sourceBranchId);
       $stmt->execute();
 
@@ -356,6 +393,7 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
     "send_batch_id" => $sendBatchId,
     "branch_mode" => $docHasRealBranches,
     "receive_only" => $docHasRealBranches ? ($receiveOnly || count($recipients) > 1) : false,
+    "reference_only_without_branching" => $docHasRealBranches ? $referenceOnlyWithoutBranching : false,
 
     "from_section_id" => $mySectionId,
     "to_section_id" => $toSectionId,

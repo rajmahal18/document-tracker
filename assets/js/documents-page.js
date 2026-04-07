@@ -21,9 +21,20 @@
   const elLastHolder = document.getElementById("d_last_holder");
 
   const elActionRemarks = document.getElementById("d_action_remarks");
+  const elPendingRemarksWrap = document.getElementById("drawerPendingRemarks");
+  const elPendingRemarksTitle = document.getElementById("d_pending_route_title");
+  const elPendingRemarksBadge = document.getElementById("d_pending_route_badge");
+  const elPendingRemarksPreview = document.getElementById("d_pending_route_preview");
+  const elPendingRemarksHint = document.getElementById("d_pending_route_hint");
+  const elPendingRemarksComposer = document.getElementById("d_pending_route_composer");
+  const elPendingRemarksInput = document.getElementById("d_pending_route_remarks");
+  const btnEditPendingRemarks = document.getElementById("btnEditPendingRemarks");
+  const btnCancelPendingRemarks = document.getElementById("btnCancelPendingRemarks");
+  const btnSavePendingRemarks = document.getElementById("btnSavePendingRemarks");
   const elTimeline = document.getElementById("d_timeline");
   const elBranchWrap = document.getElementById("d_branch_wrap");
   const elBranchBar = document.getElementById("d_branch_bar");
+  const elBranchSelect = document.getElementById("d_branch_select");
   const elBranchMeta = document.getElementById("d_branch_meta");
   const elBranchHint = document.getElementById("d_branch_hint");
 
@@ -92,6 +103,8 @@
   let currentBranchMode = false;
   let currentBranches = [];
   let currentBranchId = 0;
+  let currentPendingRemarksState = null;
+  const pendingRemarkLocalEvents = new Map();
   let deadlineTicker = null;
 
   const DRAWER_RESTORE_KEY = "dt_restore_drawer";
@@ -129,6 +142,125 @@
 
   function normalizedRemarksValue() {
     return (elActionRemarks?.value ?? "").toString().trim();
+  }
+
+  function normalizedPendingRemarksValue() {
+    return (elPendingRemarksInput?.value ?? "").toString().trim();
+  }
+
+  function currentPendingRemarksBranchId() {
+    if (currentBranchMode) {
+      const branch = getSelectedBranch();
+      return Number(branch?.id || 0);
+    }
+    return 0;
+  }
+
+  function currentPendingRemarksEventKey(docId) {
+    return `${Number(docId || 0)}:${Number(currentPendingRemarksBranchId() || 0)}`;
+  }
+
+  function pushPendingRemarkLocalEvent(docId, entry) {
+    const key = currentPendingRemarksEventKey(docId);
+    const list = pendingRemarkLocalEvents.get(key) || [];
+    list.unshift(entry);
+    pendingRemarkLocalEvents.set(key, list.slice(0, 5));
+  }
+
+  function updateLatestRemarkCell(docId, remarks) {
+    const row = Array.from(document.querySelectorAll("[data-doc]")).find((el) => {
+      try {
+        const raw = el.getAttribute("data-doc") || "{}";
+        const payload = JSON.parse(raw);
+        return Number(payload?.id || 0) === Number(docId || 0);
+      } catch {
+        return false;
+      }
+    });
+    if (!row) return;
+
+    const cell = row.querySelector("td[data-label='Latest remark'] .latestRemarkCell");
+    if (!cell) return;
+
+    const cleanRemark = (remarks || "").toString().trim();
+    if (cleanRemark) {
+      cell.classList.add("hasRemark");
+      cell.innerHTML = `<div class="latestRemarkText" title="${esc(cleanRemark)}">${esc(cleanRemark)}</div>`;
+    } else {
+      cell.classList.remove("hasRemark");
+      cell.innerHTML = `<div class="latestRemarkBlank"></div>`;
+    }
+  }
+
+  function setPendingRemarksEditing(isEditing) {
+    if (!elPendingRemarksComposer || !btnCancelPendingRemarks || !btnSavePendingRemarks || !btnEditPendingRemarks) return;
+    elPendingRemarksComposer.style.display = isEditing ? "" : "none";
+    btnCancelPendingRemarks.style.display = isEditing ? "" : "none";
+    btnSavePendingRemarks.style.display = isEditing ? "" : "none";
+    btnEditPendingRemarks.style.display = isEditing ? "none" : "";
+    if (isEditing) {
+      setTimeout(() => elPendingRemarksInput?.focus(), 0);
+    }
+  }
+
+  function renderPendingRemarksState(state) {
+    currentPendingRemarksState = state || null;
+
+    if (!elPendingRemarksWrap || !elPendingRemarksPreview || !elPendingRemarksHint || !btnEditPendingRemarks) return;
+
+    const editable = !!state?.editable;
+    elPendingRemarksWrap.style.display = editable ? "" : "none";
+
+    if (!editable) {
+      setPendingRemarksEditing(false);
+      return;
+    }
+
+    const remarks = (state?.remarks || "").toString().trim();
+    const hasRemark = !!remarks;
+
+    if (elPendingRemarksTitle) {
+      elPendingRemarksTitle.textContent = hasRemark ? "Pending remarks" : "Add pending remarks";
+    }
+    if (elPendingRemarksBadge) {
+      elPendingRemarksBadge.textContent = state?.just_saved ? "Updated" : "Editable";
+    }
+
+    elPendingRemarksPreview.textContent = hasRemark ? remarks : "No pending remarks yet.";
+    elPendingRemarksPreview.classList.toggle("isEmpty", !hasRemark);
+    elPendingRemarksPreview.classList.toggle("isChanged", !!state?.just_saved);
+    elPendingRemarksHint.textContent = state?.helper_text || "This stays editable until the recipient receives the route.";
+
+    btnEditPendingRemarks.textContent = state?.button_label || (hasRemark ? "Edit pending remarks" : "Add pending remarks");
+
+    if (elPendingRemarksInput) {
+      elPendingRemarksInput.value = remarks;
+    }
+
+    setPendingRemarksEditing(false);
+  }
+
+  async function loadPendingRouteRemarks(docId, forcedBranchId = 0) {
+    if (!elPendingRemarksWrap || !docId) return;
+
+    const qs = appendActingPrincipal(new URLSearchParams({ document_id: String(docId) }), currentPayload);
+    const branchId = Number(forcedBranchId || currentPendingRemarksBranchId() || 0);
+    if (branchId > 0) qs.set("branch_id", String(branchId));
+
+    try {
+      const res = await fetch(`${API}/get_pending_route_remarks.php?${qs.toString()}`, {
+        cache: "no-store",
+        headers: { Accept: "application/json" }
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        renderPendingRemarksState(null);
+        return;
+      }
+      renderPendingRemarksState(data);
+    } catch {
+      renderPendingRemarksState(null);
+    }
   }
 
   function saveDrawerRestoreState(docId, branchId = 0) {
@@ -250,6 +382,9 @@
       archived: "Archived",
       archive_undone: "Undo Archive",
       attachment_added: "Attachment",
+      pending_remarks_added: "Pending Remarks Added",
+      pending_remarks_updated: "Pending Remarks Updated",
+      pending_remarks_cleared: "Pending Remarks Cleared",
       cancelled: "Cancelled",
       under_action: "Under Action",
       updated: "Updated",
@@ -266,6 +401,9 @@
       forwarded: "➜",
       received: "✓",
       attachment_added: "📎",
+      pending_remarks_added: "✎",
+      pending_remarks_updated: "✎",
+      pending_remarks_cleared: "⌫",
       released: "⤴",
       release_undone: "↩",
       archived: "⧉",
@@ -459,36 +597,45 @@
     return !!(currentBranchMode && Number(currentPayload?.is_origin || 0) === 1);
   }
 
-  function bindHeaderBranchPills() {
-    if (!elBranchBar) return;
-    elBranchBar.querySelectorAll(".branchPill[data-branch-id]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const bid = Number(btn.dataset.branchId || 0);
-        const docId = Number(currentPayload?.id || 0);
-        if (bid <= 0 || docId <= 0) return;
-        applyBranchSelection(bid);
-        loadTimeline(docId, bid, { preserveSelection: true });
-      });
-    });
+  function branchOptionLabel(branch) {
+    const label = branchLabel(branch);
+    if (Number(branch?.my_pending_route_id || 0) > 0) return `${label} — Pending receive`;
+    if (Number(branch?.can_forward || 0) === 1) return `${label} — Actionable`;
+    if (Number(branch?.is_reference || 0) === 1) return `${label} — Reference only`;
+    if (((branch?.branch_status || "").toString().toUpperCase()) !== "ACTIVE") return `${label} — Completed`;
+    return label;
+  }
+
+  function bindBranchSelector() {
+    if (!elBranchSelect) return;
+    elBranchSelect.onchange = () => {
+      const bid = Number(elBranchSelect.value || 0);
+      const docId = Number(currentPayload?.id || 0);
+      if (bid <= 0 || docId <= 0) return;
+      applyBranchSelection(bid);
+      loadTimeline(docId, bid, { preserveSelection: true });
+    };
   }
 
   function renderHeaderBranchPills() {
-    if (!elBranchBar) return;
+    if (!elBranchSelect) return;
 
     if (!currentBranchMode || !Array.isArray(currentBranches) || currentBranches.length === 0) {
-      elBranchBar.innerHTML = "";
+      elBranchSelect.innerHTML = "";
       return;
     }
 
-    const pillsHtml = currentBranches
+    const optionsHtml = currentBranches
       .filter((branch) => Number(branch?.id || 0) > 0)
-      .map((branch) => `
-        <button type="button" class="${branchPillClassList(branch, currentBranchId).join(" ")}" data-branch-id="${Number(branch.id || 0)}">${esc(branchLabel(branch))}${esc(branchPillSuffix(branch))}</button>
-      `)
+      .map((branch) => {
+        const bid = Number(branch.id || 0);
+        const selected = bid === Number(currentBranchId || 0) ? ' selected' : '';
+        return `<option value="${bid}"${selected}>${esc(branchOptionLabel(branch))}</option>`;
+      })
       .join("");
 
-    elBranchBar.innerHTML = pillsHtml ? `<div class="branchBar">${pillsHtml}</div>` : "";
-    bindHeaderBranchPills();
+    elBranchSelect.innerHTML = optionsHtml;
+    bindBranchSelector();
   }
 
   function refreshDrawerBranchContext() {
@@ -550,19 +697,26 @@
 
     syncInlineBranchSelection();
 
+    if (elBranchSelect) {
+      elBranchSelect.value = branch ? String(Number(branch.id || 0)) : "";
+    }
+
     if (elBranchMeta) {
       if (!branch) {
-        elBranchMeta.textContent = currentBranchMode ? "No branch selected." : "";
+        elBranchMeta.textContent = currentBranchMode ? "No lane selected." : "";
       } else {
         const bits = [];
-        bits.push(`${branchLabel(branch)} • ${(branch.branch_status || "ACTIVE").toString().toUpperCase()}`);
-        if (Number(branch.is_reference || 0) === 1) bits.push("Reference only");
-        if (Number(branch.my_pending_route_id || 0) > 0) bits.push("Pending receive by you");
-        else if (Number(branch.can_forward || 0) === 1) bits.push("Actionable by you");
+        if (Number(branch.my_pending_route_id || 0) > 0) bits.push("Waiting for your receive");
+        else if (Number(branch.can_forward || 0) === 1) bits.push("You can act on this lane");
+        else if (Number(branch.is_reference || 0) === 1) bits.push("Reference-only lane");
+        else if (((branch.branch_status || "").toString().toUpperCase()) !== "ACTIVE") bits.push("Completed lane");
+        else bits.push("View-only lane");
+
         if (clean(branch.current_assignee_name)) {
           const sec = clean(branch.current_assignee_section_name);
-          bits.push(`Assignee: ${branch.current_assignee_name}${sec ? ` (${sec})` : ""}`);
+          bits.push(`Assigned to ${branch.current_assignee_name}${sec ? ` (${sec})` : ""}`);
         }
+
         elBranchMeta.textContent = bits.join(" • ");
       }
     }
@@ -573,6 +727,7 @@
     updateForwardUI();
     if (currentPayload?.id) {
       loadAttachments(currentPayload.id);
+      loadPendingRouteRemarks(currentPayload.id, currentBranchId);
     }
 
     if (btnAckReceived) {
@@ -682,10 +837,10 @@
     }
 
     if (elBranchWrap) elBranchWrap.style.display = visibleBranches.length > 1 ? "" : "none";
-    if (elBranchBar) elBranchBar.innerHTML = "";
+    if (elBranchSelect) elBranchSelect.innerHTML = "";
     if (elBranchHint) {
       elBranchHint.textContent = visibleBranches.length > 1
-        ? "Switch lanes from the split bars placed between timeline groups."
+        ? "Select the lane you want to inspect."
         : "";
     }
 
@@ -743,7 +898,7 @@
       cbReceiveOnly.disabled = false;
     }
     if (elReceiveOnlyHint) {
-      elReceiveOnlyHint.textContent = "Recipient can acknowledge receive, but cannot forward or act further.";
+      elReceiveOnlyHint.textContent = "Recipient gets a reference copy only. Your current lane stays actionable with you.";
     }
   }
 
@@ -795,13 +950,15 @@
     if (isMulti) {
       cbReceiveOnly.checked = true;
       cbReceiveOnly.disabled = true;
-      elReceiveOnlyHint.textContent = "Multiple recipients are always receive-only in the current workflow.";
+      elReceiveOnlyHint.textContent = currentBranchMode
+        ? "Multiple recipients from an active lane are sent as reference only. No new sub-branches will be created."
+        : "Multiple recipients are sent as reference only in the current workflow.";
       return;
     }
 
     cbReceiveOnly.disabled = false;
     elReceiveOnlyHint.textContent = cbReceiveOnly.checked
-      ? "Recipient can acknowledge receive, but cannot forward or act further."
+      ? "Recipient gets a reference copy only. Your current lane stays actionable with you."
       : "Recipient will receive the normal actionable lane if allowed by workflow rules.";
   }
 
@@ -1574,7 +1731,10 @@
         }
       }
 
-      const items = Array.isArray(data.history) ? data.history : [];
+      const serverItems = Array.isArray(data.history) ? data.history : [];
+      const localKey = `${Number(docId || 0)}:${Number(currentBranchMode ? (forcedBranchId || currentBranchId || 0) : 0)}`;
+      const localItems = pendingRemarkLocalEvents.get(localKey) || [];
+      const items = [...localItems, ...serverItems];
       if (items.length === 0) {
         elTimeline.innerHTML = `<div class="mini" style="opacity:.7;">No timeline yet for this ${currentBranchMode ? "branch" : "document"}.</div>`;
         return;
@@ -1792,7 +1952,10 @@
     if (payload.id) loadAttachments(payload.id);
 
     if (elTimeline) elTimeline.textContent = "Loading timeline…";
-    if (payload.id) loadTimeline(payload.id, 0, { preserveSelection: false });
+    if (payload.id) {
+      loadTimeline(payload.id, 0, { preserveSelection: false });
+      loadPendingRouteRemarks(payload.id, 0);
+    }
 
     const openToSectionId = Number.parseInt(payload.open_to_section_id, 10) || 0;
     const holderSectionId = Number.parseInt(payload.current_holder_section_id, 10) || 0;
@@ -1919,6 +2082,8 @@
     currentBranches = [];
     currentBranchId = 0;
     currentCanForward = false;
+    currentPendingRemarksState = null;
+    renderPendingRemarksState(null);
     if (deadlineTicker) {
       clearInterval(deadlineTicker);
       deadlineTicker = null;
@@ -1927,7 +2092,7 @@
     if (elPersonalDeadline) elPersonalDeadline.textContent = "—";
     if (elDeadlineCountdown) elDeadlineCountdown.textContent = "—";
     if (elBranchWrap) elBranchWrap.style.display = "none";
-    if (elBranchBar) elBranchBar.innerHTML = "";
+    if (elBranchSelect) elBranchSelect.innerHTML = "";
     if (elBranchMeta) elBranchMeta.textContent = "";
   }
 
@@ -2059,6 +2224,79 @@
     }
   }
 
+  async function savePendingRouteRemarks() {
+    const docId = Number(elId?.value || 0);
+    if (!docId || !currentPendingRemarksState?.editable) return;
+
+    const remarks = normalizedPendingRemarksValue();
+    const routeId = Number(currentPendingRemarksState?.route_id || 0);
+    const branchId = Number(currentPendingRemarksBranchId() || currentPendingRemarksState?.branch_id || 0);
+
+    const form = appendActingPrincipal(new FormData(), currentPayload);
+    form.append("document_id", String(docId));
+    if (routeId > 0) form.append("route_id", String(routeId));
+    if (branchId > 0) form.append("branch_id", String(branchId));
+    form.append("remarks", remarks);
+    form.append("csrf_token", window.__CSRF__ || "");
+
+    if (btnSavePendingRemarks) btnSavePendingRemarks.disabled = true;
+
+    try {
+      const res = await fetch(`${API}/update_pending_route_remarks.php`, {
+        method: "POST",
+        body: form,
+        headers: { Accept: "application/json" }
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        window.DTToast?.error(data?.error || `Failed to save pending remarks. (${res.status})`) || console.warn(data?.error || `Failed to save pending remarks. (${res.status})`);
+        return;
+      }
+
+      const helperText = data?.change_type === "pending_remarks_cleared"
+        ? "Pending remarks cleared. The timeline keeps the change trail."
+        : "Pending remarks saved. The timeline keeps the change trail until the route is received.";
+
+      const nextState = {
+        ...(currentPendingRemarksState || {}),
+        editable: true,
+        route_id: Number(data?.route_id || routeId || 0),
+        branch_id: Number(data?.branch_id || branchId || 0),
+        remarks: (data?.remarks || "").toString(),
+        has_remark: !!data?.has_remark,
+        button_label: !!data?.has_remark ? "Edit pending remarks" : "Add pending remarks",
+        helper_text: helperText,
+        just_saved: true,
+      };
+
+      renderPendingRemarksState(nextState);
+      updateLatestRemarkCell(docId, nextState.remarks || "");
+
+      pushPendingRemarkLocalEvent(docId, {
+        action: (data?.change_type || "pending_remarks_updated").toString(),
+        acted_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+        actor: (window.__CTX__?.actingPrincipalName || window.__CTX__?.myFullName || "You").toString(),
+        actor_section: (window.__CTX__?.mySectionName || "").toString(),
+        title: (data?.title || "Updated pending route remarks").toString(),
+        remarks: data?.change_type === "pending_remarks_cleared"
+          ? (data?.old_remarks ? `Previous: ${data.old_remarks}` : "Pending remarks cleared.")
+          : (data?.old_remarks ? `Previous: ${data.old_remarks}
+Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
+        branch_id: Number(data?.branch_id || branchId || 0),
+      });
+
+      if (docId > 0) {
+        loadTimeline(docId, branchId, { preserveSelection: true });
+      }
+
+      window.DTToast?.success(data?.change_type === "pending_remarks_cleared" ? "Pending remarks cleared." : "Pending remarks saved.") || console.log("Pending remarks saved.");
+    } catch {
+      window.DTToast?.error("Failed to save pending remarks (network error).") || console.warn("Failed to save pending remarks (network error).");
+    } finally {
+      if (btnSavePendingRemarks) btnSavePendingRemarks.disabled = false;
+    }
+  }
+
   document.addEventListener("click", (e) => {
     const link = e.target?.closest?.("a.attachLink[data-view-url]");
     if (!link) return;
@@ -2129,6 +2367,14 @@
   });
 
   btnAckReceived?.addEventListener("click", ackReceived);
+  btnEditPendingRemarks?.addEventListener("click", () => setPendingRemarksEditing(true));
+  btnCancelPendingRemarks?.addEventListener("click", () => {
+    if (elPendingRemarksInput) {
+      elPendingRemarksInput.value = (currentPendingRemarksState?.remarks || "").toString();
+    }
+    setPendingRemarksEditing(false);
+  });
+  btnSavePendingRemarks?.addEventListener("click", savePendingRouteRemarks);
   btnUnderAction?.addEventListener("click", () => updateStatus("ACTIVE"));
   btnRelease?.addEventListener("click", () => updateStatus((btnRelease.dataset.nextStatus || "RELEASED").toUpperCase()));
   btnArchive?.addEventListener("click", () => updateStatus((btnArchive.dataset.nextStatus || "ARCHIVED").toUpperCase()));

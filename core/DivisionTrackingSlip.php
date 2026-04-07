@@ -195,8 +195,9 @@ final class DivisionTrackingSlip
     $wrap($x0 + 2, $y + 6.4, $leftW - 4, $from, 'B', 9.1, 4.2, 'L');
 
     // right side split into 3 cols
-    $c1 = $rightW * 0.34;
-    $c2 = $rightW * 0.33;
+    // give more room to "Received by" so long names won't spill outside the cell
+    $c1 = $rightW * 0.26;
+    $c2 = $rightW * 0.41;
     $c3 = $rightW - $c1 - $c2;
 
     $xR = $x0 + $leftW;
@@ -212,7 +213,7 @@ final class DivisionTrackingSlip
     $receivedDT = trim((string)($data['received_datetime'] ?? ''));
 
     $txt($xR + 2, $y + 7.4, $docDate, 'B', 9.0);
-    $txt($xR + $c1 + 2, $y + 7.4, $receivedBy, 'B', 9.0);
+    $wrap($xR + $c1 + 2, $y + 6.8, $c2 - 4, $receivedBy, 'B', 8.0, 3.5, 'L');
     $wrap($xR + $c1 + $c2 + 2, $y + 7.2, $c3 - 4, $receivedDT, 'B', 8.2, 3.8, 'L');
 
     $y += $rowH2;

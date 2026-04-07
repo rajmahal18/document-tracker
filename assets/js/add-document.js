@@ -76,6 +76,8 @@
   const selSection = document.getElementById("addToSection");
   const btnAddDestination = document.getElementById("btnAddDestination");
   const btnAddAllDivisionChiefs = document.getElementById("btnAddAllDivisionChiefs");
+  const btnCancelAllDivisionChiefs = document.getElementById("btnCancelAllDivisionChiefs");
+  const sectionPreviewBox = document.getElementById("sectionPreviewBox");
   const destinationsBox = document.getElementById("destinationsBox");
   const destinationSummaryBox = document.getElementById("destinationSummaryBox");
   const destinationModeHint = document.getElementById("destinationModeHint");
@@ -88,10 +90,10 @@
   const savedAttachmentCard = document.getElementById("savedAttachmentCard");
   const destBuilder = document.querySelector(".destBuilder");
   const destViewButtons = Array.from(document.querySelectorAll(".destViewBtn"));
-  const expandedUserPanels = new Set();
 
   let viewMode = "simple";
   let destinationNoticeTimer = null;
+  let allDivisionChiefsLocked = false;
 
   const destinations = new Map();
 
@@ -115,7 +117,89 @@
     return text.slice(0, Math.max(0, limit - 1)).trimEnd() + "…";
   }
 
-  function getDestinationCount() {
+
+
+  function isAllDivisionChiefSelectionExact() {
+    const targets = getValidDivisionChiefTargets();
+    if (!targets.length || destinations.size !== targets.length) return false;
+    return targets.every((target) => destinations.has(String(target.section_id)));
+  }
+
+  function updateBulkLockStateFromCurrentDestinations() {
+    allDivisionChiefsLocked = allDivisionChiefsLocked && isAllDivisionChiefSelectionExact();
+  }
+
+  function renderToolbarState() {
+    const hasSelection = !!String(selSection?.value || '').trim();
+    if (btnAddDestination) {
+      btnAddDestination.style.display = hasSelection && !allDivisionChiefsLocked ? 'inline-flex' : 'none';
+      btnAddDestination.disabled = !hasSelection || allDivisionChiefsLocked;
+    }
+    if (selSection) {
+      selSection.disabled = allDivisionChiefsLocked;
+    }
+    if (btnAddAllDivisionChiefs) {
+      btnAddAllDivisionChiefs.disabled = allDivisionChiefsLocked;
+      btnAddAllDivisionChiefs.classList.toggle('is-disabled', allDivisionChiefsLocked);
+    }
+    if (btnCancelAllDivisionChiefs) {
+      btnCancelAllDivisionChiefs.style.display = allDivisionChiefsLocked ? 'inline-flex' : 'none';
+    }
+  }
+
+  async function renderSectionPreview() {
+    if (!sectionPreviewBox) return;
+
+    const sid = String(selSection?.value || '').trim();
+    renderToolbarState();
+
+    if (!sid) {
+      sectionPreviewBox.innerHTML = '<div class="destSummaryEmpty">Pick a section to preview users.</div>';
+      return;
+    }
+
+    sectionPreviewBox.innerHTML = '<div class="destPreviewLoading">Loading users…</div>';
+
+    try {
+      const rows = await fetchUsersBySection(sid);
+      const names = rows.map((u) => ({
+        name: String(u.name || `#${u.id}`),
+        isChief: !!u.is_chief
+      }));
+
+      if (!names.length) {
+        sectionPreviewBox.innerHTML = `
+          <div class="destPreviewTitle">${esc(getSectionLabel(sid))}</div>
+          <div class="destSummaryEmpty">No active users found.</div>
+        `;
+        return;
+      }
+
+      const { chiefUsers, otherUsers } = getChiefAndOtherUsers(names);
+      sectionPreviewBox.innerHTML = `
+        <div class="destPreviewHead">
+          <div>
+            <div class="destPreviewTitle">${esc(getSectionLabel(sid))}</div>
+            <div class="destPreviewMeta">${names.length} user${names.length === 1 ? '' : 's'}</div>
+          </div>
+        </div>
+        <div class="destPreviewGroup">
+          <div class="destRecipientLabel">Chief</div>
+          <div class="destPreviewNames">
+            ${chiefUsers.length ? chiefUsers.map((user) => `<span class="destNameChip is-chief">${esc(user.name)}</span>`).join('') : '<span class="destNameChip is-muted">No chief found</span>'}
+          </div>
+        </div>
+        <div class="destPreviewGroup">
+          <div class="destRecipientLabel">Users</div>
+          <div class="destPreviewNames">
+            ${otherUsers.length ? otherUsers.map((user) => `<span class="destNameChip">${esc(user.name)}</span>`).join('') : '<span class="destNameChip is-muted">No users found</span>'}
+          </div>
+        </div>
+      `;
+    } catch (_err) {
+      sectionPreviewBox.innerHTML = '<div class="destSummaryEmpty">Failed to load users.</div>';
+    }
+  }  function getDestinationCount() {
     return destinations.size;
   }
 
@@ -161,10 +245,9 @@
       const found = rows.find((r) => String(r.id) === String(uid));
       if (found) {
         const rawName = String(found.name || `#${found.id}`);
-        const label = found.is_chief ? `${rawName} (CHIEF)` : rawName;
         dest.users.set(String(found.id), {
           id: Number(found.id),
-          name: label,
+          name: rawName,
           rawName,
           isChief: !!found.is_chief
         });
@@ -187,7 +270,7 @@
     dest.users.clear();
     dest.users.set(String(chief.id), {
       id: Number(chief.id),
-      name: `${chief.name} (CHIEF)`,
+      name: String(chief.name || `#${chief.id}`),
       rawName: String(chief.name || `#${chief.id}`),
       isChief: true
     });
@@ -237,6 +320,7 @@
         }
       });
 
+      syncDestinationModeFromSelection(dest);
       destinations.set(sid, dest);
     });
   }
@@ -352,6 +436,42 @@
     }));
   }
 
+
+  function syncDestinationModeFromSelection(dest) {
+    if (!dest) return;
+    const recipients = Array.from(dest.users.values());
+    const hasNonChief = recipients.some((user) => !user.isChief);
+    dest.mode = hasNonChief ? "users" : "chief";
+  }
+
+  function getChiefAndOtherUsers(rows) {
+    const chiefUsers = [];
+    const otherUsers = [];
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      if (row && row.isChief) chiefUsers.push(row);
+      else otherUsers.push(row);
+    });
+    return { chiefUsers, otherUsers };
+  }
+
+  function renderRecipientCheckboxRows(rows, sectionId, dest, groupLabel) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return `<div class="destPickerEmpty">No ${esc(groupLabel.toLowerCase())} found.</div>`;
+    }
+
+    return rows.map((u) => {
+      const id = Number(u.id);
+      const rawName = String(u.name || `#${id}`);
+      const checked = dest.users.has(String(id));
+      return `
+        <label class="destUserRow compact${u.isChief ? ' is-chief-row' : ''}">
+          <input class="dest-user-cb" type="checkbox" value="${id}" data-dest-user-section="${esc(String(sectionId))}" data-name="${esc(rawName)}" data-raw-name="${esc(rawName)}" data-is-chief="${u.isChief ? '1' : '0'}" ${checked ? 'checked' : ''}>
+          <span class="destUserName">${esc(rawName)}</span>
+        </label>
+      `;
+    }).join("");
+  }
+
   function getRecipientCount(dest, sectionId = null) {
     if (!dest) return 0;
     if (sectionId !== null) {
@@ -370,15 +490,9 @@
     return `${names[0]}, ${names[1]} +${names.length - 2} more`;
   }
 
-  function getUserToggleLabel(sectionId) {
-    return expandedUserPanels.has(String(sectionId)) ? "Hide user list" : "Choose users";
-  }
-
   function getSimpleRecipients(sectionId, dest) {
     return getEffectiveRecipients(sectionId, dest).map((user) => ({
-      name: String(user.rawName || user.name || `#${user.id ?? ''}`),
-      sectionName: user.sectionName,
-      divisionName: user.divisionName,
+      name: String(user.rawName || user.name || `#${user.id ?? ""}`),
       isChief: !!user.isChief,
       isFallback: !!user.isFallback
     }));
@@ -386,35 +500,61 @@
 
   function renderSimpleCard(sectionId, dest) {
     const rows = getSimpleRecipients(sectionId, dest);
-    const deadlineChip = dest.personalDeadline ? `<span class="destInlineChip">Has deadline</span>` : "";
-    const fallbackChip = (!dest.users.size && dest.mode === "users") ? `<span class="destInlineChip">Chief fallback</span>` : "";
+    const multi = isMultiSectionMode();
+    const canEditSingle = !multi && !allDivisionChiefsLocked;
+    const chiefRows = rows.filter((row) => row.isChief);
+    const otherRows = rows.filter((row) => !row.isChief);
+
+    const chiefHtml = chiefRows.length
+      ? chiefRows.map((row) => `<span class="destNameChip is-chief">${esc(row.name)}</span>`).join("")
+      : '<span class="destNameChip is-muted">No chief selected</span>';
+
+    const userHtml = otherRows.length
+      ? otherRows.map((row) => `<span class="destNameChip">${esc(row.name)}</span>`).join("")
+      : '<span class="destNameChip is-muted">No users selected</span>';
 
     return `
       <div class="destCard" data-destination-card="${esc(sectionId)}">
-        <div class="destCardTop">
+        <div class="destCardTop compact">
           <div class="destCardTitleWrap">
             <div class="destCardTitle">${esc(getSectionLabel(sectionId))}</div>
+            <div class="destCompactSubline">${multi ? 'Chief only' : (dest.mode === 'users' ? 'Recipients selected' : 'Chief only')}</div>
           </div>
-          <button type="button" class="destInlineBtn" data-remove-destination="${esc(sectionId)}">Remove</button>
+          ${allDivisionChiefsLocked ? '' : `<button type="button" class="destInlineBtn" data-remove-destination="${esc(sectionId)}">Remove</button>`}
         </div>
-        <div class="destSimpleList">
-          ${rows.map((row) => `
-            <div class="destSimpleRow">
-              <div class="destSimpleInfo">
-                <div class="destSimpleName">${esc(row.name)}</div>
-                <div class="destSimpleMeta">
-                  <span>${esc(row.sectionName || "Section")}</span>
-                  <span>${esc(row.divisionName || "Division")}</span>
-                </div>
-              </div>
-              <div class="destSimpleSide">
-                ${row.isChief ? '<span class="destInlineChip">Chief</span>' : ''}
-                ${row.isFallback ? fallbackChip : ''}
-                ${deadlineChip}
+
+        <div class="destRecipientGroups">
+          <div class="destRecipientGroup">
+            <div class="destRecipientLabel">Chief</div>
+            <div class="destCompactNames">${chiefHtml}</div>
+          </div>
+          ${!multi ? `
+            <div class="destRecipientGroup">
+              <div class="destRecipientLabel">Users</div>
+              <div class="destCompactNames">${userHtml}</div>
+            </div>
+          ` : ''}
+        </div>
+
+        ${canEditSingle ? `
+          <div class="destUsersPanel is-open">
+            <div class="destUsersHeader compact">
+              <div class="destSectionLabel">Select recipients</div>
+              <div class="destUsersActions">
+                <button type="button" class="destInlineBtn" data-select-chief-only="${esc(sectionId)}">Chief only</button>
+                <button type="button" class="destInlineBtn" data-clear-non-chief="${esc(sectionId)}">Clear users</button>
               </div>
             </div>
-          `).join("")}
-        </div>
+            <div data-users-box="${esc(sectionId)}" class="destUsersBox"><div class="mini" style="opacity:.8;">Loading users…</div></div>
+          </div>
+        ` : ''}
+
+        ${canSetPersonalDeadline ? `
+          <div class="destDeadlineWrap compact">
+            <label class="destDeadlineLabel">Deadline</label>
+            <input type="datetime-local" value="${esc(dest.personalDeadline || '')}" data-personal-deadline="${esc(sectionId)}" class="search" style="width:100%;">
+          </div>
+        ` : ''}
       </div>
     `;
   }
@@ -423,33 +563,22 @@
     if (!destinationSummaryBox) return;
 
     if (destinations.size === 0) {
-      destinationSummaryBox.innerHTML = `
-        <div class="destHeadline">No destinations queued yet</div>
-        <div class="destSubline">Add one destination manually or use the all division chiefs shortcut.</div>
-      `;
+      destinationSummaryBox.innerHTML = `<div class="destHeadline">No destinations yet</div>`;
       return;
     }
 
-    const multi = isMultiSectionMode();
     const labels = Array.from(destinations.keys()).map((sid) => getSectionLabel(sid));
-    const visibleLabels = labels.slice(0, 4);
+    const visibleLabels = labels.slice(0, 5);
     const hiddenCount = Math.max(0, labels.length - visibleLabels.length);
-    const chips = visibleLabels.map((label) => `<span class="destSummaryChip">${esc(truncateText(label, 64))}</span>`).join("")
-      + (hiddenCount > 0 ? `<span class="destSummaryChip">+${hiddenCount} more</span>` : "");
-    const headline = multi
-      ? `Initial send goes to ${destinations.size} section/division chiefs.`
-      : `Initial send goes to ${esc(labels[0] || "the selected destination")}.`;
-    const detail = multi
-      ? `Chief-only routing is locked right now, but per-destination deadlines are still available below.`
-      : `Single destination mode lets you stay with the chief or switch to specific users.`;
+    const chips = visibleLabels.map((label) => `<span class="destSummaryChip">${esc(truncateText(label, 42))}</span>`).join("")
+      + (hiddenCount > 0 ? `<span class="destSummaryChip">+${hiddenCount}</span>` : "");
 
     destinationSummaryBox.innerHTML = `
-      <div class="destSummaryTop">
+      <div class="destSummaryTop compact">
         <div>
-          <div class="destHeadline">${headline}</div>
-          <div class="destSubline">${detail}</div>
+          <div class="destHeadline">${allDivisionChiefsLocked ? 'All division chiefs selected' : `${destinations.size} destination${destinations.size === 1 ? '' : 's'} selected`}</div>
         </div>
-        <div class="destCounter"><strong>${destinations.size}</strong><span>${destinations.size === 1 ? "target" : "targets"}</span></div>
+        <div class="destCounter"><strong>${destinations.size}</strong><span>${destinations.size === 1 ? 'target' : 'targets'}</span></div>
       </div>
       <div class="destSummaryChips">${chips}</div>
     `;
@@ -457,20 +586,15 @@
 
   function renderModeHint() {
     if (!destinationModeHint) return;
-    if (destinations.size === 0 || viewMode !== "detailed") {
-      destinationModeHint.style.display = "none";
-      destinationModeHint.textContent = "";
-      return;
-    }
-
-    destinationModeHint.style.display = "inline-flex";
-    destinationModeHint.textContent = isMultiSectionMode()
-      ? "Locked to chief-only because multiple destinations are selected."
-      : "Single destination mode: you can switch between chief only and specific users.";
+    destinationModeHint.style.display = "none";
+    destinationModeHint.textContent = "";
   }
 
   function renderDestinations() {
     if (!destinationsBox) return;
+
+    updateBulkLockStateFromCurrentDestinations();
+    renderToolbarState();
 
     if (destinations.size === 0) {
       destinationsBox.innerHTML = '<div class="destSummaryEmpty">No destinations added yet.</div>';
@@ -480,105 +604,16 @@
       return;
     }
 
-    const multi = isMultiSectionMode();
-    const detailed = viewMode === "detailed";
-
-    const html = Array.from(destinations.entries()).map(([sid, dest]) => {
-      if (!detailed) {
-        return renderSimpleCard(sid, dest);
-      }
-
-      const sectionLabel = getSectionLabel(sid);
-      const modeLabel = multi ? "Chief only" : (dest.mode === "users" ? "Specific users" : "Chief only");
-      const recipientCount = getRecipientCount(dest, sid);
-      const recipientSummary = getRecipientSummary(sid, dest, multi);
-      const compactSummary = multi
-        ? `Initial routing is <strong>chief only</strong>. Current recipient: <strong>${esc(truncateText(recipientSummary, 88))}</strong>.`
-        : `Mode: <strong>${esc(modeLabel)}</strong> · Initial recipient${recipientCount === 1 ? '' : 's'}: <strong>${esc(truncateText(recipientSummary, 88))}</strong>.`;
-      const showUsersPanel = !multi && dest.mode === "users" && expandedUserPanels.has(String(sid));
-      const modeControls = multi ? `
-        <div class="destModeLock">Chief-only is locked for this multi-send batch</div>
-      ` : `
-        <div class="destModePills">
-          <label class="destModeOption">
-            <input type="radio" name="destModeUI_${esc(sid)}" value="chief" ${dest.mode === "chief" ? "checked" : ""} data-dest-mode="${esc(sid)}">
-            Chief only
-          </label>
-          <label class="destModeOption">
-            <input type="radio" name="destModeUI_${esc(sid)}" value="users" ${dest.mode === "users" ? "checked" : ""} data-dest-mode="${esc(sid)}">
-            Specific users
-          </label>
-        </div>
-      `;
-      const userToggle = !multi && dest.mode === "users" ? `
-        <button type="button" class="destInlineBtn" data-toggle-users="${esc(sid)}">${esc(getUserToggleLabel(sid))}</button>
-      ` : "";
-
-      return `
-        <div class="destCard" data-destination-card="${esc(sid)}">
-          <div class="destCardTop">
-            <div class="destCardTitleWrap">
-              <div class="destCardTitle">${esc(sectionLabel)}</div>
-              <div class="destFacts">
-                <span class="destFactChip">${esc(modeLabel)}</span>
-                <span class="destFactChip">${recipientCount > 0 ? `${recipientCount} selected` : '1 default recipient'}</span>
-                ${dest.personalDeadline ? '<span class="destFactChip">Has personal deadline</span>' : ''}
-              </div>
-            </div>
-            <button type="button" class="destInlineBtn" data-remove-destination="${esc(sid)}">Remove</button>
-          </div>
-
-          <div class="destCardBody">
-            <div class="destCompactSummary">${compactSummary}</div>
-            ${modeControls}
-            <div class="destCardMeta">
-              <div class="destMetaBlock">
-                <div class="destMetaLabel">Current mode</div>
-                <div class="destMetaValue">${esc(!multi && dest.mode === 'users' && dest.users.size === 0 ? 'Specific users (empty → chief fallback)' : modeLabel)}</div>
-              </div>
-              <div class="destMetaBlock">
-                <div class="destMetaLabel">Initial recipient(s)</div>
-                <div class="destMetaValue">${esc(recipientSummary)}</div>
-              </div>
-            </div>
-
-            ${canSetPersonalDeadline ? `
-              <div class="destDeadlineWrap">
-                <label class="destDeadlineLabel">Personal deadline</label>
-                <div class="destDeadlineGrid">
-                  <input type="datetime-local" value="${esc(dest.personalDeadline || '')}" data-personal-deadline="${esc(sid)}" class="search" style="width:100%;">
-                  ${userToggle}
-                </div>
-                <div class="destDeadlineNote">Applies only to this destination.</div>
-              </div>
-            ` : userToggle}
-
-            <div data-users-panel="${esc(sid)}" class="destUsersPanel" style="${showUsersPanel ? '' : 'display:none;'}">
-              <div class="destUsersHeader">
-                <div>
-                  <div class="destSectionLabel">Specific users</div>
-                  <div class="mini" style="opacity:.8;">Select users from this section. If none are selected, initial routing still goes to the section chief.</div>
-                </div>
-                <div class="destUsersActions">
-                  <button type="button" class="destInlineBtn" data-select-all-users="${esc(sid)}">Select all</button>
-                  <button type="button" class="destInlineBtn" data-clear-users="${esc(sid)}">Clear</button>
-                </div>
-              </div>
-              <div data-users-box="${esc(sid)}" class="destUsersBox"><div class="mini" style="opacity:.8;">Loading users…</div></div>
-            </div>
-          </div>
-        </div>
-      `;
-    }).join("");
-
+    const html = Array.from(destinations.entries()).map(([sid, dest]) => renderSimpleCard(sid, dest)).join('');
     destinationsBox.innerHTML = html;
-    attachDestinationHandlers();
+
     renderDestinationSummary();
     renderModeHint();
     syncHiddenInputs();
+    attachDestinationHandlers();
 
-    destinations.forEach((dest, sid) => {
-      if (detailed && !multi && dest.mode === "users" && expandedUserPanels.has(String(sid))) {
+    destinations.forEach((_dest, sid) => {
+      if (!isMultiSectionMode() && !allDivisionChiefsLocked) {
         renderUsersPanel(sid);
       }
     });
@@ -597,21 +632,29 @@
         return;
       }
 
-      panel.innerHTML = rows.map((u) => {
-        const id = Number(u.id);
-        const rawName = String(u.name || `#${id}`);
-        const isChief = !!u.is_chief;
-        const label = isChief ? `${rawName} (CHIEF)` : rawName;
-        const checked = dest.users.has(String(id));
-        return `
-          <label class="destUserRow">
-            <input class="dest-user-cb" type="checkbox" value="${id}" data-dest-user-section="${esc(sid)}" data-name="${esc(label)}" data-raw-name="${esc(rawName)}" data-is-chief="${isChief ? '1' : '0'}" ${checked ? 'checked' : ''}>
-            <span style="font-weight:900;">${esc(label)}</span>
-            ${isChief ? '<span class="mini" style="padding:2px 8px; border-radius:999px; border:1px solid rgba(15, 23, 42, .12); background:#fff;">Chief</span>' : ''}
-            <span class="destUserBadge">#${id}</span>
-          </label>
-        `;
-      }).join("");
+      const normalizedRows = rows.map((u) => ({
+        id: Number(u.id),
+        name: String(u.name || `#${u.id}`),
+        isChief: !!u.is_chief
+      }));
+      const { chiefUsers, otherUsers } = getChiefAndOtherUsers(normalizedRows);
+
+      panel.innerHTML = `
+        <div class="destPickerGroups">
+          <div class="destPickerGroup">
+            <div class="destRecipientLabel">Chief</div>
+            <div class="destPickerList">
+              ${renderRecipientCheckboxRows(chiefUsers, sid, dest, "Chief")}
+            </div>
+          </div>
+          <div class="destPickerGroup">
+            <div class="destRecipientLabel">Users</div>
+            <div class="destPickerList">
+              ${renderRecipientCheckboxRows(otherUsers, sid, dest, "Users")}
+            </div>
+          </div>
+        </div>
+      `;
 
       attachUserCheckboxHandlers(sid);
     } catch (_err) {
@@ -638,7 +681,7 @@
           dest.users.delete(uid);
         }
 
-        syncHiddenInputs();
+        syncDestinationModeFromSelection(dest);
         renderDestinations();
       });
     });
@@ -648,10 +691,9 @@
     destinationsBox.querySelectorAll("[data-remove-destination]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const sid = String(btn.getAttribute("data-remove-destination") || "");
-        if (!sid) return;
+        if (!sid || allDivisionChiefsLocked) return;
 
         destinations.delete(sid);
-        expandedUserPanels.delete(sid);
 
         if (destinations.size === 1) {
           const onlySid = Array.from(destinations.keys())[0];
@@ -665,69 +707,33 @@
       });
     });
 
-    destinationsBox.querySelectorAll("[data-dest-mode]").forEach((radio) => {
-      radio.addEventListener("change", async () => {
-        const sid = String(radio.getAttribute("data-dest-mode") || "");
-        const value = String(radio.value || "chief");
+    destinationsBox.querySelectorAll("[data-select-chief-only]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const sid = String(btn.getAttribute("data-select-chief-only") || "");
         const dest = destinations.get(sid);
-        if (!dest || isMultiSectionMode()) return;
-
-        dest.mode = value === "users" ? "users" : "chief";
-
-        if (dest.mode === "chief") {
-          expandedUserPanels.delete(sid);
-          await setDestinationToChiefOnly(sid);
-        } else {
-          expandedUserPanels.add(sid);
-          await ensureUsersLoaded(sid);
-        }
-
+        if (!dest || isMultiSectionMode() || allDivisionChiefsLocked) return;
+        await setDestinationToChiefOnly(sid);
         renderDestinations();
       });
     });
 
-    destinationsBox.querySelectorAll("[data-toggle-users]").forEach((btn) => {
+    destinationsBox.querySelectorAll("[data-clear-non-chief]").forEach((btn) => {
       btn.addEventListener("click", async () => {
-        const sid = String(btn.getAttribute("data-toggle-users") || "");
+        const sid = String(btn.getAttribute("data-clear-non-chief") || "");
         const dest = destinations.get(sid);
-        if (!dest || isMultiSectionMode() || dest.mode !== "users") return;
-
-        if (expandedUserPanels.has(sid)) {
-          expandedUserPanels.delete(sid);
-          renderDestinations();
-          return;
-        }
-
-        expandedUserPanels.add(sid);
-        renderDestinations();
-        await renderUsersPanel(sid);
-      });
-    });
-
-    destinationsBox.querySelectorAll("[data-select-all-users]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const sid = String(btn.getAttribute("data-select-all-users") || "");
-        const dest = destinations.get(sid);
-        if (!dest || isMultiSectionMode() || dest.mode !== "users") return;
-
+        if (!dest || isMultiSectionMode() || allDivisionChiefsLocked) return;
         const rows = await ensureUsersLoaded(sid);
+        const chief = rows.find((u) => !!u.is_chief);
         dest.users.clear();
-        rows.forEach((u) => {
-          const rawName = String(u.name || `#${u.id}`);
-          const label = u.is_chief ? `${rawName} (CHIEF)` : rawName;
-          dest.users.set(String(u.id), { id: Number(u.id), name: label, rawName, isChief: !!u.is_chief });
-        });
-        renderDestinations();
-      });
-    });
-
-    destinationsBox.querySelectorAll("[data-clear-users]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const sid = String(btn.getAttribute("data-clear-users") || "");
-        const dest = destinations.get(sid);
-        if (!dest || isMultiSectionMode() || dest.mode !== "users") return;
-        dest.users.clear();
-        setBuilderNotice("No specific users selected. Initial routing will fall back to the section chief.", "info");
+        if (chief) {
+          dest.users.set(String(chief.id), {
+            id: Number(chief.id),
+            name: String(chief.name || `#${chief.id}`),
+            rawName: String(chief.name || `#${chief.id}`),
+            isChief: true
+          });
+        }
+        syncDestinationModeFromSelection(dest);
         renderDestinations();
       });
     });
@@ -762,7 +768,6 @@
       return { ok: true, reason: "added", sectionId };
     } catch (error) {
       destinations.delete(sectionId);
-      expandedUserPanels.delete(sectionId);
       renderDestinations();
       const message = error && error.message ? String(error.message) : "Unable to add that destination.";
       if (/No Section Chief configured/i.test(message)) {
@@ -771,6 +776,11 @@
       return { ok: false, reason: "error", sectionId, message };
     }
   }
+
+  selSection?.addEventListener("change", () => {
+    clearBuilderNotice();
+    renderSectionPreview();
+  });
 
   btnAddDestination?.addEventListener("click", async () => {
     clearBuilderNotice();
@@ -787,8 +797,9 @@
 
     const result = await addDestinationById(sid);
     if (result.ok) {
-      setBuilderNotice(`${getSectionLabel(sid)} added to the destination list.`, "success");
+      setBuilderNotice(`${getSectionLabel(sid)} added.`, "success");
       if (selSection) selSection.value = "";
+      await renderSectionPreview();
       return;
     }
 
@@ -812,52 +823,48 @@
     clearBuilderNotice();
     const targets = getValidDivisionChiefTargets();
     if (targets.length === 0) {
-      setBuilderNotice("No other division chief targets are available.", "warning");
+      setBuilderNotice("No other division chiefs available.", "warning");
       return;
     }
 
+    destinations.clear();
+
     let added = 0;
-    let duplicates = 0;
     let missingChief = 0;
     let invalid = 0;
 
     for (const target of targets) {
       const result = await addDestinationById(target.section_id);
-      if (result.ok) {
-        added += 1;
-      } else if (result.reason === "duplicate") {
-        duplicates += 1;
-      } else if (result.reason === "missing-chief") {
-        missingChief += 1;
-      } else {
-        invalid += 1;
-      }
+      if (result.ok) added += 1;
+      else if (result.reason === "missing-chief") missingChief += 1;
+      else invalid += 1;
     }
 
     if (added > 0) {
+      allDivisionChiefsLocked = true;
+      if (selSection) selSection.value = "";
+      await renderSectionPreview();
+      renderDestinations();
       const extras = [];
-      if (duplicates > 0) extras.push(`${duplicates} already listed`);
-      if (missingChief > 0) extras.push(`${missingChief} without section chief`);
+      if (missingChief > 0) extras.push(`${missingChief} missing chief`);
       if (invalid > 0) extras.push(`${invalid} skipped`);
-      setBuilderNotice(`${added} division chief target${added === 1 ? "" : "s"} added${extras.length ? ` (${extras.join(', ')})` : ''}.`, "success");
+      setBuilderNotice(`Locked to all division chiefs${extras.length ? ` (${extras.join(', ')})` : ''}.`, "success");
       return;
     }
 
-    if (duplicates > 0 && missingChief === 0 && invalid === 0) {
-      setBuilderNotice("All division chief targets are already in the destination list.", "info");
-      return;
-    }
-
-    if (missingChief > 0 && duplicates === 0 && invalid === 0) {
-      setBuilderNotice("Some division chief targets do not have a configured section chief yet.", "danger", { persist: true });
-      return;
-    }
-
+    renderDestinations();
     const parts = [];
-    if (duplicates > 0) parts.push(`${duplicates} already listed`);
-    if (missingChief > 0) parts.push(`${missingChief} without section chief`);
+    if (missingChief > 0) parts.push(`${missingChief} missing chief`);
     if (invalid > 0) parts.push(`${invalid} skipped`);
-    setBuilderNotice(`No new division chief targets were added${parts.length ? ` (${parts.join(', ')})` : ''}.`, "warning", { persist: true });
+    setBuilderNotice(`Unable to load division chiefs${parts.length ? ` (${parts.join(', ')})` : ''}.`, "danger", { persist: true });
+  });
+
+  btnCancelAllDivisionChiefs?.addEventListener("click", async () => {
+    allDivisionChiefsLocked = false;
+    destinations.clear();
+    renderDestinations();
+    await renderSectionPreview();
+    setBuilderNotice("Division chief batch cancelled.", "info");
   });
 
   btnRemoveSavedAttachment?.addEventListener("click", async () => {
@@ -917,8 +924,9 @@
     });
   });
 
-  setViewMode("simple");
+  setViewMode("detailed");
   seedFromPost();
+  allDivisionChiefsLocked = false;
 
   (async function init() {
     const preloadTasks = [];
@@ -940,5 +948,6 @@
     }
 
     renderDestinations();
+    await renderSectionPreview();
   })();
 })();

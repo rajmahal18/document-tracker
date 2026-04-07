@@ -432,6 +432,7 @@ $divisionName = trim((string)($identity["effective_division_name"] ?? ($_SESSION
 $assistantModeEnabled = (bool)($identity["assistant_mode"] ?? false);
 $actingPrincipalUserId = (int)($identity["acting_principal_user_id"] ?? 0);
 $actingPrincipalName = trim((string)($identity["acting_principal_name"] ?? ''));
+$actualUserFullName = trim((string)($identity["actual_full_name"] ?? ($_SESSION["full_name"] ?? '')));
 
 // ✅ Resolve current user division and supported own-division slip metadata
 $myDivisionId = 0;
@@ -1139,7 +1140,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             "document_date"        => $document_date,
             "subject"              => $subject,
             "mpw_tracking_no"      => $tracking_no,
-            "received_by"          => $actingPrincipalName !== "" ? $actingPrincipalName : trim((string)($_SESSION["full_name"] ?? "")),
+            "received_by"          => $actualUserFullName !== "" ? $actualUserFullName : trim((string)($_SESSION["full_name"] ?? "")),
             "received_datetime"    => "",
             "deadline_date"        => $deadlineAt ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("m/d/Y") : "",
             "deadline_time"        => $deadlineAt ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("g:i A") : "",
@@ -1365,12 +1366,12 @@ require __DIR__ . "/../includes/layout.php";
       <div class="addDocSectionHead">
         <div>
           <h3>Destination Builder</h3>
-          <p>Choose where the document should go and whether each destination is chief-only or user-specific.</p>
+          <p>Pick a section, check the recipients, then add it to the list.</p>
         </div>
       </div>
 
       <div class="destBuilder">
-        <div class="destToolbar">
+        <div class="destToolbar destToolbarTop">
           <select name="to_section_id" class="select destSelect" id="addToSection">
             <option value="">-- Select Section --</option>
             <?php foreach ($sections as $s): ?>
@@ -1383,22 +1384,16 @@ require __DIR__ . "/../includes/layout.php";
             <?php endforeach; ?>
           </select>
 
-          <button type="button" class="destActionBtn is-primary" id="btnAddDestination">Add destination</button>
-          <button type="button" class="destActionBtn" id="btnAddAllDivisionChiefs">All division chiefs</button>
+          <button type="button" class="destActionBtn" id="btnAddAllDivisionChiefs">Send to all division chiefs</button>
         </div>
 
-        <div class="destTopMeta">
-          <div class="destHintText">Keep it compact by default, then switch to detailed mode only when you need to inspect or fine-tune recipients.</div>
-          <div class="destViewToggle" role="tablist" aria-label="Destination builder view mode">
-            <button type="button" class="destViewBtn is-active" id="destViewSimple" data-view-mode="simple">Simple</button>
-            <button type="button" class="destViewBtn" id="destViewDetailed" data-view-mode="detailed">Detailed</button>
-          </div>
+        <div id="sectionPreviewBox" class="destSectionPreview">
+          <div class="destSummaryEmpty">Pick a section to preview users.</div>
         </div>
 
-        <div class="destHelper">
-          <span class="destHelperChip">Single destination can target chief or selected users</span>
-          <span class="destHelperChip">Multi-send automatically starts with section chiefs only</span>
-          <span class="destHelperChip">All division chiefs skips your own division</span>
+        <div class="destToolbarActions">
+          <button type="button" class="destActionBtn is-primary" id="btnAddDestination" style="display:none;">Add destination</button>
+          <button type="button" class="destActionBtn" id="btnCancelAllDivisionChiefs" style="display:none;">Cancel</button>
         </div>
 
         <div id="destinationNotice" class="destStatus" aria-live="polite"></div>
