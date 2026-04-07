@@ -10,7 +10,7 @@ require_login();
 function map_upload_error_message(int $code): string
 {
   return match ($code) {
-    UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => "Attachment too large (max 10MB).",
+    UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => "Attachment too large (max 30MB).",
     UPLOAD_ERR_PARTIAL => "Attachment upload was interrupted. Please try again.",
     UPLOAD_ERR_NO_TMP_DIR => "Upload failed because the server temp folder is missing.",
     UPLOAD_ERR_CANT_WRITE => "Upload failed because the server could not write the file.",
@@ -64,7 +64,7 @@ function clear_saved_temp_attachment(): void
 
 function stash_uploaded_attachment(array $file, int $userId): array
 {
-  $maxBytes = 10 * 1024 * 1024;
+  $maxBytes = 30 * 1024 * 1024;
   $allowedExt = ["pdf", "jpg", "jpeg", "png"];
   $allowedRealMime = ["application/pdf", "image/jpeg", "image/png"];
 
@@ -72,8 +72,13 @@ function stash_uploaded_attachment(array $file, int $userId): array
   $orig = preg_replace('/[^a-zA-Z0-9._\-\s]/', "_", $orig) ?? $orig;
 
   $size = (int)($file["size"] ?? 0);
-  if ($size <= 0 || $size > $maxBytes) {
-    throw new RuntimeException("Attachment too large (max 10MB)");
+
+  if ($size <= 0) {
+    throw new RuntimeException("Upload failed on server. Please re-save the PDF and try again.");
+  }
+
+  if ($size > $maxBytes) {
+    throw new RuntimeException("Attachment too large (max 30MB)");
   }
 
   $ext = strtolower(pathinfo($orig, PATHINFO_EXTENSION));
@@ -1528,7 +1533,7 @@ require __DIR__ . "/../includes/layout.php";
           value="<?= htmlspecialchars($_POST["attach_note"] ?? ($savedTempAttachment["note"] ?? "")) ?>"
         >
       </div>
-      <div class="mini">Allowed: PDF/JPG/PNG • Max 10MB</div>
+      <div class="mini">Allowed: PDF/JPG/PNG • Max 30MB</div>
       <div class="mini" style="margin-top:6px;">If saving fails, the uploaded file is now preserved for retry on this page.</div>
     </div>
 
