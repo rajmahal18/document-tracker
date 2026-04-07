@@ -209,7 +209,14 @@ try {
     http_response_code(400);
     echo json_encode([
       "ok" => false,
-      "error" => "Invalid upload: file arrived empty or was blocked by the server."
+      "error" => "Invalid upload: file arrived empty or was blocked by the server.",
+      "debug" => [
+        "name" => $f["name"] ?? null,
+        "size" => $f["size"] ?? null,
+        "error_code" => $f["error"] ?? null,
+        "type" => $f["type"] ?? null,
+        "tmp_name" => $f["tmp_name"] ?? null,
+      ]
     ]);
     exit;
   }
@@ -224,11 +231,17 @@ try {
     exit;
   }
 
-  error_log('UPLOAD DEBUG name=' . ($f['name'] ?? '') .
-  ' size=' . (string)($f['size'] ?? 'NULL') .
-  ' error=' . (string)($f['error'] ?? 'NULL') .
-  ' type=' . (string)($f['type'] ?? 'NULL') .
-  ' tmp=' . (string)($f['tmp_name'] ?? 'NULL'));
+  echo json_encode([
+    "ok" => false,
+    "debug" => [
+      "name" => $f['name'] ?? null,
+      "size" => $f['size'] ?? null,
+      "error" => $f['error'] ?? null,
+      "type" => $f['type'] ?? null,
+      "tmp" => $f['tmp_name'] ?? null,
+    ]
+  ]);
+  exit;
 
 
   $ext = ext_of($origName);
