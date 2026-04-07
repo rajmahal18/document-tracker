@@ -1287,7 +1287,7 @@
       return `
         <div class="ackSummaryChipList">
           ${rows.map((row) => {
-            const name = clean(row?.branch_label) || clean(row?.name) || `Branch ${Number(row?.branch_id || 0)}`;
+            const name = clean(row?.name) || clean(row?.branch_label) || `Branch ${Number(row?.branch_id || 0)}`;
             return `<span class="ackSummaryChip">${esc(name)}</span>`;
           }).join("")}
         </div>
@@ -1297,7 +1297,7 @@
     return `
       <div class="ackSummaryList">
         ${rows.map((row) => {
-          const name = clean(row?.branch_label) || clean(row?.name) || `Branch ${Number(row?.branch_id || 0)}`;
+          const name = clean(row?.name) || clean(row?.branch_label) || `Branch ${Number(row?.branch_id || 0)}`;
           const section = clean(row?.section_name);
           return `
             <div class="ackSummaryPerson">

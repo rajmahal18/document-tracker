@@ -842,11 +842,13 @@ $sql = "
     )
 
   LEFT JOIN routes r_last
-    ON r_last.document_id = d.id
-   AND r_last.received_at = (
-      SELECT MAX(r2.received_at)
+    ON r_last.id = (
+      SELECT r2.id
       FROM routes r2
-      WHERE r2.document_id = d.id AND r2.received_at IS NOT NULL
+      WHERE r2.document_id = d.id
+        AND r2.received_at IS NOT NULL
+      ORDER BY r2.received_at DESC, r2.id DESC
+      LIMIT 1
    )
   LEFT JOIN sections sf_last ON sf_last.id = r_last.from_section_id
 ";
@@ -943,6 +945,67 @@ $stmt = $conn->prepare($sql);
 if ($params2) $stmt->bind_param($types2, ...$params2);
 $stmt->execute();
 $docs = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+$docIdsOnPage = array_values(array_unique(array_filter(array_map(static fn($row) => (int)($row['id'] ?? 0), $docs), static fn($id) => $id > 0)));
+if ($docIdsOnPage !== []) {
+  $remarkEventSql = "
+    SELECT id, document_id, actor_user_id, actor_section_id, from_section_id, to_section_id, payload_json
+    FROM document_events
+    WHERE document_id IN (" . implode(',', array_fill(0, count($docIdsOnPage), '?')) . ")
+    ORDER BY document_id ASC, id DESC
+  ";
+  $remarkStmt = $conn->prepare($remarkEventSql);
+  $remarkTypes = str_repeat('i', count($docIdsOnPage));
+  $remarkStmt->bind_param($remarkTypes, ...$docIdsOnPage);
+  $remarkStmt->execute();
+  $remarkRows = $remarkStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+  $latestRemarksByDocId = [];
+  foreach ($remarkRows as $remarkRow) {
+    $remarkDocId = (int)($remarkRow['document_id'] ?? 0);
+    if ($remarkDocId <= 0 || isset($latestRemarksByDocId[$remarkDocId])) {
+      continue;
+    }
+
+    $payload = [];
+    if (!empty($remarkRow['payload_json'])) {
+      $decoded = json_decode((string)$remarkRow['payload_json'], true);
+      if (is_array($decoded)) {
+        $payload = $decoded;
+      }
+    }
+
+    $remarkText = trim((string)($payload['remarks'] ?? ''));
+    if ($remarkText === '' || in_array(strtolower($remarkText), ['none', '-', '—', 'n/a', 'na', 'null', 'undefined'], true)) {
+      continue;
+    }
+
+    $canSeeRemark = $isPrivileged
+      || (int)($remarkRow['actor_user_id'] ?? 0) === $myUserId
+      || (int)($remarkRow['actor_section_id'] ?? 0) === $mySectionId
+      || (int)($remarkRow['from_section_id'] ?? 0) === $mySectionId
+      || (int)($remarkRow['to_section_id'] ?? 0) === $mySectionId
+      || (int)($payload['to_user_id'] ?? 0) === $myUserId
+      || in_array($myUserId, array_map('intval', (array)($payload['to_user_ids'] ?? [])), true)
+      || (int)($payload['acting_principal_user_id'] ?? 0) === $myUserId;
+
+    if (!$canSeeRemark) {
+      continue;
+    }
+
+    $latestRemarksByDocId[$remarkDocId] = $remarkText;
+  }
+
+  if ($latestRemarksByDocId !== []) {
+    foreach ($docs as &$docRow) {
+      $docRowId = (int)($docRow['id'] ?? 0);
+      if ($docRowId > 0 && isset($latestRemarksByDocId[$docRowId])) {
+        $docRow['latest_route_remark'] = $latestRemarksByDocId[$docRowId];
+      }
+    }
+    unset($docRow);
+  }
+}
 
 /**
  * Stats (NEW SCHEMA)

@@ -260,6 +260,93 @@ try {
 
   $ackSummaryCache = [];
 
+  $buildAckSummaryForBatch = static function (string $sendBatchId) use ($conn, $docId, &$ackSummaryCache, $allBranchesById): ?array {
+    $sendBatchId = trim($sendBatchId);
+    if ($sendBatchId === '') {
+      return null;
+    }
+
+    $cacheKey = 'batch:' . $sendBatchId;
+    if (array_key_exists($cacheKey, $ackSummaryCache)) {
+      return $ackSummaryCache[$cacheKey];
+    }
+
+    $sql = "
+      SELECT
+        r.id,
+        r.branch_id,
+        r.to_user_id,
+        r.to_section_id,
+        r.received_at,
+        u.full_name AS recipient_name,
+        s.name AS recipient_section_name,
+        b.parent_branch_id,
+        b.branch_label,
+        b.is_reference
+      FROM routes r
+      LEFT JOIN users u ON u.id = r.to_user_id
+      LEFT JOIN sections s ON s.id = r.to_section_id
+      LEFT JOIN document_branches b ON b.id = r.branch_id
+      WHERE r.document_id = ?
+        AND r.send_batch_id = ?
+        AND r.cancelled_at IS NULL
+      ORDER BY r.id ASC
+    ";
+
+    $stmtAck = $conn->prepare($sql);
+    $stmtAck->bind_param('is', $docId, $sendBatchId);
+    $stmtAck->execute();
+    $rowsAck = $stmtAck->get_result()->fetch_all(MYSQLI_ASSOC);
+
+    $summary = [
+      'enabled' => true,
+      'total' => 0,
+      'received_count' => 0,
+      'pending_count' => 0,
+      'show_names' => true,
+      'received_users' => [],
+      'pending_users' => [],
+      'scope_branch_ids' => [],
+      'send_batch_id' => $sendBatchId,
+    ];
+
+    foreach ($rowsAck as $rowAck) {
+      $routeId = (int)($rowAck['id'] ?? 0);
+      if ($routeId <= 0) {
+        continue;
+      }
+
+      $bid = (int)($rowAck['branch_id'] ?? 0);
+      if ($bid > 0) {
+        $summary['scope_branch_ids'][] = $bid;
+      }
+
+      $entry = [
+        'route_id' => $routeId,
+        'branch_id' => $bid,
+        'parent_branch_id' => (int)($rowAck['parent_branch_id'] ?? ($allBranchesById[$bid]['parent_branch_id'] ?? 0)),
+        'branch_label' => '',
+        'user_id' => (int)($rowAck['to_user_id'] ?? 0),
+        'name' => trim((string)($rowAck['recipient_name'] ?? '')),
+        'section_name' => trim((string)($rowAck['recipient_section_name'] ?? '')),
+        'is_reference' => ((int)($rowAck['is_reference'] ?? ($allBranchesById[$bid]['is_reference'] ?? 0)) === 1) ? 1 : 0,
+      ];
+
+      $summary['total']++;
+      if (!empty($rowAck['received_at'])) {
+        $summary['received_count']++;
+        $summary['received_users'][] = $entry;
+      } else {
+        $summary['pending_count']++;
+        $summary['pending_users'][] = $entry;
+      }
+    }
+
+    $summary['scope_branch_ids'] = array_values(array_unique(array_filter(array_map('intval', $summary['scope_branch_ids']), static fn($id) => $id > 0)));
+    $ackSummaryCache[$cacheKey] = $summary['total'] > 0 ? $summary : null;
+    return $ackSummaryCache[$cacheKey];
+  };
+
   $buildAckSummary = static function (array $branchIds) use ($conn, $docId, &$ackSummaryCache, $allBranchesById): ?array {
     $branchIds = array_values(array_unique(array_filter(
       array_map('intval', $branchIds),
@@ -387,6 +474,36 @@ try {
   $stmt->execute();
   $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
+  $suppressReceivedForBatchIds = [];
+  foreach ($rows as $rowForSuppression) {
+    $payloadForSuppression = [];
+    if (!empty($rowForSuppression["payload_json"])) {
+      $decodedSuppression = json_decode((string)$rowForSuppression["payload_json"], true);
+      if (is_array($decodedSuppression)) {
+        $payloadForSuppression = $decodedSuppression;
+      }
+    }
+
+    $eventTypeForSuppression = strtolower(trim((string)($rowForSuppression["event_type"] ?? "")));
+    if (!in_array($eventTypeForSuppression, ["sent", "forwarded"], true)) {
+      continue;
+    }
+
+    $sendBatchIdForSuppression = trim((string)($payloadForSuppression['send_batch_id'] ?? ''));
+    $recipientCountForSuppression = count(array_values(array_unique(array_filter(
+      array_map('intval', (array)($payloadForSuppression['to_user_ids'] ?? [])),
+      static fn($id) => $id > 0
+    ))));
+
+    if (
+      $sendBatchIdForSuppression !== ''
+      && $recipientCountForSuppression > 1
+      && ((int)($payloadForSuppression['reference_only_without_branching'] ?? 0) === 1)
+    ) {
+      $suppressReceivedForBatchIds[$sendBatchIdForSuppression] = true;
+    }
+  }
+
   $history = [];
   foreach ($rows as $r) {
     $payload = [];
@@ -498,8 +615,23 @@ try {
     $branchSplitCount = count($newBranchIds);
 
     $ackSummary = null;
-    if ($branchMode && in_array($eventKey, ["sent", "forwarded"], true) && $branchSplitCount > 1) {
-      $ackSummary = $buildAckSummary($newBranchIds);
+    $sendBatchId = trim((string)($payload['send_batch_id'] ?? ''));
+
+    if (
+      $eventKey === 'received'
+      && $sendBatchId !== ''
+      && isset($suppressReceivedForBatchIds[$sendBatchId])
+    ) {
+      continue;
+    }
+
+    $recipientCountForAck = count(array_values(array_unique(array_filter(array_map('intval', (array)($payload['to_user_ids'] ?? [])), static fn($id) => $id > 0))));
+    if ($branchMode && in_array($eventKey, ["sent", "forwarded"], true)) {
+      if ($sendBatchId !== '' && $recipientCountForAck > 1) {
+        $ackSummary = $buildAckSummaryForBatch($sendBatchId);
+      } elseif ($branchSplitCount > 1) {
+        $ackSummary = $buildAckSummary($newBranchIds);
+      }
     }
 
     $title = "";

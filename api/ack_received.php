@@ -174,6 +174,7 @@ try {
     "from_section_id" => $fromSectionId,
     "to_section_id" => $toSectionId,
     "to_user_id" => $toUserId,
+    "send_batch_id" => trim((string)($row["send_batch_id"] ?? "")),
     "branch_id" => $branchId > 0 ? $branchId : null,
     "open_remaining_after_receive" => $openRemaining,
     "acting_principal_user_id" => ($principalUserId > 0 && $principalUserId !== $actualUserId) ? $principalUserId : null,

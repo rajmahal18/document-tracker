@@ -307,12 +307,13 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
       $newBranchIds[] = $sourceBranchId;
 
     } elseif ($referenceOnlyWithoutBranching) {
-      // One-level branching only: nested lanes can send reference copies, but must not create child branches.
-      $stmtReferenceRoute = $conn->prepare("
+      // Second-level branching stays on the same lane: no new child branches,
+      // but every recipient must still explicitly acknowledge receipt.
+      $stmtReceiveOnlyRoute = $conn->prepare("
         INSERT INTO routes
           (document_id, branch_id, from_section_id, to_section_id, from_user_id, to_user_id, route_kind, send_batch_id, received_at, sent_by_user_id, remarks, personal_deadline_at)
         VALUES
-          (?, ?, ?, ?, ?, ?, 'REFERENCE', ?, NOW(), ?, ?, NULL)
+          (?, ?, ?, ?, ?, ?, 'ACTION', ?, NULL, ?, ?, NULL)
       ");
 
       foreach ($recipients as $rid) {
@@ -321,8 +322,8 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
         workflow_grant_visibility($conn, $docId, $rid, 'REFERENCE', $sourceBranchId, $actualUserId);
         if ($userId > 0 && $userId !== $actualUserId) workflow_grant_visibility($conn, $docId, $userId, 'PARTICIPANT', $sourceBranchId, $actualUserId);
 
-        $stmtReferenceRoute->bind_param("iiiiiisis", $docId, $sourceBranchId, $mySectionId, $toSectionId, $actualUserId, $rid, $sendBatchId, $actualUserId, $routeRemarks);
-        $stmtReferenceRoute->execute();
+        $stmtReceiveOnlyRoute->bind_param("iiiiiisis", $docId, $sourceBranchId, $mySectionId, $toSectionId, $actualUserId, $rid, $sendBatchId, $actualUserId, $routeRemarks);
+        $stmtReceiveOnlyRoute->execute();
         $routeIds[] = (int)$conn->insert_id;
       }
 
