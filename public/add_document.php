@@ -10,7 +10,7 @@ require_login();
 function map_upload_error_message(int $code): string
 {
   return match ($code) {
-    UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => "Attachment too large (max 30MB).",
+    UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => "Attachment too large (max is 30MB).",
     UPLOAD_ERR_PARTIAL => "Attachment upload was interrupted. Please try again.",
     UPLOAD_ERR_NO_TMP_DIR => "Upload failed because the server temp folder is missing.",
     UPLOAD_ERR_CANT_WRITE => "Upload failed because the server could not write the file.",
