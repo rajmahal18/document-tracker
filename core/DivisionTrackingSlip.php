@@ -385,7 +385,11 @@ final class DivisionTrackingSlip
 
     // ---------- Movement log table ----------
     $tableY = $y + 2.0;
-    $tableH = 80.0;
+
+    // Fill remaining safe space up to inside bottom page frame, with small bottom allowance
+    $tableBottomMargin = 4.0;
+    $tableH = ($y0 + $h0) - $tableY - $tableBottomMargin;
+
     $rect($x0, $tableY, $w0, $tableH);
 
     $col1W = $w0 * 0.45;
@@ -403,7 +407,7 @@ final class DivisionTrackingSlip
     $pdf->SetXY($x0 + $col1W, $tableY + 1.8);
     $pdf->Cell($col2W, 5, 'TRANSMITTED/FORWARDED TO', 0, 0, 'C');
 
-    $rowCount = 6;
+    $rowCount = 9;
     $subH = $tableH - $mainHdrH - $subHdrH;
     $rowH = $subH / $rowCount;
 
@@ -438,13 +442,14 @@ final class DivisionTrackingSlip
 
     $pdf->SetFont('Arial', '', 6.8);
     $subY = $tableY + $mainHdrH + 1.1;
-    $pdf->SetXY($xL + 1.5,  $subY); $pdf->Cell($l_c1 - 3, 4, 'Date/Time', 0, 0, 'L');
-    $pdf->SetXY($xL2 + 1.5, $subY); $pdf->Cell($l_c2 - 3, 4, 'Signature', 0, 0, 'L');
-    $pdf->SetXY($xL3 + 1.5, $subY); $pdf->Cell($l_c3 - 3, 4, 'Name', 0, 0, 'L');
 
-    $pdf->SetXY($xR + 1.5,  $subY); $pdf->Cell($r_c1 - 3, 4, 'Date/Time', 0, 0, 'L');
-    $pdf->SetXY($xR2 + 1.5, $subY); $pdf->Cell($r_c2 - 3, 4, 'Actions/Remarks', 0, 0, 'L');
-    $pdf->SetXY($xR3 + 1.5, $subY); $pdf->Cell($r_c3 - 3, 4, 'Deadline', 0, 0, 'L');
+    $pdf->SetXY($xL,  $subY);  $pdf->Cell($l_c1, 4, 'Date/Time', 0, 0, 'C');
+    $pdf->SetXY($xL2, $subY);  $pdf->Cell($l_c2, 4, 'Signature', 0, 0, 'C');
+    $pdf->SetXY($xL3, $subY);  $pdf->Cell($l_c3, 4, 'Name', 0, 0, 'C');
+
+    $pdf->SetXY($xR,  $subY);  $pdf->Cell($r_c1, 4, 'Date/Time', 0, 0, 'C');
+    $pdf->SetXY($xR2, $subY);  $pdf->Cell($r_c2, 4, 'Actions/Remarks', 0, 0, 'C');
+    $pdf->SetXY($xR3, $subY);  $pdf->Cell($r_c3, 4, 'Deadline', 0, 0, 'C');
 
     $flowRows = $data['flow_rows'] ?? [];
     if (is_array($flowRows) && $flowRows !== []) {
