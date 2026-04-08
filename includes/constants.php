@@ -12,3 +12,8 @@ function status_label(string $s): array {
     default => ["Unknown", "archived"]
   };
 }
+
+const ATTACHMENT_MAX_BYTES = 30 * 1024 * 1024;
+const ATTACHMENT_MAX_MB = 30;
+const ATTACHMENT_ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png'];
+const ATTACHMENT_ALLOWED_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];

@@ -38,43 +38,7 @@ $actualUserId = (int)($identity['actual_user_id'] ?? 0);
 $userId      = (int)($identity['effective_user_id'] ?? 0);
 $mySectionId = (int)($identity['effective_section_id'] ?? 0);
 
-// Basic file constraints (keep sane for government LAN setups)
-$MAX_BYTES = 100 * 1024 * 1024; // 10MB
 
-// ✅ InfinityFree-safe merge requirement: PDF + Images only
-$ALLOWED_EXT = ["pdf", "jpg", "jpeg", "png"];
-$ALLOWED_MIME = [
-  "application/pdf",
-  "image/jpeg",
-  "image/png",
-];
-
-// Explicit hard-block list (even if extension allowlist changes later)
-$BLOCKED_EXT = ["doc", "docx", "xls", "xlsx"];
-
-function ext_of(string $name): string {
-  $pos = strrpos($name, ".");
-  if ($pos === false) return "";
-  return strtolower(substr($name, $pos + 1));
-}
-
-function safe_basename(string $name): string {
-  // Strip any path; then keep only safe-ish chars.
-  $base = basename($name);
-  $base = preg_replace('/[^a-zA-Z0-9._\-\s]/', "_", $base) ?? $base;
-  return trim($base) !== "" ? $base : "file";
-}
-
-// Best-effort: check uploaded tmp file mime (more reliable than $_FILES["type"])
-function sniff_mime(string $tmpPath): string {
-  if (!is_file($tmpPath)) return "application/octet-stream";
-  if (!function_exists("finfo_open")) return "application/octet-stream";
-  $finfo = finfo_open(FILEINFO_MIME_TYPE);
-  if ($finfo === false) return "application/octet-stream";
-  $mime = finfo_file($finfo, $tmpPath);
-  finfo_close($finfo);
-  return is_string($mime) && $mime !== "" ? $mime : "application/octet-stream";
-}
 
 try {
   $conn->begin_transaction();
@@ -196,116 +160,31 @@ try {
   }
 
   $f = $_FILES["file"];
-  if (!is_array($f) || ($f["error"] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+  if (!is_array($f)) {
     $conn->rollback();
     http_response_code(400);
-    echo json_encode(["ok" => false, "error" => "Upload failed"]);
+    echo json_encode(["ok" => false, "error" => "Missing file"]);
     exit;
   }
 
-  $origName = safe_basename((string)($f["name"] ?? "file"));
-  if ($size <= 0) {
+  try {
+    $validated = attachment_validate_uploaded_file($f);
+  } catch (RuntimeException $e) {
     $conn->rollback();
     http_response_code(400);
-    echo json_encode([
-      "ok" => false,
-      "error" => "Invalid upload: file arrived empty or was blocked by the server.",
-      "debug" => [
-        "name" => $f["name"] ?? null,
-        "size" => $f["size"] ?? null,
-        "error_code" => $f["error"] ?? null,
-        "type" => $f["type"] ?? null,
-        "tmp_name" => $f["tmp_name"] ?? null,
-      ]
-    ]);
+    echo json_encode(["ok" => false, "error" => $e->getMessage()]);
     exit;
   }
 
-  if ($size > $MAX_BYTES) {
-    $conn->rollback();
-    http_response_code(400);
-    echo json_encode([
-      "ok" => false,
-      "error" => "File too large (max 100MB)"
-    ]);
-    exit;
-  }
-
-  echo json_encode([
-    "ok" => false,
-    "debug" => [
-      "name" => $f['name'] ?? null,
-      "size" => $f['size'] ?? null,
-      "error" => $f['error'] ?? null,
-      "type" => $f['type'] ?? null,
-      "tmp" => $f['tmp_name'] ?? null,
-    ]
-  ]);
-  exit;
-
-
-  $ext = ext_of($origName);
-  if ($ext === "") {
-    $conn->rollback();
-    http_response_code(400);
-    echo json_encode(["ok" => false, "error" => "Unsupported file type. Allowed: PDF, JPG, PNG."]);
-    exit;
-  }
-
-  // Explicit block first (clearer error)
-  if (in_array($ext, $BLOCKED_EXT, true)) {
-    $conn->rollback();
-    http_response_code(400);
-    echo json_encode([
-      "ok" => false,
-      "error" => "Office files (DOCX/XLSX) are not supported. Please export to PDF then upload."
-    ]);
-    exit;
-  }
-
-  if (!in_array($ext, $ALLOWED_EXT, true)) {
-    $conn->rollback();
-    http_response_code(400);
-    echo json_encode(["ok" => false, "error" => "Unsupported file type. Allowed: PDF, JPG, PNG."]);
-    exit;
-  }
-
-  $tmp = (string)($f["tmp_name"] ?? "");
-  if ($tmp === "" || !is_uploaded_file($tmp)) {
-    $conn->rollback();
-    http_response_code(400);
-    echo json_encode(["ok" => false, "error" => "Invalid upload"]);
-    exit;
-  }
-
-  // MIME check: prefer sniffing temp file, fallback to browser-provided MIME
-  $mime = sniff_mime($tmp);
-  if ($mime === "application/octet-stream") {
-    $mime = (string)($f["type"] ?? "application/octet-stream");
-  }
-
-  // MIME allowlist (best-effort; do not reject if still octet-stream)
-  if ($mime !== "application/octet-stream" && !in_array($mime, $ALLOWED_MIME, true)) {
-    $conn->rollback();
-    http_response_code(400);
-    echo json_encode(["ok" => false, "error" => "Unsupported file type. Allowed: PDF, JPG, PNG."]);
-    exit;
-  }
+  $origName = (string)$validated["original_name"];
+  $size = (int)$validated["size_bytes"];
+  $ext = (string)$validated["extension"];
+  $tmp = (string)$validated["tmp_path"];
+  $mime = (string)$validated["mime"];
 
   // Storage: /storage/attachments/doc_{id}/...
-  $baseDir = realpath(__DIR__ . "/../storage/attachments");
-  if ($baseDir === false) {
-    $baseDir = __DIR__ . "/../storage/attachments";
-    if (!is_dir($baseDir)) {
-      mkdir($baseDir, 0775, true);
-    }
-    $baseDir = realpath($baseDir) ?: $baseDir;
-  }
-
-  $docDir = $baseDir . "/doc_" . $docId;
-  if (!is_dir($docDir)) {
-    mkdir($docDir, 0775, true);
-  }
+  $baseDir = attachments_base_dir();
+  $docDir = ensure_storage_dir($baseDir . "/doc_" . $docId);
 
   $stamp = date("Ymd_His");
   $rand = bin2hex(random_bytes(6));

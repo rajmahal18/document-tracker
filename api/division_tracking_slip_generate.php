@@ -140,7 +140,7 @@ if ($rowTok && !empty($rowTok['token'])) {
   $stmt->execute();
 }
 $qrUrl = app_url(PUBLIC_PATH . '/qr.php?t=' . urlencode($qrToken));
-$fromLabel = 'ZZZ_TEST_REQUESTER'; // TESTING PURPOSES ONLY, TO BE REMOVED
+
 
 DivisionTrackingSlip::generateA4([
   'mpw_tracking_no' => (string)($doc['tracking_no'] ?? ''),
@@ -151,7 +151,7 @@ DivisionTrackingSlip::generateA4([
   'document_date' => (string)($doc['document_date'] ?? ''),
   'received_by' => $receivedBy,
   'received_datetime' => $receivedDT,
-  'subject' => 'ZZZ SUBJECT TEST',
+  'subject' => (string)($doc['subject'] ?? ''),
   'deadline_date' => trim((string)($doc['deadline_at'] ?? '')) !== '' ? (new DateTime((string)$doc['deadline_at'], new DateTimeZone('Asia/Manila')))->format('m/d/Y') : '',
   'deadline_time' => trim((string)($doc['deadline_at'] ?? '')) !== '' ? (new DateTime((string)$doc['deadline_at'], new DateTimeZone('Asia/Manila')))->format('g:i A') : '',
   'qr_url' => $qrUrl,
@@ -167,6 +167,12 @@ $size = (int)@filesize($abs);
 if ($size <= 0) {
   http_response_code(500);
   echo json_encode(["ok" => false, "error" => "Failed to generate PDF"]);
+  exit;
+}
+if ($size > attachment_max_bytes()) {
+  @unlink($abs);
+  http_response_code(400);
+  echo json_encode(["ok" => false, "error" => "Generated PDF is too large (max " . attachment_max_mb_label() . ")"]);
   exit;
 }
 

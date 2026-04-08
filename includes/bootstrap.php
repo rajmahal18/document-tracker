@@ -190,6 +190,125 @@ function asset_url(string $relativePath): string {
   return $url;
 }
 
+
+function attachment_max_bytes(): int {
+  return ATTACHMENT_MAX_BYTES;
+}
+
+function attachment_max_mb_label(): string {
+  return (string)ATTACHMENT_MAX_MB . 'MB';
+}
+
+function attachment_allowed_extensions(): array {
+  return ATTACHMENT_ALLOWED_EXTENSIONS;
+}
+
+function attachment_allowed_mime_types(): array {
+  return ATTACHMENT_ALLOWED_MIME_TYPES;
+}
+
+function attachment_allowed_types_label(): string {
+  return 'PDF/JPG/PNG only';
+}
+
+function attachment_upload_error_message(int $code): string {
+  return match ($code) {
+    UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'Attachment too large (max is ' . attachment_max_mb_label() . ').',
+    UPLOAD_ERR_PARTIAL => 'Attachment upload was interrupted. Please try again.',
+    UPLOAD_ERR_NO_FILE => 'No attachment was uploaded.',
+    UPLOAD_ERR_NO_TMP_DIR => 'Upload failed because the server temp folder is missing.',
+    UPLOAD_ERR_CANT_WRITE => 'Upload failed because the server could not write the file.',
+    UPLOAD_ERR_EXTENSION => 'Upload blocked by server extension.',
+    default => 'Failed to upload attachment.',
+  };
+}
+
+function attachment_sanitize_original_name(string $name): string {
+  $base = basename($name);
+  $base = preg_replace('/[^a-zA-Z0-9._\-\s]/', '_', $base) ?? $base;
+  $base = trim($base);
+  return $base !== '' ? $base : 'file';
+}
+
+function attachment_detect_mime(string $path): string {
+  if (!is_file($path)) {
+    return 'application/octet-stream';
+  }
+
+  $finfo = new finfo(FILEINFO_MIME_TYPE);
+  $mime = (string)$finfo->file($path);
+  return $mime !== '' ? $mime : 'application/octet-stream';
+}
+
+function ensure_storage_dir(string $path): string {
+  if (!is_dir($path) && !mkdir($path, 0775, true) && !is_dir($path)) {
+    throw new RuntimeException('Failed to prepare storage directory.');
+  }
+
+  return $path;
+}
+
+function attachments_base_dir(): string {
+  $baseDir = realpath(__DIR__ . '/../storage/attachments');
+  if ($baseDir === false) {
+    $baseDir = __DIR__ . '/../storage/attachments';
+  }
+
+  return ensure_storage_dir($baseDir);
+}
+
+function temp_attachment_dir(): string {
+  return ensure_storage_dir(rtrim(attachments_base_dir(), '/\\') . '/_tmp');
+}
+
+function attachment_validate_uploaded_file(array $file, bool $requireUploadedTmp = true): array {
+  $errorCode = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
+  if ($errorCode !== UPLOAD_ERR_OK) {
+    throw new RuntimeException(attachment_upload_error_message($errorCode));
+  }
+
+  $originalName = attachment_sanitize_original_name((string)($file['name'] ?? 'file'));
+  $size = (int)($file['size'] ?? 0);
+  if ($size <= 0) {
+    throw new RuntimeException('Attachment is empty or did not upload correctly. Please try again.');
+  }
+
+  if ($size > attachment_max_bytes()) {
+    throw new RuntimeException('Attachment too large (max ' . attachment_max_mb_label() . ')');
+  }
+
+  $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+  if ($extension === '' || !in_array($extension, attachment_allowed_extensions(), true)) {
+    throw new RuntimeException('Unsupported attachment type (' . attachment_allowed_types_label() . ')');
+  }
+
+  $tmpPath = (string)($file['tmp_name'] ?? '');
+  if ($tmpPath === '') {
+    throw new RuntimeException('Invalid upload');
+  }
+
+  if ($requireUploadedTmp) {
+    if (!is_uploaded_file($tmpPath)) {
+      throw new RuntimeException('Invalid upload');
+    }
+  } elseif (!is_file($tmpPath)) {
+    throw new RuntimeException('Invalid upload');
+  }
+
+  $mime = attachment_detect_mime($tmpPath);
+  if (!in_array($mime, attachment_allowed_mime_types(), true)) {
+    throw new RuntimeException('Unsupported attachment type (' . attachment_allowed_types_label() . ')');
+  }
+
+  return [
+    'original_name' => $originalName,
+    'size_bytes' => $size,
+    'extension' => $extension,
+    'tmp_path' => $tmpPath,
+    'mime' => $mime,
+  ];
+}
+
 function redirect(string $path): void {
   if ($path !== '' && !preg_match('#^https?://#i', $path)) {
     $path = ($path[0] === '/')

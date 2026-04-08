@@ -7,41 +7,7 @@ require_once __DIR__ . "/../core/DivisionTrackingSlip.php";
 require_login();
 
 
-function map_upload_error_message(int $code): string
-{
-  return match ($code) {
-    UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => "Attachment too large (max is 30MB).",
-    UPLOAD_ERR_PARTIAL => "Attachment upload was interrupted. Please try again.",
-    UPLOAD_ERR_NO_TMP_DIR => "Upload failed because the server temp folder is missing.",
-    UPLOAD_ERR_CANT_WRITE => "Upload failed because the server could not write the file.",
-    UPLOAD_ERR_EXTENSION => "Upload blocked by server extension.",
-    default => "Failed to upload attachment.",
-  };
-}
 
-function ensure_storage_dir(string $path): string
-{
-  if (!is_dir($path) && !mkdir($path, 0775, true) && !is_dir($path)) {
-    throw new RuntimeException("Failed to prepare storage directory.");
-  }
-
-  return $path;
-}
-
-function attachments_base_dir(): string
-{
-  $baseDir = realpath(__DIR__ . "/../storage/attachments");
-  if ($baseDir === false) {
-    $baseDir = __DIR__ . "/../storage/attachments";
-  }
-
-  return ensure_storage_dir($baseDir);
-}
-
-function temp_attachment_dir(): string
-{
-  return ensure_storage_dir(rtrim(attachments_base_dir(), "/\\") . "/_tmp");
-}
 
 function get_saved_temp_attachment(): ?array
 {
@@ -64,38 +30,12 @@ function clear_saved_temp_attachment(): void
 
 function stash_uploaded_attachment(array $file, int $userId): array
 {
-  $maxBytes = 30 * 1024 * 1024;
-  $allowedExt = ["pdf", "jpg", "jpeg", "png"];
-  $allowedRealMime = ["application/pdf", "image/jpeg", "image/png"];
-
-  $orig = basename((string)($file["name"] ?? "file"));
-  $orig = preg_replace('/[^a-zA-Z0-9._\-\s]/', "_", $orig) ?? $orig;
-
-  $size = (int)($file["size"] ?? 0);
-
-  if ($size <= 0) {
-    throw new RuntimeException("Upload failed on server. Please re-save the PDF and try again.");
-  }
-
-  if ($size > $maxBytes) {
-    throw new RuntimeException("Attachment too large (max 30MB)");
-  }
-
-  $ext = strtolower(pathinfo($orig, PATHINFO_EXTENSION));
-  if ($ext === '' || !in_array($ext, $allowedExt, true)) {
-    throw new RuntimeException("Unsupported attachment type (PDF/JPG/PNG only)");
-  }
-
-  $tmp = (string)($file["tmp_name"] ?? "");
-  if ($tmp === '' || !is_uploaded_file($tmp)) {
-    throw new RuntimeException("Invalid upload");
-  }
-
-  $finfo = new finfo(FILEINFO_MIME_TYPE);
-  $realMime = (string)$finfo->file($tmp);
-  if (!in_array($realMime, $allowedRealMime, true)) {
-    throw new RuntimeException("Unsupported attachment type (PDF/JPG/PNG only)");
-  }
+  $validated = attachment_validate_uploaded_file($file);
+  $orig = (string)$validated["original_name"];
+  $size = (int)$validated["size_bytes"];
+  $ext = (string)$validated["extension"];
+  $tmp = (string)$validated["tmp_path"];
+  $realMime = (string)$validated["mime"];
 
   $tmpDir = temp_attachment_dir();
   $storedName = date("Ymd_His") . "_u" . $userId . "_" . bin2hex(random_bytes(6)) . "." . $ext;
@@ -533,7 +473,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
       $error = $e->getMessage();
     }
   } elseif ($fileErrorCode !== UPLOAD_ERR_NO_FILE) {
-    $error = map_upload_error_message($fileErrorCode);
+    $error = attachment_upload_error_message($fileErrorCode);
   } elseif (get_saved_temp_attachment() !== null) {
     $saved = get_saved_temp_attachment();
     if (is_array($saved)) {
@@ -1036,6 +976,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           if ($size <= 0) {
             throw new RuntimeException("Failed to generate transmittal memo PDF");
           }
+          if ($size > attachment_max_bytes()) {
+            @unlink($abs);
+            throw new RuntimeException("Generated transmittal memo is too large (max " . attachment_max_mb_label() . ")");
+          }
+          if ($size > attachment_max_bytes()) {
+            @unlink($abs);
+            throw new RuntimeException("Generated transmittal memo is too large (max " . attachment_max_mb_label() . ")");
+          }
 
           $orig = $storedName;
           $mime = "application/pdf";
@@ -1174,6 +1122,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           $size = (int)@filesize($abs);
           if ($size <= 0) {
             throw new RuntimeException("Failed to generate division tracking slip PDF");
+          }
+          if ($size > attachment_max_bytes()) {
+            @unlink($abs);
+            throw new RuntimeException("Generated division tracking slip is too large (max " . attachment_max_mb_label() . ")");
+          }
+          if ($size > attachment_max_bytes()) {
+            @unlink($abs);
+            throw new RuntimeException("Generated division tracking slip is too large (max " . attachment_max_mb_label() . ")");
           }
 
           $orig = $storedName;
@@ -1533,7 +1489,7 @@ require __DIR__ . "/../includes/layout.php";
           value="<?= htmlspecialchars($_POST["attach_note"] ?? ($savedTempAttachment["note"] ?? "")) ?>"
         >
       </div>
-      <div class="mini">Allowed: PDF/JPG/PNG • Max 30MB</div>
+      <div class="mini">Allowed: PDF/JPG/PNG • Max <?= htmlspecialchars(attachment_max_mb_label()) ?></div>
       <div class="mini" style="margin-top:6px;">If saving fails, the uploaded file is now preserved for retry on this page.</div>
     </div>
 

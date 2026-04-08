@@ -120,6 +120,13 @@ $pageTitle = $pageTitle ?? "Document Tracker";
 
     <?php if ((string)($_SESSION["role"] ?? "user") === "admin"): ?>
       <a
+        href="<?= PUBLIC_PATH ?>/admin.php"
+        class="<?= $currentPage === 'admin.php' ? 'navActive' : '' ?>"
+      >
+        <span class="navIcon">⚙</span>
+        <span class="navText">Admin</span>
+      </a>
+      <a
         href="<?= PUBLIC_PATH ?>/access_requests.php"
         class="<?= $currentPage === 'access_requests.php' ? 'navActive' : '' ?>"
       >
