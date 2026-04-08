@@ -412,17 +412,65 @@ $sections = $conn->query("
 $divisionChiefTargets = build_division_chief_targets($conn, $sections, $myDivisionId);
 $sectionLabelMap = [];
 $sectionMetaMap = [];
+$destinationBuilderDivisions = [];
+$destinationUsersBySection = [];
+
+$userRes = $conn->query("
+  SELECT id, full_name, is_chief, section_id
+  FROM users
+  WHERE is_active = 1
+  ORDER BY is_chief DESC, full_name ASC
+");
+if ($userRes) {
+  while ($userRow = $userRes->fetch_assoc()) {
+    $sid = (int)($userRow['section_id'] ?? 0);
+    if ($sid <= 0) continue;
+    if (!isset($destinationUsersBySection[$sid])) {
+      $destinationUsersBySection[$sid] = [];
+    }
+    $destinationUsersBySection[$sid][] = [
+      'id' => (int)($userRow['id'] ?? 0),
+      'name' => (string)($userRow['full_name'] ?? ''),
+      'is_chief' => ((int)($userRow['is_chief'] ?? 0) === 1),
+    ];
+  }
+}
+
 foreach ($sections as $s) {
   $sid = (int)$s["id"];
+  $divisionId = (int)($s['division_id'] ?? 0);
   $division = (string)($s["division_name"] ?? "");
   $section = (string)($s["name"] ?? "");
-  $sectionLabelMap[$sid] = $division . " — " . $section;
+  $label = $division . " — " . $section;
+  $sectionLabelMap[$sid] = $label;
   $sectionMetaMap[$sid] = [
     "division_name" => $division,
     "section_name" => $section,
-    "label" => $division . " — " . $section,
+    "label" => $label,
+  ];
+
+  if (!isset($destinationBuilderDivisions[$divisionId])) {
+    $destinationBuilderDivisions[$divisionId] = [
+      'division_id' => $divisionId,
+      'division_name' => $division,
+      'sections' => [],
+    ];
+  }
+
+  $destinationBuilderDivisions[$divisionId]['sections'][] = [
+    'id' => $sid,
+    'name' => $section,
+    'label' => $label,
+    'users' => $destinationUsersBySection[$sid] ?? [],
   ];
 }
+
+$destinationBuilderDivisions = array_values($destinationBuilderDivisions);
+usort($destinationBuilderDivisions, static fn(array $a, array $b): int => strcasecmp((string)($a['division_name'] ?? ''), (string)($b['division_name'] ?? '')));
+foreach ($destinationBuilderDivisions as &$divisionBlock) {
+  usort($divisionBlock['sections'], static fn(array $a, array $b): int => strcasecmp((string)($a['name'] ?? ''), (string)($b['name'] ?? '')));
+}
+unset($divisionBlock);
 
 // Default date
 $phNow = new DateTime("now", new DateTimeZone("Asia/Manila"));
@@ -621,11 +669,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           $finalRecipientMap[$sectionId] = [$chiefId];
         }
       }
-    }
-
-    // Safety: multi-section must always be chief-only.
-    if ($error === "" && count($finalRecipientMap) > 1) {
-      $finalRecipientMap = normalize_recipient_map_to_chiefs($conn, $finalRecipientMap);
     }
 
     if ($error === "" && count($finalRecipientMap) === 0) {
@@ -1340,42 +1383,35 @@ require __DIR__ . "/../includes/layout.php";
       <div class="addDocSectionHead">
         <div>
           <h3>Destination Builder</h3>
-          <p>Pick a section, check the recipients, then add it to the list.</p>
+          <p>Select the people directly. Recipients are grouped by section automatically.</p>
         </div>
       </div>
 
-      <div class="destBuilder">
-        <div class="destToolbar destToolbarTop">
-          <select name="to_section_id" class="select destSelect" id="addToSection">
-            <option value="">-- Select Section --</option>
-            <?php foreach ($sections as $s): ?>
-              <option
-                value="<?= (int)$s["id"] ?>"
-                <?= ((string)$s["id"] === (string)($_POST["to_section_id"] ?? "")) ? "selected" : "" ?>
-              >
-                <?= htmlspecialchars($s["division_name"] . " — " . $s["name"]) ?>
-              </option>
-            <?php endforeach; ?>
-          </select>
-
-          <button type="button" class="destActionBtn" id="btnAddAllDivisionChiefs">Send to all division chiefs</button>
-        </div>
-
-        <div id="sectionPreviewBox" class="destSectionPreview">
-          <div class="destSummaryEmpty">Pick a section to preview users.</div>
-        </div>
-
-        <div class="destToolbarActions">
-          <button type="button" class="destActionBtn is-primary" id="btnAddDestination" style="display:none;">Add destination</button>
-          <button type="button" class="destActionBtn" id="btnCancelAllDivisionChiefs" style="display:none;">Cancel</button>
+      <div class="destBuilder destBuilderV2">
+        <div class="destToolbar destToolbarTop destToolbarTopV2">
+          <div class="destToolbarIntro">
+            <div class="destToolbarTitle">Choose recipients</div>
+            <div class="mini">Open a division, check the people, then review the selected list on the right.</div>
+          </div>
+          <div class="destToolbarButtons">
+            <button type="button" class="destActionBtn" id="btnAddAllDivisionChiefs">Send to all division chiefs</button>
+            <button type="button" class="destActionBtn" id="btnClearDestinations">Clear all</button>
+          </div>
         </div>
 
         <div id="destinationNotice" class="destStatus" aria-live="polite"></div>
-        <div id="destinationSummaryBox" class="destSummaryBox"></div>
-        <div id="destinationModeHint" class="destModeBar" style="display:none;"></div>
 
-        <div id="destinationsBox" class="destinationsGrid">
-          <div class="destSummaryEmpty">No destinations added yet.</div>
+        <div class="destBuilderLayout">
+          <div class="destDirectoryPane">
+            <div id="destinationAccordion" class="destDivisionList"></div>
+          </div>
+
+          <div class="destSelectionPane">
+            <div id="destinationSummaryBox" class="destSummaryBox"></div>
+            <div id="destinationsBox" class="destinationsGrid">
+              <div class="destSummaryEmpty">No recipients selected yet.</div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -1508,6 +1544,7 @@ require __DIR__ . "/../includes/layout.php";
     "sectionLabels" => $sectionLabelMap,
     "sectionMeta" => $sectionMetaMap,
     "divisionChiefTargets" => $divisionChiefTargets,
+    "divisionDirectory" => $destinationBuilderDivisions,
     "seedRecipientMap" => $_POST["recipient_map"] ?? [],
     "seedDestinationMode" => $_POST["destination_mode"] ?? [],
     "seedPersonalDeadlineMap" => $_POST["personal_deadline_map"] ?? [],

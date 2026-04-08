@@ -1555,44 +1555,59 @@
   }
 
   function renderGroupedView(itemsNewestFirst) {
-    const byKey = new Map();
     const renderedSplitEventIds = new Set();
     const ctx = window.__CTX__ || {};
     const myDivisionName = clean(ctx.myDivisionName);
+    const timelineItems = Array.isArray(itemsNewestFirst) ? itemsNewestFirst : [];
 
-    itemsNewestFirst.forEach((item) => {
+    const groups = [];
+    timelineItems.forEach((item, idx) => {
       const key = groupTitleFor(item);
-      if (!byKey.has(key)) {
-        byKey.set(key, { key, items: [] });
+      const prev = groups[groups.length - 1] || null;
+      if (!prev || prev.key !== key) {
+        groups.push({ key, items: [item], startIdx: idx, endIdx: idx });
+        return;
       }
-      byKey.get(key).items.push(item);
+
+      prev.items.push(item);
+      prev.endIdx = idx;
     });
 
-    const groups = Array.from(byKey.values())
-      .map((group) => {
-        const newestFirst = [...group.items].sort((a, b) => {
-          const ta = new Date((a.acted_at || "").toString().replace(" ", "T")).getTime() || 0;
-          const tb = new Date((b.acted_at || "").toString().replace(" ", "T")).getTime() || 0;
-          return tb - ta;
-        });
+    const normalizedGroups = groups.map((group, groupIndex) => {
+      const newestFirst = [...group.items].sort((a, b) => {
+        const ta = new Date((a.acted_at || "").toString().replace(" ", "T")).getTime() || 0;
+        const tb = new Date((b.acted_at || "").toString().replace(" ", "T")).getTime() || 0;
+        return tb - ta;
+      });
+      const latest = newestFirst[0] || null;
+      const oldest = newestFirst[newestFirst.length - 1] || null;
+      const latestEventId = Number(latest?.event_id || 0);
+      const oldestEventId = Number(oldest?.event_id || 0);
+      const storageKey = [
+        group.key,
+        groupIndex + 1,
+        latestEventId > 0 ? `latest${latestEventId}` : `latestIdx${group.startIdx}`,
+        oldestEventId > 0 ? `oldest${oldestEventId}` : `oldestIdx${group.endIdx}`,
+      ].join("_");
 
-        return {
-          ...group,
-          items: newestFirst,
-          latestTs: new Date((newestFirst[0]?.acted_at || "").toString().replace(" ", "T")).getTime() || 0,
-          divisionName: groupDivisionFor(newestFirst),
-        };
-      })
-      .sort((a, b) => b.latestTs - a.latestTs);
+      return {
+        ...group,
+        items: newestFirst,
+        latestTs: new Date((latest?.acted_at || "").toString().replace(" ", "T")).getTime() || 0,
+        divisionName: groupDivisionFor(newestFirst),
+        latest,
+        storageKey,
+      };
+    });
 
     return `
       <div class="tGrouped">
-        ${groups.map((group) => {
-          const latest = group.items[0];
+        ${normalizedGroups.map((group) => {
+          const latest = group.latest;
           const groupBranchId = resolveGroupBranchId(group.items);
-          const splitEvent = findSplitEventForBranch(itemsNewestFirst, groupBranchId);
+          const splitEvent = findSplitEventForBranch(timelineItems, groupBranchId);
           const isMineDivision = !!(myDivisionName && group.divisionName && sameText(myDivisionName, group.divisionName));
-          const isCollapsed = isTimelineGroupCollapsed(group.key, group.divisionName);
+          const isCollapsed = isTimelineGroupCollapsed(group.storageKey, group.divisionName);
 
           let splitMarker = "";
           const splitEventId = Number(splitEvent?.event_id || 0);
@@ -1626,7 +1641,7 @@
                   type="button"
                   class="tGroupToggle"
                   data-group-toggle="1"
-                  data-group-key="${esc(group.key)}"
+                  data-group-key="${esc(group.storageKey)}"
                   aria-expanded="${isCollapsed ? "false" : "true"}"
                 >
                   ${isCollapsed ? "Show" : "Hide"}

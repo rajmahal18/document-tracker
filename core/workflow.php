@@ -49,6 +49,72 @@ function workflow_branch_attachment_scope_enabled(mysqli $conn): bool
     return workflow_has_column($conn, 'document_attachments', 'branch_id');
 }
 
+function workflow_get_user_branch_ids_for_document(mysqli $conn, int $documentId, int $userId): array
+{
+    if ($documentId <= 0 || $userId <= 0 || !workflow_has_table($conn, 'document_branches')) {
+        return [];
+    }
+
+    $hasCompletedBy = workflow_has_column($conn, 'document_branches', 'completed_by_user_id');
+    $hasFromUserId = workflow_has_column($conn, 'routes', 'from_user_id');
+
+    $branchUserSql = $hasCompletedBy
+        ? ' OR b.completed_by_user_id = ?'
+        : '';
+    $routeUserSql = $hasFromUserId
+        ? ' OR r.from_user_id = ?'
+        : '';
+
+    $sql = "
+        SELECT DISTINCT b.id
+        FROM document_branches b
+        WHERE b.document_id = ?
+          AND (
+            b.created_by_user_id = ?
+            OR b.current_assignee_user_id = ?" . $branchUserSql . "
+            OR EXISTS (
+              SELECT 1
+              FROM routes r
+              WHERE r.document_id = b.document_id
+                AND r.branch_id = b.id
+                AND (
+                  r.to_user_id = ?
+                  OR r.sent_by_user_id = ?
+                  OR r.received_by_user_id = ?" . $routeUserSql . "
+                )
+            )
+            OR EXISTS (
+              SELECT 1
+              FROM document_user_visibility duv
+              WHERE duv.document_id = b.document_id
+                AND duv.branch_id = b.id
+                AND duv.user_id = ?
+            )
+          )
+        ORDER BY b.id ASC
+    ";
+
+    $stmt = $conn->prepare($sql);
+
+    if ($hasCompletedBy && $hasFromUserId) {
+        $stmt->bind_param('iiiiiiiii', $documentId, $userId, $userId, $userId, $userId, $userId, $userId, $userId, $userId);
+    } elseif ($hasCompletedBy) {
+        $stmt->bind_param('iiiiiiii', $documentId, $userId, $userId, $userId, $userId, $userId, $userId, $userId);
+    } elseif ($hasFromUserId) {
+        $stmt->bind_param('iiiiiiii', $documentId, $userId, $userId, $userId, $userId, $userId, $userId, $userId);
+    } else {
+        $stmt->bind_param('iiiiiii', $documentId, $userId, $userId, $userId, $userId, $userId, $userId);
+    }
+
+    $stmt->execute();
+    $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+    return array_values(array_unique(array_filter(
+        array_map(static fn($row) => (int)($row['id'] ?? 0), $rows),
+        static fn($id) => $id > 0
+    )));
+}
+
 function workflow_user_can_access_branch(mysqli $conn, int $documentId, int $branchId, int $userId): bool
 {
     if ($documentId <= 0 || $branchId <= 0 || $userId <= 0) {
@@ -265,6 +331,28 @@ function workflow_get_branch_state(mysqli $conn, int $documentId, int $viewerUse
         return $rows;
     }
 
+    // Important: the original sender/creator must keep the full branch list visible
+    // even if one branch later comes back to them. Their pending/actionable lane should
+    // still be marked on the matching branch row, but the branch selector itself must
+    // not collapse to only that returned lane.
+    $viewerIsDocumentCreator = false;
+    $stmtCreator = $conn->prepare("
+        SELECT created_by_user_id
+        FROM documents
+        WHERE id = ?
+        LIMIT 1
+    ");
+    if ($stmtCreator) {
+        $stmtCreator->bind_param('i', $documentId);
+        $stmtCreator->execute();
+        $creatorRow = $stmtCreator->get_result()->fetch_assoc();
+        $viewerIsDocumentCreator = ((int)($creatorRow['created_by_user_id'] ?? 0) === $viewerUserId);
+    }
+
+    if ($viewerIsDocumentCreator) {
+        return $rows;
+    }
+
     $viewerBranches = [];
 
     foreach ($rows as $row) {
@@ -280,19 +368,36 @@ function workflow_get_branch_state(mysqli $conn, int $documentId, int $viewerUse
         }
     }
 
-    // No directly-owned/pending/actionable branch: keep the full list
-    // for sender/admin/general viewers.
-    if ($viewerBranches === []) {
-        return $rows;
+    if ($viewerBranches !== []) {
+        $filtered = [];
+        foreach ($rows as $row) {
+            $bid = (int)($row['id'] ?? 0);
+            if ($bid > 0 && isset($viewerBranches[$bid])) {
+                $filtered[] = $row;
+            }
+        }
+
+        return $filtered;
     }
 
-    $filtered = [];
-    foreach ($rows as $row) {
-        $bid = (int)($row['id'] ?? 0);
-        if ($bid > 0 && isset($viewerBranches[$bid])) {
-            $filtered[] = $row;
+    $associatedBranchIds = workflow_get_user_branch_ids_for_document($conn, $documentId, $viewerUserId);
+    if ($associatedBranchIds !== []) {
+        $associatedLookup = array_fill_keys($associatedBranchIds, true);
+        $filtered = [];
+
+        foreach ($rows as $row) {
+            $bid = (int)($row['id'] ?? 0);
+            if ($bid > 0 && isset($associatedLookup[$bid])) {
+                $filtered[] = $row;
+            }
+        }
+
+        if ($filtered !== []) {
+            return $filtered;
         }
     }
 
-    return $filtered;
+    // No branch-specific participation trail: keep the full list
+    // for sender/admin/general viewers.
+    return $rows;
 }
