@@ -404,6 +404,13 @@ $myHasParticipationPredicate = "(
         OR r_part.received_by_user_id = {$myUid}
       )
   )
+  OR EXISTS (
+    SELECT 1
+    FROM document_events e_part
+    WHERE e_part.document_id = d.id
+      AND e_part.event_type IN ('sent', 'forwarded')
+      AND e_part.payload_json REGEXP '\"acting_principal_user_id\"[[:space:]]*:[[:space:]]*{$myUid}([^0-9]|$)'
+  )
 )";
 
 $myIsVisibleOnlyPredicate = $branchMode
@@ -749,6 +756,13 @@ $sql = "
             OR r_part.sent_by_user_id = {$myUid}
             OR r_part.received_by_user_id = {$myUid}
           )
+      ) THEN 1
+      WHEN EXISTS (
+        SELECT 1
+        FROM document_events e_part
+        WHERE e_part.document_id = d.id
+          AND e_part.event_type IN ('sent', 'forwarded')
+          AND e_part.payload_json REGEXP '\"acting_principal_user_id\"[[:space:]]*:[[:space:]]*{$myUid}([^0-9]|$)'
       ) THEN 1
       ELSE 0
     END AS my_has_participation,
