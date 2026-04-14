@@ -29,3 +29,5 @@ foreach ($config as $key => $value) {
         define($key, is_string($value) ? $value : (string)$value);
     }
 }
+
+date_default_timezone_set('Asia/Manila');

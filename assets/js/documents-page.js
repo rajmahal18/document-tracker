@@ -111,6 +111,7 @@
   let deadlineTicker = null;
 
   const DRAWER_RESTORE_KEY = "dt_restore_drawer";
+  const MANILA_TZ = "Asia/Manila";
 
   function actingPrincipalId(payload = null) {
     const fromPayload = Number(payload?.acting_principal_user_id || currentPayload?.acting_principal_user_id || 0);
@@ -302,16 +303,76 @@
     return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
   }
 
+  function parseSqlDateParts(dt) {
+    const raw = (dt || "").toString().trim();
+    if (!raw) return null;
+
+    const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+    if (!m) return null;
+
+    return {
+      year: Number(m[1]),
+      month: Number(m[2]),
+      day: Number(m[3]),
+      hour: Number(m[4] || 0),
+      minute: Number(m[5] || 0),
+      second: Number(m[6] || 0),
+    };
+  }
+
+  function manilaDateFromSql(dt) {
+    const parts = parseSqlDateParts(dt);
+    if (!parts) return null;
+
+    return new Date(Date.UTC(
+      parts.year,
+      parts.month - 1,
+      parts.day,
+      parts.hour - 8,
+      parts.minute,
+      parts.second
+    ));
+  }
+
+  function timestampMs(dt) {
+    const manilaDate = manilaDateFromSql(dt);
+    if (manilaDate && !Number.isNaN(manilaDate.getTime())) {
+      return manilaDate.getTime();
+    }
+
+    const fallback = new Date((dt || "").toString());
+    return Number.isNaN(fallback.getTime()) ? 0 : fallback.getTime();
+  }
+
+  function nowManilaSqlTimestamp() {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: MANILA_TZ,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date()).reduce((acc, part) => {
+      if (part.type !== "literal") acc[part.type] = part.value;
+      return acc;
+    }, {});
+
+    return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+  }
+
   function fmt(dt) {
-    const d = new Date((dt || "").toString().replace(" ", "T"));
+    const d = manilaDateFromSql(dt) || new Date((dt || "").toString());
     if (isNaN(d.getTime())) return dt || "";
-    return d.toLocaleString("en-GB", {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: MANILA_TZ,
       day: "2-digit",
       month: "short",
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
-    }).replace(",", "");
+    }).format(d).replace(",", "");
   }
 
   function formatCountdown(ms) {
@@ -344,7 +405,7 @@
       return;
     }
 
-    const deadlineDate = new Date(effectiveRaw.replace(" ", "T"));
+    const deadlineDate = manilaDateFromSql(effectiveRaw) || new Date(effectiveRaw.replace(" ", "T"));
     if (Number.isNaN(deadlineDate.getTime())) {
       elDeadlineCountdown.textContent = "—";
       return;
@@ -787,7 +848,7 @@
 
       if (!newIds.includes(bid)) return;
 
-      const ts = new Date((item?.acted_at || "").toString().replace(" ", "T")).getTime() || 0;
+      const ts = timestampMs(item?.acted_at);
       if (!found || ts > foundTs) {
         found = item;
         foundTs = ts;
@@ -1574,8 +1635,8 @@
 
     const normalizedGroups = groups.map((group, groupIndex) => {
       const newestFirst = [...group.items].sort((a, b) => {
-        const ta = new Date((a.acted_at || "").toString().replace(" ", "T")).getTime() || 0;
-        const tb = new Date((b.acted_at || "").toString().replace(" ", "T")).getTime() || 0;
+        const ta = timestampMs(a.acted_at);
+        const tb = timestampMs(b.acted_at);
         return tb - ta;
       });
       const latest = newestFirst[0] || null;
@@ -1592,7 +1653,7 @@
       return {
         ...group,
         items: newestFirst,
-        latestTs: new Date((latest?.acted_at || "").toString().replace(" ", "T")).getTime() || 0,
+        latestTs: timestampMs(latest?.acted_at),
         divisionName: groupDivisionFor(newestFirst),
         latest,
         storageKey,
@@ -2288,7 +2349,7 @@
 
       pushPendingRemarkLocalEvent(docId, {
         action: (data?.change_type || "pending_remarks_updated").toString(),
-        acted_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+        acted_at: nowManilaSqlTimestamp(),
         actor: (window.__CTX__?.actingPrincipalName || window.__CTX__?.myFullName || "You").toString(),
         actor_section: (window.__CTX__?.mySectionName || "").toString(),
         title: (data?.title || "Updated pending route remarks").toString(),
