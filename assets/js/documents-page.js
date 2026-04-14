@@ -1902,7 +1902,7 @@
     }
 
     if (elId) elId.value = payload.id || "";
-    if (elTracking) elTracking.textContent = payload.tracking_no || "";
+    if (elTracking) elTracking.textContent = payload.tracking_display || payload.tracking_no || "";
     if (elRequester) elRequester.textContent = payload.requester || "—";
     if (elDate) elDate.textContent = payload.document_date || "—";
     renderDeadline(payload.deadline_at || "", payload.my_personal_deadline_at || "");

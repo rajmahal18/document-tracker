@@ -83,6 +83,7 @@ $documentContextSectionId = $assistantModeEnabled
   ? (int)($activeAssistantPrincipal['section_id'] ?? 0)
   : (int)($_SESSION['section_id'] ?? 0);
 $myDivisionMeta = get_user_division_meta($conn, $documentContextSectionId);
+$myDivisionId = (int)($myDivisionMeta['id'] ?? 0);
 $myDivisionCode = strtoupper(trim((string)($myDivisionMeta['code'] ?? '')));
 $hasOwnDivisionSlip = is_supported_division_tracking_code($myDivisionCode);
 $ownDivisionSlipLabel = $hasOwnDivisionSlip ? ($myDivisionCode . ' Tracking Slip') : '';
@@ -612,6 +613,7 @@ $sql = "
   SELECT
     d.id,
     d.tracking_no,
+    COALESCE(ddt_ctx.tracking_no, '') AS division_tracking_no,
     d.requester,
     d.document_date,
     d.deadline_at,
@@ -819,6 +821,9 @@ $sql = "
     END AS my_is_receive_only
   FROM documents d
   LEFT JOIN sections sh ON sh.id = d.current_holder_section_id
+  LEFT JOIN document_division_tracking ddt_ctx
+    ON ddt_ctx.document_id = d.id
+   AND ddt_ctx.division_id = {$myDivisionId}
 
   LEFT JOIN (
     SELECT
@@ -1594,6 +1599,12 @@ function documentsUrl(array $overrides = []): string {
             $docMetaType = $docTypeText !== "" && $docCommText !== ""
               ? $docTypeText . " • " . $docCommText
               : ($docTypeText !== "" ? $docTypeText : ($docCommText !== "" ? $docCommText : "—"));
+            $mpwTrackingNo = trim((string)($d["tracking_no"] ?? ""));
+            $divisionTrackingNo = trim((string)($d["division_tracking_no"] ?? ""));
+            $divisionTrackingDisplay = $divisionTrackingNo !== ""
+              ? (preg_replace('/\s+/', '', $divisionTrackingNo) ?? $divisionTrackingNo)
+              : "";
+            $trackingDisplay = $mpwTrackingNo . ($divisionTrackingDisplay !== "" ? " • " . $divisionTrackingDisplay : "");
           ?>
           <tr
             class="rowHover docsRow <?= htmlspecialchars(trim($rowToneClass . " " . $deadlineToneClass . ($isJustCreatedDoc ? " docsRowJustCreated" : ""))) ?>"
@@ -1601,7 +1612,9 @@ function documentsUrl(array $overrides = []): string {
             data-doc='<?= htmlspecialchars(
               json_encode([
                 "id" => (int)$d["id"],
-                "tracking_no" => $d["tracking_no"],
+                "tracking_no" => $mpwTrackingNo,
+                "division_tracking_no" => $divisionTrackingDisplay,
+                "tracking_display" => $trackingDisplay,
                 "requester" => $d["requester"],
                 "document_date" => $d["document_date"],
                 "deadline_at" => $d["deadline_at"],
@@ -1666,7 +1679,7 @@ function documentsUrl(array $overrides = []): string {
               <div class="docInfoCell">
                 <div class="docInfoTitle"><?= htmlspecialchars((string)$d["subject"]) ?></div>
                 <div class="docInfoMeta">
-                  <span class="docInfoTracking"><?= htmlspecialchars((string)$d["tracking_no"]) ?></span>
+                  <span class="docInfoTracking"><?= htmlspecialchars($trackingDisplay) ?></span>
                   <span class="docMetaDot">•</span>
                   <span><?= htmlspecialchars($docMetaType) ?></span>
                   <span class="docMetaDot">•</span>
