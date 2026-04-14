@@ -624,18 +624,7 @@
         const branch = getSelectedBranch();
         canAttach = !!(isPrivileged || (branch && Number(branch.can_forward || 0) === 1));
       } else {
-        const mySectionId = Number(ctx.mySectionId || 0);
-        const holderSectionId = Number.parseInt(currentPayload?.current_holder_section_id, 10) || 0;
-        const openFromSectionId = Number.parseInt(currentPayload?.open_from_section_id, 10) || 0;
-        const inTransit = currentPayload?.in_transit === 1 || currentPayload?.in_transit === "1" || currentPayload?.in_transit === true;
-        const holderStillSending = inTransit && holderSectionId > 0 && openFromSectionId > 0 && openFromSectionId === holderSectionId;
-
-        canAttach = !!(isPrivileged || (
-          holderSectionId > 0 &&
-          mySectionId > 0 &&
-          holderSectionId === mySectionId &&
-          !holderStillSending
-        ));
+        canAttach = !!(isPrivileged || Number(currentPayload?.my_has_actionable_role || 0) === 1);
       }
     }
 
@@ -2032,10 +2021,9 @@
     }
 
     const openToSectionId = Number.parseInt(payload.open_to_section_id, 10) || 0;
-    const holderSectionId = Number.parseInt(payload.current_holder_section_id, 10) || 0;
-    const openFromSectionId = Number.parseInt(payload.open_from_section_id, 10) || 0;
     const openToUserId = Number.parseInt(payload.open_to_user_id, 10) || 0;
     const isPrivileged = myRole === "admin" || myRole === "records";
+    const flatActionableByMe = Number(payload.my_has_actionable_role || 0) === 1;
 
     const canAckReceived = (!currentBranchMode && inTransit && (
       (openToUserId > 0 && myUserId > 0 && openToUserId === myUserId) ||
@@ -2051,22 +2039,8 @@
       canAttach = docStatus === "ACTIVE" && isPrivileged;
       canForward = false;
     } else {
-      const holderStillSending = inTransit && holderSectionId > 0 && openFromSectionId > 0 && openFromSectionId === holderSectionId;
-
-      canAttach = docStatus === "ACTIVE" && (
-        isPrivileged || (
-          holderSectionId > 0 &&
-          mySectionId > 0 &&
-          holderSectionId === mySectionId &&
-          !holderStillSending
-        )
-      );
-
-      canForward = docStatus === "ACTIVE" &&
-        holderSectionId > 0 &&
-        mySectionId > 0 &&
-        holderSectionId === mySectionId &&
-        !holderStillSending;
+      canAttach = docStatus === "ACTIVE" && (isPrivileged || flatActionableByMe);
+      canForward = docStatus === "ACTIVE" && flatActionableByMe;
     }
 
     currentCanForward = canForward;
@@ -2116,7 +2090,7 @@
         btnRelease.textContent = "Undo Release";
         btnRelease.dataset.nextStatus = "ACTIVE";
       }
-      if (isPrivileged || (!currentBranchMode && holderSectionId > 0 && mySectionId > 0 && holderSectionId === mySectionId)) {
+      if (isPrivileged || (!currentBranchMode && flatActionableByMe)) {
         if (btnRelease) btnRelease.style.display = "";
       }
       syncToggleLabels();
@@ -2140,7 +2114,7 @@
         return;
       }
 
-      if (holderSectionId > 0 && mySectionId > 0 && holderSectionId === mySectionId) {
+      if (flatActionableByMe) {
         if (btnRelease) btnRelease.style.display = "";
       }
     }

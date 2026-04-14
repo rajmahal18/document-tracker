@@ -264,10 +264,10 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
       exit;
     }
   } else {
-    if ($holderSectionId !== $mySectionId) {
+    if (!workflow_user_can_act_legacy_document($conn, $docId, $userId, $mySectionId, $isChief)) {
       $conn->rollback();
       http_response_code(403);
-      echo json_encode(["ok" => false, "error" => "Your section does not hold this document."]);
+      echo json_encode(["ok" => false, "error" => "You are not the current actionable holder for this document."]);
       exit;
     }
   }

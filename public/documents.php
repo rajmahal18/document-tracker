@@ -1715,6 +1715,8 @@ function documentsUrl(array $overrides = []): string {
                 "is_receive_only" => $myIsReceiveOnly ? 1 : 0,
                 "is_visible_only" => $myIsVisibleOnly ? 1 : 0,
                 "has_real_branches" => $hasRealBranches ? 1 : 0,
+                "my_has_actionable_role" => $myHasActionableRole ? 1 : 0,
+                "my_has_open_inbound" => $myHasOpenInbound ? 1 : 0,
 
                 "in_transit" => !empty($d["open_to_section_id"]) ? 1 : 0,
                 "open_to_section_id" => (int)($d["open_to_section_id"] ?? 0),

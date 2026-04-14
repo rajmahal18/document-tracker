@@ -233,6 +233,100 @@ function workflow_find_single_actionable_branch(mysqli $conn, int $documentId, i
     return $rows[0];
 }
 
+function workflow_user_can_act_legacy_document(mysqli $conn, int $documentId, int $userId, int $sectionId, bool $isChief, bool $allowReleased = false): bool
+{
+    if ($documentId <= 0 || $userId <= 0 || $sectionId <= 0) {
+        return false;
+    }
+
+    $statusSql = $allowReleased
+        ? "d.current_status IN ('ACTIVE', 'RELEASED')"
+        : "d.current_status = 'ACTIVE'";
+    $hasBranchSql = workflow_has_table($conn, 'document_branches')
+        ? "EXISTS (
+            SELECT 1
+            FROM document_branches b
+            WHERE b.document_id = d.id
+          )"
+        : "0";
+
+    $stmt = $conn->prepare("
+        SELECT
+          d.created_by_user_id,
+          d.current_status,
+          d.current_holder_section_id,
+          {$hasBranchSql} AS has_branch,
+          EXISTS (
+            SELECT 1
+            FROM routes r_open
+            WHERE r_open.document_id = d.id
+              AND r_open.received_at IS NULL
+              AND r_open.cancelled_at IS NULL
+          ) AS has_open_route,
+          EXISTS (
+            SELECT 1
+            FROM routes r_any_received
+            WHERE r_any_received.document_id = d.id
+              AND r_any_received.received_at IS NOT NULL
+              AND r_any_received.cancelled_at IS NULL
+          ) AS has_received_route
+        FROM documents d
+        WHERE d.id = ?
+          AND {$statusSql}
+        LIMIT 1
+    ");
+    $stmt->bind_param('i', $documentId);
+    $stmt->execute();
+    $doc = $stmt->get_result()->fetch_assoc();
+
+    if (!$doc) {
+        return false;
+    }
+
+    if ((int)($doc['has_branch'] ?? 0) === 1) {
+        return false;
+    }
+
+    if ((int)($doc['has_open_route'] ?? 0) === 1) {
+        return false;
+    }
+
+    if ((int)($doc['current_holder_section_id'] ?? 0) !== $sectionId) {
+        return false;
+    }
+
+    if (
+        (int)($doc['created_by_user_id'] ?? 0) === $userId
+        && (int)($doc['has_received_route'] ?? 0) === 0
+    ) {
+        return true;
+    }
+
+    $stmt = $conn->prepare("
+        SELECT r.to_user_id, r.to_section_id
+        FROM routes r
+        WHERE r.document_id = ?
+          AND r.received_at IS NOT NULL
+          AND r.cancelled_at IS NULL
+        ORDER BY r.received_at DESC, r.id DESC
+        LIMIT 1
+    ");
+    $stmt->bind_param('i', $documentId);
+    $stmt->execute();
+    $latest = $stmt->get_result()->fetch_assoc();
+
+    if (!$latest) {
+        return false;
+    }
+
+    $toUserId = (int)($latest['to_user_id'] ?? 0);
+    if ($toUserId > 0) {
+        return $toUserId === $userId;
+    }
+
+    return $isChief && (int)($latest['to_section_id'] ?? 0) === $sectionId;
+}
+
 function workflow_create_branch(mysqli $conn, array $data): int
 {
     $stmt = $conn->prepare("\n      INSERT INTO document_branches (\n        document_id,\n        parent_branch_id,\n        branch_label,\n        current_assignee_user_id,\n        current_assignee_section_id,\n        branch_status,\n        is_reference,\n        created_by_user_id\n      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)\n    ");

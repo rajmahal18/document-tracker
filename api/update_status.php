@@ -29,6 +29,7 @@ $role        = (string)($_SESSION["role"] ?? "user");
 $actualUserId = (int)($identity['actual_user_id'] ?? 0);
 $userId      = (int)($identity['effective_user_id'] ?? 0);
 $mySectionId = (int)($identity['effective_section_id'] ?? 0);
+$isChief = (bool)($identity['effective_is_chief'] ?? false);
 $isPrivileged = ($role === 'admin') && !(bool)($identity['assistant_mode'] ?? false);
 
 try {
@@ -56,10 +57,19 @@ try {
   $hasOpenRoute = ((int)($doc["has_open_route"] ?? 0) === 1);
   $hasActiveBranch = ((int)($doc["has_active_branch"] ?? 0) === 1);
 
-  if (!$isPrivileged && $holderSectionId !== $mySectionId) {
+  $canActOnLegacyDocument = workflow_user_can_act_legacy_document(
+    $conn,
+    $docId,
+    $userId,
+    $mySectionId,
+    $isChief,
+    true
+  );
+
+  if (!$isPrivileged && !$canActOnLegacyDocument) {
     $conn->rollback();
     http_response_code(403);
-    echo json_encode(["ok" => false, "error" => "Only the current holder may change document lifecycle status."]);
+    echo json_encode(["ok" => false, "error" => "Only the current actionable holder may change document lifecycle status."]);
     exit;
   }
 
