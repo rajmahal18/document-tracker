@@ -1452,3 +1452,21 @@
     width: 100%;
   }
 }
+
+
+.addDocumentPage .destBuilderV2.is-division-chief-quick-mode .destToolbarIntro,
+.addDocumentPage .destBuilderV2.is-division-chief-quick-mode #btnAddAllDivisionChiefs,
+.addDocumentPage .destBuilderV2.is-division-chief-quick-mode .destDirectoryPane,
+.addDocumentPage .destBuilderV2.is-division-chief-quick-mode .destSummaryBox,
+.addDocumentPage .destBuilderV2.is-division-chief-quick-mode #destinationNotice {
+  display: none !important;
+}
+
+.addDocumentPage .destBuilderV2.is-division-chief-quick-mode .destBuilderLayout {
+  grid-template-columns: 1fr;
+}
+
+.addDocumentPage .destBuilderV2.is-division-chief-quick-mode .destBuilderLayout,
+.addDocumentPage .destBuilderV2.is-division-chief-quick-mode .destSelectionPane {
+  margin-top: 0;
+}

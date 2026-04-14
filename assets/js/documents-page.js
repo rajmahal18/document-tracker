@@ -20,7 +20,6 @@
   const elDestinationText = document.getElementById("d_destination_text");
   const elLastHolder = document.getElementById("d_last_holder");
 
-  const elActionRemarks = document.getElementById("d_action_remarks");
   const elPendingRemarksWrap = document.getElementById("drawerPendingRemarks");
   const elPendingRemarksTitle = document.getElementById("d_pending_route_title");
   const elPendingRemarksBadge = document.getElementById("d_pending_route_badge");
@@ -53,6 +52,11 @@
 
   const forwardPersonalDeadlineWrap = document.getElementById("forwardPersonalDeadlineWrap");
   const inputForwardPersonalDeadline = document.getElementById("f_personal_deadline");
+  const forwardModal = document.getElementById("forwardModal");
+  const forwardModalBackdrop = document.getElementById("forwardModalBackdrop");
+  const forwardModalClose = document.getElementById("forwardModalClose");
+  const btnForwardCancel = document.getElementById("btnForwardCancel");
+  const elForwardRemarks = document.getElementById("d_forward_remarks");
 
   const attachForm = document.getElementById("attachForm");
   const attachFile = document.getElementById("attachFile");
@@ -66,7 +70,6 @@
   const btnRelease = document.getElementById("btnRelease");
   const btnArchive = document.getElementById("btnArchive");
 
-  const forwardBox = document.getElementById("forwardBox");
   const selForwardTo = document.getElementById("f_to_section");
   const elUserList = document.getElementById("f_user_list");
   const btnUserSelectAll = document.getElementById("btnUserSelectAll");
@@ -138,10 +141,6 @@
     if (!s) return "";
     if (["-", "—", "n/a", "na", "null", "undefined"].includes(s.toLowerCase())) return "";
     return s;
-  }
-
-  function normalizedRemarksValue() {
-    return (elActionRemarks?.value ?? "").toString().trim();
   }
 
   function normalizedPendingRemarksValue() {
@@ -446,8 +445,8 @@
     if (btnToggleUpload && attachForm) {
       btnToggleUpload.textContent = isCollapsed(attachForm) ? "Add attachment" : "Hide upload";
     }
-    if (btnToggleForward && forwardBox) {
-      btnToggleForward.textContent = isCollapsed(forwardBox) ? "Forward" : "Hide forward";
+    if (btnToggleForward) {
+      btnToggleForward.textContent = "Forward";
     }
   }
 
@@ -848,18 +847,17 @@
   }
 
   function updateForwardUI() {
-    if (!forwardBox) return;
-
-    const isOpen = !forwardBox.classList.contains("collapsed");
     const chiefCanSetDeadline = !!(window.__CTX__?.isChief);
 
     if (btnToggleForward) btnToggleForward.style.display = currentCanForward ? "" : "none";
-    if (btnForward) btnForward.style.display = (currentCanForward && isOpen) ? "" : "none";
-    if (elForwardModeWrap) elForwardModeWrap.style.display = (currentCanForward && isOpen) ? "" : "none";
-    if (forwardPersonalDeadlineWrap) forwardPersonalDeadlineWrap.style.display = (currentCanForward && isOpen && chiefCanSetDeadline) ? "" : "none";
+    if (btnForward) btnForward.style.display = currentCanForward ? "" : "none";
+    if (elForwardModeWrap) elForwardModeWrap.style.display = currentCanForward ? "" : "none";
+    if (forwardPersonalDeadlineWrap) forwardPersonalDeadlineWrap.style.display = (currentCanForward && chiefCanSetDeadline) ? "" : "none";
 
-    if (!currentCanForward && inputForwardPersonalDeadline) {
-      inputForwardPersonalDeadline.value = "";
+    if (!currentCanForward) {
+      if (inputForwardPersonalDeadline) inputForwardPersonalDeadline.value = "";
+      if (elForwardRemarks) elForwardRemarks.value = "";
+      closeForwardModal();
     }
 
     updateForwardModeUI();
@@ -1156,7 +1154,8 @@
     if (e.key === "Escape") {
       if (attModal?.classList.contains("open")) closeAttachmentModal();
       if (recModal?.classList.contains("open")) closeRecipientsModal();
-      if (drawer?.classList.contains("open")) closeDrawer();
+      if (forwardModal?.classList.contains("open")) closeForwardModal();
+      else if (drawer?.classList.contains("open")) closeDrawer();
     }
   });
 
@@ -1872,7 +1871,7 @@
     currentPayload = payload || null;
     setCollapsed(elAttachments, true);
     setCollapsed(attachForm, true);
-    setCollapsed(forwardBox, true);
+    closeForwardModal();
     syncToggleLabels();
 
     if (btnViewDocument) {
@@ -1942,7 +1941,6 @@
     }
 
     if (elLastHolder) elLastHolder.textContent = payload.last_holder_text || "—";
-    if (elActionRemarks) elActionRemarks.value = "";
     refreshDrawerBranchContext();
 
     backdrop?.classList.add("open");
@@ -2109,6 +2107,7 @@
     if (elBranchWrap) elBranchWrap.style.display = "none";
     if (elBranchSelect) elBranchSelect.innerHTML = "";
     if (elBranchMeta) elBranchMeta.textContent = "";
+    closeForwardModal();
   }
 
   async function updateStatus(newStatus) {
@@ -2120,7 +2119,7 @@
     const routeId = Number.parseInt(currentPayload?.open_route_id || "0", 10) || 0;
     if (routeId > 0) form.append("route_id", String(routeId));
     form.append("new_status", newStatus);
-    form.append("remarks", normalizedRemarksValue());
+    form.append("remarks", "");
     form.append("csrf_token", window.__CSRF__ || "");
 
     try {
@@ -2153,7 +2152,7 @@
       ? (Number.parseInt(branch?.my_pending_route_id || "0", 10) || 0)
       : (Number.parseInt(currentPayload?.open_route_id || "0", 10) || 0);
     if (routeId > 0) form.append("route_id", String(routeId));
-    form.append("remarks", normalizedRemarksValue());
+    form.append("remarks", "");
     form.append("csrf_token", window.__CSRF__ || "");
 
     try {
@@ -2212,7 +2211,7 @@
       form.append("personal_deadline_at", inputForwardPersonalDeadline.value);
     }
 
-    form.append("remarks", normalizedRemarksValue());
+    form.append("remarks", (elForwardRemarks?.value || "").toString().trim());
     form.append("csrf_token", window.__CSRF__ || "");
 
     try {
@@ -2373,13 +2372,24 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
     syncToggleLabels();
   });
 
-  btnToggleForward?.addEventListener("click", () => {
-    if (!forwardBox) return;
-    forwardBox.classList.toggle("collapsed");
-    syncToggleLabels();
+  function openForwardModal() {
+    if (!currentCanForward || !forwardModal) return;
     updateForwardUI();
-    if (!forwardBox.classList.contains("collapsed")) selForwardTo?.focus();
-  });
+    forwardModal.classList.add("open");
+    forwardModal.setAttribute("aria-hidden", "false");
+    selForwardTo?.focus();
+  }
+
+  function closeForwardModal() {
+    if (!forwardModal) return;
+    forwardModal.classList.remove("open");
+    forwardModal.setAttribute("aria-hidden", "true");
+  }
+
+  btnToggleForward?.addEventListener("click", openForwardModal);
+  forwardModalClose?.addEventListener("click", closeForwardModal);
+  btnForwardCancel?.addEventListener("click", closeForwardModal);
+  forwardModalBackdrop?.addEventListener("click", closeForwardModal);
 
   btnAckReceived?.addEventListener("click", ackReceived);
   btnEditPendingRemarks?.addEventListener("click", () => setPendingRemarksEditing(true));

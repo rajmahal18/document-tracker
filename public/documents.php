@@ -1904,11 +1904,6 @@ $end   = min($totalPages, $page + 2);
       </div>
     </div>
 
-    <div class="drawerActionRemarks">
-      <label for="d_action_remarks" class="drawerActionRemarksLabel">Action remarks (optional)</label>
-      <textarea id="d_action_remarks" class="search drawerActionRemarksInput" rows="2" placeholder="Add remarks for receive, forward, release, or archive only if needed"></textarea>
-    </div>
-
     <div class="drawerActions">
       <button type="button" class="btnSecondary" id="btnToggleForward">Forward</button>
 
@@ -1917,53 +1912,72 @@ $end   = min($totalPages, $page + 2);
       <button id="btnArchive" class="btnComp" type="button" style="display:none;">Archive</button>
     </div>
   </div>
-
-  <div id="forwardBox" class="collapsed" style="margin-top:10px;">
-    <label style="font-size:12px; font-weight:900;">Forward To</label>
-
-    <select id="f_to_section" class="select" style="min-width:100%;">
-      <option value="">-- Select section --</option>
-    </select>
-
-    <label style="font-size:12px; font-weight:900; margin-top:10px; display:block;">Recipients</label>
-
-    <div class="forwardUserTools" style="display:flex; gap:8px; margin:6px 0 8px;">
-      <button type="button" class="btnSecondary" id="btnUserSelectAll" style="padding:6px 10px;">Select all</button>
-      <button type="button" class="btnSecondary" id="btnUserClear" style="padding:6px 10px;">Clear</button>
-    </div>
-
-    <div id="f_user_list" class="userChecklist mini"
-        style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:10px; max-height:170px; overflow:auto;">
-      <div style="opacity:.7;">Select a section to load users…</div>
-    </div>
-
-    <div id="forwardRecipientsPreview" class="mini" style="opacity:.75; margin-top:6px;">
-      Recipients: —
-    </div>
-
-    <div id="forwardModeWrap" style="margin-top:10px; padding:10px; border:1px solid rgba(0,0,0,.10); border-radius:12px; background:#f8fafc;">
-      <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer;">
-        <input id="f_receive_only" type="checkbox" style="margin-top:3px;">
-        <span>
-          <span style="display:block; font-size:12px; font-weight:900;">Send as reference only</span>
-          <span class="mini" id="f_receive_only_hint" style="opacity:.75;">
-            Recipient gets a reference copy only. Your current lane stays actionable with you.
-          </span>
-        </span>
-      </label>
-    </div>
-
-    <div id="forwardPersonalDeadlineWrap" class="forwardDeadlineWrap" style="display:none; margin-top:10px;">
-      <label for="f_personal_deadline" style="font-size:12px; font-weight:900; display:block; margin-bottom:6px;">Personal deadline</label>
-      <input id="f_personal_deadline" type="datetime-local" class="search" style="width:100%;">
-      <div class="mini" style="margin-top:6px; opacity:.75;">Only section chiefs can set a personal deadline for the selected recipient(s).</div>
-    </div>
-
-    <button id="btnForward" type="button" class="btnSecondary" style="margin-top:10px; margin-bottom:10px; margin-left:10px; display:none;">
-      Forward
-    </button>
-  </div>
 </aside>
+
+<div id="forwardModal" class="modalWrap" aria-hidden="true">
+  <div id="forwardModalBackdrop" class="modalBackdrop"></div>
+  <div class="modalCard forwardModalCard">
+    <div class="modalHeader">
+      <div>
+        <h3>Forward document</h3>
+        <div class="attSub mini">Choose the destination and recipients, then send.</div>
+      </div>
+      <button id="forwardModalClose" class="modalClose" type="button">✕</button>
+    </div>
+
+    <div class="modalBody forwardModalBody">
+      <label style="font-size:12px; font-weight:900;">Forward To</label>
+
+      <select id="f_to_section" class="select" style="min-width:100%; margin-top:6px;">
+        <option value="">-- Select section --</option>
+      </select>
+
+      <label style="font-size:12px; font-weight:900; margin-top:14px; display:block;">Recipients</label>
+
+      <div class="forwardUserTools" style="display:flex; gap:8px; margin:6px 0 8px;">
+        <button type="button" class="btnSecondary" id="btnUserSelectAll" style="padding:6px 10px;">Select all</button>
+        <button type="button" class="btnSecondary" id="btnUserClear" style="padding:6px 10px;">Clear</button>
+      </div>
+
+      <div id="f_user_list" class="userChecklist mini"
+          style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:10px; max-height:220px; overflow:auto;">
+        <div style="opacity:.7;">Select a section to load users…</div>
+      </div>
+
+      <div id="forwardRecipientsPreview" class="mini" style="opacity:.75; margin-top:6px;">
+        Recipients: —
+      </div>
+
+      <div id="forwardModeWrap" style="margin-top:12px; padding:10px; border:1px solid rgba(0,0,0,.10); border-radius:12px; background:#f8fafc; display:none;">
+        <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer;">
+          <input id="f_receive_only" type="checkbox" style="margin-top:3px;">
+          <span>
+            <span style="display:block; font-size:12px; font-weight:900;">Send as reference only</span>
+            <span class="mini" id="f_receive_only_hint" style="opacity:.75;">
+              Recipient gets a reference copy only. Your current lane stays actionable with you.
+            </span>
+          </span>
+        </label>
+      </div>
+
+      <div id="forwardPersonalDeadlineWrap" class="forwardDeadlineWrap" style="display:none; margin-top:12px;">
+        <label for="f_personal_deadline" style="font-size:12px; font-weight:900; display:block; margin-bottom:6px;">Personal deadline</label>
+        <input id="f_personal_deadline" type="datetime-local" class="search" style="width:100%;">
+        <div class="mini" style="margin-top:6px; opacity:.75;">Only section chiefs can set a personal deadline for the selected recipient(s).</div>
+      </div>
+
+      <div class="drawerActionRemarks" style="margin-top:12px;">
+        <label for="d_forward_remarks" class="drawerActionRemarksLabel">Forward remarks (optional)</label>
+        <textarea id="d_forward_remarks" class="search drawerActionRemarksInput" rows="3" placeholder="Add remarks for the recipient right before sending if needed"></textarea>
+      </div>
+    </div>
+
+    <div class="modalFooter">
+      <button id="btnForwardCancel" type="button" class="btnSecondary">Cancel</button>
+      <button id="btnForward" type="button" class="btnComp">Send forward</button>
+    </div>
+  </div>
+</div>
 
 <!-- Attachment Preview Modal -->
 <div id="attModal" class="attModal" aria-hidden="true">

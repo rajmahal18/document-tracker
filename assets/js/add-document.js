@@ -24,6 +24,7 @@
   const btnRemoveSavedAttachment = document.getElementById("btnRemoveSavedAttachment");
   const savedAttachmentCard = document.getElementById("savedAttachmentCard");
 
+  const destinationBuilder = document.querySelector(".destBuilderV2");
   const btnAddAllDivisionChiefs = document.getElementById("btnAddAllDivisionChiefs");
   const btnClearDestinations = document.getElementById("btnClearDestinations");
   const destinationAccordion = document.getElementById("destinationAccordion");
@@ -34,6 +35,8 @@
   const destinations = new Map(); // sectionId => {mode, users: Map, personalDeadline}
   const openDivisionIds = new Set();
   const destinationNoticeState = { timer: null };
+
+  let divisionChiefQuickMode = false;
 
   if (destinationBuilderContractInput) destinationBuilderContractInput.value = "1";
 
@@ -50,6 +53,17 @@
   function show(el, on) {
     if (!el) return;
     el.style.display = on ? "flex" : "none";
+  }
+
+
+  function syncDivisionChiefQuickMode() {
+    if (!destinationBuilder) return;
+    destinationBuilder.classList.toggle("is-division-chief-quick-mode", divisionChiefQuickMode);
+  }
+
+  function setDivisionChiefQuickMode(on) {
+    divisionChiefQuickMode = !!on;
+    syncDivisionChiefQuickMode();
   }
 
   function syncContentTypeOther() {
@@ -500,6 +514,7 @@
         const userId = Number(checkbox.getAttribute("data-user-id") || 0);
         const user = getUsersForSection(sectionId).find((row) => Number(row.id) === userId);
         if (!sectionId || !user) return;
+        setDivisionChiefQuickMode(false);
         toggleUser(sectionId, user, checkbox.checked);
         renderAll();
       });
@@ -513,6 +528,7 @@
           setBuilderNotice("No section chief is configured for that section.", "warning");
           return;
         }
+        setDivisionChiefQuickMode(false);
         setSectionRecipients(sectionId, [chiefs[0]]);
         renderAll();
       });
@@ -526,6 +542,7 @@
           setBuilderNotice("No active users found in that section.", "warning");
           return;
         }
+        setDivisionChiefQuickMode(false);
         setSectionRecipients(sectionId, users);
         renderAll();
       });
@@ -534,6 +551,7 @@
     destinationAccordion?.querySelectorAll("[data-clear-section]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const sectionId = String(btn.getAttribute("data-clear-section") || "");
+        setDivisionChiefQuickMode(false);
         clearSection(sectionId);
         renderAll();
       });
@@ -544,6 +562,7 @@
     destinationsBox?.querySelectorAll("[data-remove-destination]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const sid = String(btn.getAttribute("data-remove-destination") || "");
+        setDivisionChiefQuickMode(false);
         clearSection(sid);
         renderAll();
       });
@@ -590,6 +609,11 @@
       added += 1;
     });
 
+    if (added > 0) {
+      setDivisionChiefQuickMode(true);
+    } else {
+      setDivisionChiefQuickMode(false);
+    }
     renderAll();
     if (added > 0) {
       const parts = [];
@@ -603,6 +627,7 @@
 
   btnClearDestinations?.addEventListener("click", () => {
     clearBuilderNotice();
+    setDivisionChiefQuickMode(false);
     destinations.clear();
     renderAll();
     setBuilderNotice("Recipient selections cleared.", "info");
@@ -665,4 +690,5 @@
     openDivisionIds.add(String(divisionDirectory[0].division_id));
   }
   renderAll();
+  syncDivisionChiefQuickMode();
 })();

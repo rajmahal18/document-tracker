@@ -1996,3 +1996,17 @@
     border-radius: 12px;
   }
 }
+
+
+.forwardModalCard {
+  width: min(720px, 92vw);
+  max-height: min(88vh, 860px);
+}
+
+.forwardModalBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-height: min(70vh, 640px);
+  overflow: auto;
+}
