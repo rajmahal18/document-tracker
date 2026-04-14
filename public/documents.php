@@ -79,7 +79,10 @@ $sections = $conn->query("
 
 $branchMode = workflow_branch_mode_enabled($conn);
 $routePersonalDeadlineEnabled = workflow_has_column($conn, 'routes', 'personal_deadline_at');
-$myDivisionMeta = get_user_division_meta($conn, (int)($_SESSION['section_id'] ?? 0));
+$documentContextSectionId = $assistantModeEnabled
+  ? (int)($activeAssistantPrincipal['section_id'] ?? 0)
+  : (int)($_SESSION['section_id'] ?? 0);
+$myDivisionMeta = get_user_division_meta($conn, $documentContextSectionId);
 $myDivisionCode = strtoupper(trim((string)($myDivisionMeta['code'] ?? '')));
 $hasOwnDivisionSlip = is_supported_division_tracking_code($myDivisionCode);
 $ownDivisionSlipLabel = $hasOwnDivisionSlip ? ($myDivisionCode . ' Tracking Slip') : '';
@@ -153,6 +156,27 @@ $actualIsChief = ((int)($_SESSION["is_chief"] ?? 0) === 1);
 $myUserId    = $assistantModeEnabled ? (int)($activeAssistantPrincipal['id'] ?? 0) : $actualUserId;
 $mySectionId = $assistantModeEnabled ? (int)($activeAssistantPrincipal['section_id'] ?? 0) : $actualSectionId;
 $isChief     = $assistantModeEnabled ? in_array((string)($activeAssistantPrincipal['authority_role'] ?? ''), ['director','division_head','section_head'], true) : $actualIsChief;
+
+$assistantOwnPageIsolationSql = "";
+if (!$assistantModeEnabled && $actualUserId > 0 && $assistantPrincipals !== []) {
+  $actualUid = (int)$actualUserId;
+  $assistantOwnPageIsolationSql = "NOT (
+    EXISTS (
+      SELECT 1
+      FROM document_events e_acting
+      WHERE e_acting.document_id = d.id
+        AND e_acting.actor_user_id = {$actualUid}
+        AND e_acting.payload_json REGEXP '\"acting_principal_user_id\"[[:space:]]*:[[:space:]]*[1-9]'
+    )
+    AND d.created_by_user_id <> {$actualUid}
+    AND NOT EXISTS (
+      SELECT 1
+      FROM routes r_direct
+      WHERE r_direct.document_id = d.id
+        AND r_direct.to_user_id = {$actualUid}
+    )
+  )";
+}
 
 $where  = [];
 $params = [];
@@ -252,6 +276,9 @@ if (!$isPrivileged) {
       $types .= "iiiiiiii";
     }
   }
+}
+if ($assistantOwnPageIsolationSql !== "") {
+  $where[] = $assistantOwnPageIsolationSql;
 }
 
 /**
@@ -1105,6 +1132,9 @@ if (!$isPrivileged) {
       $statTypes .= "iiiiiiii";
     }
   }
+}
+if ($assistantOwnPageIsolationSql !== "") {
+  $statWhere[] = $assistantOwnPageIsolationSql;
 }
 
 $statSql = "

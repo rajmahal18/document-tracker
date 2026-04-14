@@ -511,6 +511,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   if (strcasecmp($remarks, "none") === 0) {
     $remarks = "";
   }
+  $creationMode = strtolower(trim((string)($_POST["creation_mode_choice"] ?? $_POST["creation_mode"] ?? "route_now")));
+  if (!in_array($creationMode, ["review", "route_now"], true)) {
+    $creationMode = "route_now";
+  }
+  $routeOnCreate = ($creationMode === "route_now");
   $selectedSectionId = (int)($_POST["to_section_id"] ?? 0); // picker only
 
   $fileErrorCode = (int)($_FILES["attach_file"]["error"] ?? UPLOAD_ERR_NO_FILE);
@@ -620,38 +625,49 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
     $error = "Please specify the content type when Others is selected.";
   } elseif ($requester === "" || $document_date === "" || $subject === "" || $content_type === "") {
     $error = "Please fill in all required fields.";
-  } elseif ($builderContractEnabled && !$hasSeededDestinations) {
+  } elseif ($routeOnCreate && $builderContractEnabled && !$hasSeededDestinations) {
     $error = "Please add at least one destination to the list.";
-  } elseif (!$builderContractEnabled && !$hasSeededDestinations && $selectedSectionId <= 0) {
+  } elseif ($routeOnCreate && !$builderContractEnabled && !$hasSeededDestinations && $selectedSectionId <= 0) {
     $error = "Please add at least one destination.";
   } elseif ($fromSectionId <= 0) {
     $error = "Your account has no section assigned. Ask admin to set your section_id.";
   } elseif ($deadlineAtRaw !== "" && $deadlineAt === null) {
     $error = "Deadline must be a valid date and time.";
+  } elseif (!$routeOnCreate && $genChoice === "transmittal") {
+    $error = "Transmittal Memo needs a destination. Choose Save and route now, or generate a division tracking slip instead.";
   } else {
     // Build final recipient map from destination modes.
     $finalRecipientMap = [];
 
-    // Legacy fallback only when JS builder contract is not active.
-    if (!$builderContractEnabled && count($destinationModeMap) === 0) {
-      $chiefId = find_section_chief_id($conn, $selectedSectionId);
-      if ($chiefId <= 0) {
-        $error = "No Section Chief configured for the selected section.";
-      } else {
-        $finalRecipientMap[$selectedSectionId] = [$chiefId];
-        $destinationModeMap[$selectedSectionId] = "chief";
+    if ($routeOnCreate) {
+      // Legacy fallback only when JS builder contract is not active.
+      if (!$builderContractEnabled && count($destinationModeMap) === 0) {
+        $chiefId = find_section_chief_id($conn, $selectedSectionId);
+        if ($chiefId <= 0) {
+          $error = "No Section Chief configured for the selected section.";
+        } else {
+          $finalRecipientMap[$selectedSectionId] = [$chiefId];
+          $destinationModeMap[$selectedSectionId] = "chief";
+        }
       }
-    }
 
-    if ($error === "") {
-      foreach ($destinationModeMap as $sectionId => $mode) {
-        $sectionId = (int)$sectionId;
-        if ($sectionId <= 0) continue;
+      if ($error === "") {
+        foreach ($destinationModeMap as $sectionId => $mode) {
+          $sectionId = (int)$sectionId;
+          if ($sectionId <= 0) continue;
 
-        if ($mode === "users") {
-          $selectedUsers = $recipientMap[$sectionId] ?? [];
-          if (count($selectedUsers) > 0) {
-            $finalRecipientMap[$sectionId] = array_values($selectedUsers);
+          if ($mode === "users") {
+            $selectedUsers = $recipientMap[$sectionId] ?? [];
+            if (count($selectedUsers) > 0) {
+              $finalRecipientMap[$sectionId] = array_values($selectedUsers);
+            } else {
+              $chiefId = find_section_chief_id($conn, $sectionId);
+              if ($chiefId <= 0) {
+                $error = "No Section Chief configured for one of the selected sections.";
+                break;
+              }
+              $finalRecipientMap[$sectionId] = [$chiefId];
+            }
           } else {
             $chiefId = find_section_chief_id($conn, $sectionId);
             if ($chiefId <= 0) {
@@ -660,18 +676,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             }
             $finalRecipientMap[$sectionId] = [$chiefId];
           }
-        } else {
-          $chiefId = find_section_chief_id($conn, $sectionId);
-          if ($chiefId <= 0) {
-            $error = "No Section Chief configured for one of the selected sections.";
-            break;
-          }
-          $finalRecipientMap[$sectionId] = [$chiefId];
         }
       }
     }
 
-    if ($error === "" && count($finalRecipientMap) === 0) {
+    if ($routeOnCreate && $error === "" && count($finalRecipientMap) === 0) {
       $error = "Please add at least one destination.";
     }
 
@@ -744,60 +753,65 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         $stmt->bind_param("iii", $docId, $fromSectionId, $userId);
         $stmt->execute();
 
-        // 3) participants: every recipient section can SEE
-        $stmt = $conn->prepare("
-          INSERT IGNORE INTO document_participants
-            (document_id, section_id, added_via, added_by_user_id)
-          VALUES (?, ?, 'movement', ?)
-        ");
-        foreach (array_keys($finalRecipientMap) as $destSectionId) {
-          $destSectionId = (int)$destSectionId;
-          $stmt->bind_param("iii", $docId, $destSectionId, $userId);
-          $stmt->execute();
+        // 3) participants: every recipient section can SEE, but only when
+        // creation immediately routes the document.
+        if ($routeOnCreate) {
+          $stmt = $conn->prepare("
+            INSERT IGNORE INTO document_participants
+              (document_id, section_id, added_via, added_by_user_id)
+            VALUES (?, ?, 'movement', ?)
+          ");
+          foreach (array_keys($finalRecipientMap) as $destSectionId) {
+            $destSectionId = (int)$destSectionId;
+            $stmt->bind_param("iii", $docId, $destSectionId, $userId);
+            $stmt->execute();
+          }
         }
 
         // 3.5) Validate selected users per destination section
         $validatedRecipients = [];
-        foreach ($finalRecipientMap as $destSectionId => $destUserIds) {
-          $destSectionId = (int)$destSectionId;
-          if (count($destUserIds) === 0) {
-            throw new RuntimeException("Recipient list cannot be empty for a selected section.");
-          }
+        if ($routeOnCreate) {
+          foreach ($finalRecipientMap as $destSectionId => $destUserIds) {
+            $destSectionId = (int)$destSectionId;
+            if (count($destUserIds) === 0) {
+              throw new RuntimeException("Recipient list cannot be empty for a selected section.");
+            }
 
-          $placeholders = implode(",", array_fill(0, count($destUserIds), "?"));
-          $types = "i" . str_repeat("i", count($destUserIds));
-          $params = array_merge([$destSectionId], array_values($destUserIds));
+            $placeholders = implode(",", array_fill(0, count($destUserIds), "?"));
+            $types = "i" . str_repeat("i", count($destUserIds));
+            $params = array_merge([$destSectionId], array_values($destUserIds));
 
-          $sql = "
-            SELECT id, full_name
-            FROM users
-            WHERE section_id = ?
-              AND is_active = 1
-              AND id IN ($placeholders)
-          ";
+            $sql = "
+              SELECT id, full_name
+              FROM users
+              WHERE section_id = ?
+                AND is_active = 1
+                AND id IN ($placeholders)
+            ";
 
-          $stmt = $conn->prepare($sql);
-          bind_params_dynamic($stmt, $types, $params);
-          $stmt->execute();
-          $res = $stmt->get_result();
+            $stmt = $conn->prepare($sql);
+            bind_params_dynamic($stmt, $types, $params);
+            $stmt->execute();
+            $res = $stmt->get_result();
 
-          $found = [];
-          $validatedRecipients[$destSectionId] = [];
-          while ($r = $res->fetch_assoc()) {
-            $rid = (int)$r["id"];
-            $found[] = $rid;
-            $validatedRecipients[$destSectionId][$rid] = [
-              "id" => $rid,
-              "full_name" => (string)($r["full_name"] ?? "User #" . $rid),
-            ];
-          }
+            $found = [];
+            $validatedRecipients[$destSectionId] = [];
+            while ($r = $res->fetch_assoc()) {
+              $rid = (int)$r["id"];
+              $found[] = $rid;
+              $validatedRecipients[$destSectionId][$rid] = [
+                "id" => $rid,
+                "full_name" => (string)($r["full_name"] ?? "User #" . $rid),
+              ];
+            }
 
-          sort($found);
-          $expected = array_values($destUserIds);
-          sort($expected);
+            sort($found);
+            $expected = array_values($destUserIds);
+            sort($expected);
 
-          if ($found !== $expected) {
-            throw new RuntimeException("One or more selected users are invalid/inactive for their section.");
+            if ($found !== $expected) {
+              throw new RuntimeException("One or more selected users are invalid/inactive for their section.");
+            }
           }
         }
 
@@ -806,7 +820,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         $createdBranchIds = [];
 
         $rootBranchId = 0;
-        if ($useBranchModeForThisDocument) {
+        if ($routeOnCreate && $useBranchModeForThisDocument) {
           $rootBranchId = workflow_create_branch($conn, [
             'document_id' => $docId,
             'parent_branch_id' => null,
@@ -819,7 +833,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           ]);
         }
 
-        if ($useBranchModeForThisDocument) {
+        if ($routeOnCreate && $useBranchModeForThisDocument) {
           $stmt = $conn->prepare("
             INSERT INTO routes
               (document_id, branch_id, from_section_id, to_section_id, from_user_id, to_user_id, route_kind, send_batch_id, received_at, sent_by_user_id, remarks, personal_deadline_at)
@@ -835,42 +849,44 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           ");
         }
 
-        foreach ($finalRecipientMap as $destSectionId => $destUserIds) {
-          $destSectionId = (int)$destSectionId;
-          $destPersonalDeadlineAt = $personalDeadlineMap[$destSectionId] ?? null;
+        if ($routeOnCreate) {
+          foreach ($finalRecipientMap as $destSectionId => $destUserIds) {
+            $destSectionId = (int)$destSectionId;
+            $destPersonalDeadlineAt = $personalDeadlineMap[$destSectionId] ?? null;
 
-          foreach ($destUserIds as $rid) {
-            $rid = (int)$rid;
+            foreach ($destUserIds as $rid) {
+              $rid = (int)$rid;
 
-            if ($useBranchModeForThisDocument) {
-              $labelUser = (string)($validatedRecipients[$destSectionId][$rid]['full_name'] ?? ('User #' . $rid));
-              $branchId = workflow_create_branch($conn, [
-                'document_id' => $docId,
-                'parent_branch_id' => $rootBranchId > 0 ? $rootBranchId : null,
-                'branch_label' => $labelUser,
-                'current_assignee_user_id' => $rid,
-                'current_assignee_section_id' => $destSectionId,
-                'branch_status' => 'ACTIVE',
-                'is_reference' => 0,
-                'created_by_user_id' => $userId,
-              ]);
+              if ($useBranchModeForThisDocument) {
+                $labelUser = (string)($validatedRecipients[$destSectionId][$rid]['full_name'] ?? ('User #' . $rid));
+                $branchId = workflow_create_branch($conn, [
+                  'document_id' => $docId,
+                  'parent_branch_id' => $rootBranchId > 0 ? $rootBranchId : null,
+                  'branch_label' => $labelUser,
+                  'current_assignee_user_id' => $rid,
+                  'current_assignee_section_id' => $destSectionId,
+                  'branch_status' => 'ACTIVE',
+                  'is_reference' => 0,
+                  'created_by_user_id' => $userId,
+                ]);
 
-              $createdBranchIds[] = $branchId;
-              $routeBranchMap[] = [
-                'branch_id' => $branchId,
-                'to_user_id' => $rid,
-                'to_section_id' => $destSectionId,
-              ];
+                $createdBranchIds[] = $branchId;
+                $routeBranchMap[] = [
+                  'branch_id' => $branchId,
+                  'to_user_id' => $rid,
+                  'to_section_id' => $destSectionId,
+                ];
 
-              workflow_grant_visibility($conn, $docId, $rid, 'PARTICIPANT', $branchId, $userId);
+                workflow_grant_visibility($conn, $docId, $rid, 'PARTICIPANT', $branchId, $userId);
 
-              $stmt->bind_param("iiiiiisiss", $docId, $branchId, $fromSectionId, $destSectionId, $userId, $rid, $sendBatchId, $userId, $remarks, $destPersonalDeadlineAt);
-            } else {
-              workflow_grant_visibility($conn, $docId, $rid, 'PARTICIPANT', null, $userId);
-              $stmt->bind_param("iiiisiss", $docId, $fromSectionId, $destSectionId, $rid, $sendBatchId, $userId, $remarks, $destPersonalDeadlineAt);
+                $stmt->bind_param("iiiiiisiss", $docId, $branchId, $fromSectionId, $destSectionId, $userId, $rid, $sendBatchId, $userId, $remarks, $destPersonalDeadlineAt);
+              } else {
+                workflow_grant_visibility($conn, $docId, $rid, 'PARTICIPANT', null, $userId);
+                $stmt->bind_param("iiiisiss", $docId, $fromSectionId, $destSectionId, $rid, $sendBatchId, $userId, $remarks, $destPersonalDeadlineAt);
+              }
+
+              $stmt->execute();
             }
-
-            $stmt->execute();
           }
         }
 
@@ -878,6 +894,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         $payloadCreated = json_encode([
           "tracking_no" => $tracking_no,
           "subject" => $subject,
+          "creation_mode" => $routeOnCreate ? "route_now" : "principal_review",
+          "remarks" => $remarks,
         ], JSON_UNESCAPED_UNICODE);
 
         $stmt = $conn->prepare("
@@ -888,42 +906,44 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         $stmt->bind_param("iiis", $docId, $userId, $fromSectionId, $payloadCreated);
         $stmt->execute();
 
-        $toSectionIds = array_values(array_unique(array_filter(array_map('intval', array_keys($finalRecipientMap)))));
-        $toSectionNames = [];
-        if ($toSectionIds !== []) {
-          $sectionPlaceholders = implode(',', array_fill(0, count($toSectionIds), '?'));
-          $sectionTypes = str_repeat('i', count($toSectionIds));
-          $stmtToSections = $conn->prepare("SELECT id, name FROM sections WHERE id IN ($sectionPlaceholders)");
-          $stmtToSections->bind_param($sectionTypes, ...$toSectionIds);
-          $stmtToSections->execute();
-          $toSectionRows = $stmtToSections->get_result()->fetch_all(MYSQLI_ASSOC);
-          foreach ($toSectionRows as $toSectionRow) {
-            $toSectionNames[] = (string)($toSectionRow['name'] ?? '');
+        if ($routeOnCreate) {
+          $toSectionIds = array_values(array_unique(array_filter(array_map('intval', array_keys($finalRecipientMap)))));
+          $toSectionNames = [];
+          if ($toSectionIds !== []) {
+            $sectionPlaceholders = implode(',', array_fill(0, count($toSectionIds), '?'));
+            $sectionTypes = str_repeat('i', count($toSectionIds));
+            $stmtToSections = $conn->prepare("SELECT id, name FROM sections WHERE id IN ($sectionPlaceholders)");
+            $stmtToSections->bind_param($sectionTypes, ...$toSectionIds);
+            $stmtToSections->execute();
+            $toSectionRows = $stmtToSections->get_result()->fetch_all(MYSQLI_ASSOC);
+            foreach ($toSectionRows as $toSectionRow) {
+              $toSectionNames[] = (string)($toSectionRow['name'] ?? '');
+            }
           }
+
+          $payloadSent = json_encode([
+            "remarks" => $remarks,
+            "recipient_map" => $finalRecipientMap,
+            "destination_mode_map" => $destinationModeMap,
+            "send_batch_id" => $sendBatchId,
+            "branch_mode" => $useBranchModeForThisDocument,
+            "branch_ids" => array_values(array_unique(array_filter($createdBranchIds))),
+            "route_branch_map" => $routeBranchMap,
+            "personal_deadline_map" => $personalDeadlineMap,
+            "from_section_id" => $fromSectionId,
+            "from_section_name" => $fromSectionName,
+            "to_section_ids" => $toSectionIds,
+            "to_section_names" => $toSectionNames,
+          ], JSON_UNESCAPED_UNICODE);
+
+          $stmt = $conn->prepare("
+            INSERT INTO document_events
+              (document_id, event_type, actor_user_id, actor_section_id, from_section_id, to_section_id, payload_json)
+            VALUES (?, 'sent', ?, ?, ?, NULL, ?)
+          ");
+          $stmt->bind_param("iiiis", $docId, $userId, $fromSectionId, $fromSectionId, $payloadSent);
+          $stmt->execute();
         }
-
-        $payloadSent = json_encode([
-          "remarks" => $remarks,
-          "recipient_map" => $finalRecipientMap,
-          "destination_mode_map" => $destinationModeMap,
-          "send_batch_id" => $sendBatchId,
-          "branch_mode" => $useBranchModeForThisDocument,
-          "branch_ids" => array_values(array_unique(array_filter($createdBranchIds))),
-          "route_branch_map" => $routeBranchMap,
-          "personal_deadline_map" => $personalDeadlineMap,
-          "from_section_id" => $fromSectionId,
-          "from_section_name" => $fromSectionName,
-          "to_section_ids" => $toSectionIds,
-          "to_section_names" => $toSectionNames,
-        ], JSON_UNESCAPED_UNICODE);
-
-        $stmt = $conn->prepare("
-          INSERT INTO document_events
-            (document_id, event_type, actor_user_id, actor_section_id, from_section_id, to_section_id, payload_json)
-          VALUES (?, 'sent', ?, ?, ?, NULL, ?)
-        ");
-        $stmt->bind_param("iiiis", $docId, $userId, $fromSectionId, $fromSectionId, $payloadSent);
-        $stmt->execute();
 
         // 6) optional: attach initial file
         move_temp_attachment_to_document($conn, $docId, $userId, $fromSectionId);
@@ -1206,7 +1226,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           $stmt->execute();
 
           if ($divisionSlipMode === "print" && $divisionAttachId > 0) {
-            redirect(PUBLIC_PATH . "/division_tracking_slip_print.php?id=" . $divisionAttachId);
+            $printRedirect = PUBLIC_PATH . "/division_tracking_slip_print.php?id=" . $divisionAttachId;
+            if ($assistantModeEnabled && $actingPrincipalUserId > 0) {
+              $printRedirect .= "&acting_principal_user_id=" . $actingPrincipalUserId;
+            }
+            redirect($printRedirect);
           }
         }
 
@@ -1295,6 +1319,8 @@ require __DIR__ . "/../includes/layout.php";
     <?php endif; ?>
     <input type="hidden" name="remove_saved_attachment" value="0" id="removeSavedAttachmentInput">
     <input type="hidden" name="destination_builder_contract" value="0" id="destinationBuilderContractInput">
+    <?php $postedCreationMode = (string)($_POST["creation_mode_choice"] ?? $_POST["creation_mode"] ?? "route_now"); ?>
+    <input type="hidden" name="creation_mode" value="<?= htmlspecialchars($postedCreationMode) ?>" id="creationModeInput">
 
     <section class="addDocSection addDocSection-basic span2">
       <div class="addDocSectionHead">
@@ -1380,6 +1406,34 @@ require __DIR__ . "/../includes/layout.php";
     </section>
 
     <section class="addDocSection span2">
+      <div class="addDocSectionHead">
+        <div>
+          <h3>Creation Flow</h3>
+          <p>Choose whether this document should wait for principal instructions or be routed immediately.</p>
+        </div>
+      </div>
+
+      <div class="authField span2">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;">
+          <label style="display:flex;gap:10px;align-items:flex-start;padding:14px;border:1px solid rgba(15,23,42,.14);border-radius:16px;background:rgba(255,255,255,.72);">
+            <input type="radio" name="creation_mode_choice" value="review" <?= ($postedCreationMode === "review") ? "checked" : "" ?>>
+            <span>
+              <b>Save for principal review</b>
+              <span class="mini" style="display:block;margin-top:4px;">Create the document as ACTIVE, keep it in this office, and do not route yet.</span>
+            </span>
+          </label>
+          <label style="display:flex;gap:10px;align-items:flex-start;padding:14px;border:1px solid rgba(15,23,42,.14);border-radius:16px;background:rgba(255,255,255,.72);">
+            <input type="radio" name="creation_mode_choice" value="route_now" <?= ($postedCreationMode !== "review") ? "checked" : "" ?>>
+            <span>
+              <b>Save and route now</b>
+              <span class="mini" style="display:block;margin-top:4px;">Use the selected destination list and send the document immediately.</span>
+            </span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <section class="addDocSection span2" id="destinationBuilderSection">
       <div class="addDocSectionHead">
         <div>
           <h3>Destination Builder</h3>
@@ -1530,7 +1584,8 @@ require __DIR__ . "/../includes/layout.php";
     </div>
 
     <div class="docActions span2 addDocActions">
-      <button type="submit" class="btnSecondary">Save Document</button>
+      <button type="submit" class="btnComp" data-creation-mode-submit="route_now" id="btnSubmitRouteNow">Save and Route Now</button>
+      <button type="submit" class="btnSecondary" data-creation-mode-submit="review" id="btnSubmitReview">Save for Principal Review</button>
       <a href="<?= PUBLIC_PATH ?>/documents.php" class="btnGhost" style="text-decoration:none;">Cancel</a>
     </div>
     </section>

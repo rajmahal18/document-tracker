@@ -21,6 +21,10 @@
   const removeSavedAttachmentUrl = String(form?.getAttribute("data-remove-saved-attachment-url") || "");
   const removeSavedAttachmentInput = document.getElementById("removeSavedAttachmentInput");
   const destinationBuilderContractInput = document.getElementById("destinationBuilderContractInput");
+  const creationModeInput = document.getElementById("creationModeInput");
+  const destinationBuilderSection = document.getElementById("destinationBuilderSection");
+  const btnSubmitRouteNow = document.getElementById("btnSubmitRouteNow");
+  const btnSubmitReview = document.getElementById("btnSubmitReview");
   const btnRemoveSavedAttachment = document.getElementById("btnRemoveSavedAttachment");
   const savedAttachmentCard = document.getElementById("savedAttachmentCard");
 
@@ -39,6 +43,33 @@
   let divisionChiefQuickMode = false;
 
   if (destinationBuilderContractInput) destinationBuilderContractInput.value = "1";
+
+  function selectedCreationMode() {
+    const checked = form?.querySelector('input[name="creation_mode_choice"]:checked');
+    return String(creationModeInput?.value || checked?.value || "route_now");
+  }
+
+  function syncCreationMode(mode) {
+    const cleanMode = mode === "review" ? "review" : "route_now";
+    if (creationModeInput) creationModeInput.value = cleanMode;
+    const radio = form?.querySelector(`input[name="creation_mode_choice"][value="${cleanMode}"]`);
+    if (radio) radio.checked = true;
+    const isReview = cleanMode === "review";
+    if (destinationBuilderSection) destinationBuilderSection.hidden = isReview;
+    if (btnSubmitRouteNow) btnSubmitRouteNow.hidden = isReview;
+    if (btnSubmitReview) btnSubmitReview.hidden = !isReview;
+  }
+
+  form?.querySelectorAll('input[name="creation_mode_choice"]').forEach((radio) => {
+    radio.addEventListener("change", () => syncCreationMode(radio.value));
+  });
+
+  form?.querySelectorAll("[data-creation-mode-submit]").forEach((button) => {
+    button.addEventListener("click", () => {
+      syncCreationMode(button.getAttribute("data-creation-mode-submit") || "route_now");
+    });
+  });
+  syncCreationMode(selectedCreationMode());
 
   function esc(value) {
     return String(value ?? "").replace(/[&<>"']/g, (c) => ({
@@ -634,10 +665,14 @@
   });
 
   form?.addEventListener("submit", (event) => {
+    const submitterMode = event.submitter?.getAttribute?.("data-creation-mode-submit");
+    if (submitterMode) syncCreationMode(submitterMode);
+    const mode = selectedCreationMode();
     syncHiddenInputs();
+    if (mode === "review") return;
     if (destinations.size > 0) return;
     event.preventDefault();
-    setBuilderNotice("Select at least one recipient before saving.", "danger", { persist: true });
+    setBuilderNotice("Select at least one recipient before saving and routing. Use Save for Principal Review if you do not want to route yet.", "danger", { persist: true });
   });
 
   btnRemoveSavedAttachment?.addEventListener("click", async () => {

@@ -11,6 +11,20 @@ if ($attId <= 0) {
   echo 'Bad request';
   exit;
 }
+
+if (!can_view_attachment($conn, $attId)) {
+  http_response_code(403);
+  echo 'Forbidden';
+  exit;
+}
+
+$identity = effective_document_identity($conn);
+$actingPrincipalUserId = (int)($identity['acting_principal_user_id'] ?? 0);
+$principalQs = $actingPrincipalUserId > 0 ? '&acting_principal_user_id=' . rawurlencode((string)$actingPrincipalUserId) : '';
+$attachmentViewUrl = PUBLIC_PATH . '/view_attachment.php?id=' . $attId . $principalQs;
+$backUrl = $actingPrincipalUserId > 0
+  ? PUBLIC_PATH . '/documents.php?view=assistant&acting_principal_user_id=' . rawurlencode((string)$actingPrincipalUserId)
+  : PUBLIC_PATH . '/documents.php';
 require __DIR__ . "/../includes/layout.php";
 ?>
 <div class="card" style="max-width: 1100px;">
@@ -18,11 +32,11 @@ require __DIR__ . "/../includes/layout.php";
   <div class="mini" style="margin-bottom:12px;">The print dialog should open automatically. If it doesn't, click <b>Print</b>.</div>
   <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
     <button type="button" class="btnSecondary" onclick="triggerPrint()">Print</button>
-    <a class="btnSecondary" href="<?= htmlspecialchars(PUBLIC_PATH . '/view_attachment.php?id=' . $attId) ?>" target="_blank" rel="noopener">Open PDF</a>
-    <a class="btnSecondary" href="<?= htmlspecialchars(PUBLIC_PATH . '/documents.php') ?>">Back</a>
+    <a class="btnSecondary" href="<?= htmlspecialchars($attachmentViewUrl) ?>" target="_blank" rel="noopener">Open PDF</a>
+    <a class="btnSecondary" href="<?= htmlspecialchars($backUrl) ?>">Back</a>
   </div>
   <div style="border:1px solid rgba(0,0,0,.08); border-radius:12px; overflow:hidden;">
-    <iframe id="pdfFrame" src="<?= htmlspecialchars(PUBLIC_PATH . '/view_attachment.php?id=' . $attId) ?>" style="width:100%; height:75vh; border:0;" title="Division Tracking Slip PDF"></iframe>
+    <iframe id="pdfFrame" src="<?= htmlspecialchars($attachmentViewUrl) ?>" style="width:100%; height:75vh; border:0;" title="Division Tracking Slip PDF"></iframe>
   </div>
 </div>
 <script>

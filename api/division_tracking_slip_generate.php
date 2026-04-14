@@ -23,8 +23,11 @@ if ($docId <= 0) {
   exit;
 }
 
-$userId      = (int)($_SESSION["user_id"] ?? 0);
-$mySectionId = (int)($_SESSION["section_id"] ?? 0);
+$identity = effective_document_identity($conn);
+$actualUserId = (int)($identity["actual_user_id"] ?? ($_SESSION["user_id"] ?? 0));
+$actualUserFullName = trim((string)($identity["actual_full_name"] ?? ($_SESSION["full_name"] ?? "")));
+$userId = (int)($identity["effective_user_id"] ?? ($_SESSION["user_id"] ?? 0));
+$mySectionId = (int)($identity["effective_section_id"] ?? ($_SESSION["section_id"] ?? 0));
 if ($mySectionId <= 0 || !can_view_document($conn, $docId)) {
   http_response_code(403);
   echo json_encode(["ok" => false, "error" => "Access denied"]);
@@ -100,7 +103,7 @@ if ($requester !== '') {
 
 $receivedBy = trim((string)($doc['created_by_name'] ?? ''));
 if ($receivedBy === '') {
-  $receivedBy = trim((string)($_SESSION['full_name'] ?? ''));
+  $receivedBy = $actualUserFullName;
 }
 $receivedDT = date('m/d/y  g:ia');
 $head = resolve_division_head($conn, $divisionId);
@@ -181,7 +184,7 @@ $orig = $storedName;
 $stmt = $conn->prepare("INSERT INTO document_attachments
   (document_id, original_name, stored_name, stored_path, mime, size_bytes, note, is_append, uploaded_by_user_id, uploaded_by_section_id)
   VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)");
-$stmt->bind_param('issssisii', $docId, $orig, $storedName, $rel, $mime, $size, $note, $userId, $mySectionId);
+$stmt->bind_param('issssisii', $docId, $orig, $storedName, $rel, $mime, $size, $note, $actualUserId, $mySectionId);
 $stmt->execute();
 $attId = (int)$conn->insert_id;
 
@@ -190,10 +193,13 @@ $payload = json_encode([
   'attachment_id' => $attId,
   'file' => $orig,
   'division_code' => $divisionCode,
+  'acting_principal_user_id' => ($userId > 0 && $userId !== $actualUserId) ? $userId : null,
+  'acting_principal_name' => ($userId > 0 && $userId !== $actualUserId) ? (string)($identity['acting_principal_name'] ?? '') : '',
+  'acting_label' => ($userId > 0 && $userId !== $actualUserId) ? (string)($identity['acting_label'] ?? '') : '',
 ], JSON_UNESCAPED_UNICODE);
 $stmt = $conn->prepare("INSERT INTO document_events (document_id, event_type, actor_user_id, actor_section_id, payload_json)
   VALUES (?, 'updated', ?, ?, ?)");
-$stmt->bind_param('iiis', $docId, $userId, $mySectionId, $payload);
+$stmt->bind_param('iiis', $docId, $actualUserId, $mySectionId, $payload);
 $stmt->execute();
 
 echo json_encode(['ok' => true, 'attachment_id' => $attId, 'stored_name' => $storedName, 'division_code' => $divisionCode]);

@@ -2443,7 +2443,8 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
 
   btnPpdSlipPrint?.addEventListener("click", () => {
     if (!currentPpdSlipAttId) return;
-    window.open(`${PUBLIC}/division_tracking_slip_print.php?id=${currentPpdSlipAttId}`, "_blank", "noopener");
+    const principalQs = actingPrincipalId() > 0 ? `&acting_principal_user_id=${actingPrincipalId()}` : "";
+    window.open(`${PUBLIC}/division_tracking_slip_print.php?id=${currentPpdSlipAttId}${principalQs}`, "_blank", "noopener");
   });
 
   btnPpdSlipAttach?.addEventListener("click", () => {
