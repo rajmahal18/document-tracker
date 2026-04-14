@@ -389,6 +389,39 @@ $myHasActionableRolePredicate = "(
         AND r_act_legacy.received_at IS NULL
         AND r_act_legacy.cancelled_at IS NULL
     )
+    AND (
+      (
+        d.created_by_user_id = {$myUid}
+        AND NOT EXISTS (
+          SELECT 1
+          FROM routes r_received_any
+          WHERE r_received_any.document_id = d.id
+            AND r_received_any.received_at IS NOT NULL
+            AND r_received_any.cancelled_at IS NULL
+        )
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM routes r_last_received
+        WHERE r_last_received.id = (
+          SELECT r_last_pick.id
+          FROM routes r_last_pick
+          WHERE r_last_pick.document_id = d.id
+            AND r_last_pick.received_at IS NOT NULL
+            AND r_last_pick.cancelled_at IS NULL
+          ORDER BY r_last_pick.received_at DESC, r_last_pick.id DESC
+          LIMIT 1
+        )
+        AND (
+          r_last_received.to_user_id = {$myUid}
+          OR (
+            r_last_received.to_user_id IS NULL
+            AND {$myChiefInt} = 1
+            AND r_last_received.to_section_id = {$mySid}
+          )
+        )
+      )
+    )
   )
 )";
 
@@ -740,6 +773,39 @@ $sql = "
         WHERE r_act_legacy.document_id = d.id
           AND r_act_legacy.received_at IS NULL
           AND r_act_legacy.cancelled_at IS NULL
+      )
+      AND (
+        (
+          d.created_by_user_id = {$myUid}
+          AND NOT EXISTS (
+            SELECT 1
+            FROM routes r_received_any
+            WHERE r_received_any.document_id = d.id
+              AND r_received_any.received_at IS NOT NULL
+              AND r_received_any.cancelled_at IS NULL
+          )
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM routes r_last_received
+          WHERE r_last_received.id = (
+            SELECT r_last_pick.id
+            FROM routes r_last_pick
+            WHERE r_last_pick.document_id = d.id
+              AND r_last_pick.received_at IS NOT NULL
+              AND r_last_pick.cancelled_at IS NULL
+            ORDER BY r_last_pick.received_at DESC, r_last_pick.id DESC
+            LIMIT 1
+          )
+          AND (
+            r_last_received.to_user_id = {$myUid}
+            OR (
+              r_last_received.to_user_id IS NULL
+              AND {$myChiefInt} = 1
+              AND r_last_received.to_section_id = {$mySid}
+            )
+          )
+        )
       ) THEN 1
 
       ELSE 0
