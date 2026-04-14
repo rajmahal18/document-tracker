@@ -812,6 +812,57 @@ $sql = "
     END AS my_has_actionable_role,
 
     CASE
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM document_branches b_lifecycle
+        WHERE b_lifecycle.document_id = d.id
+      )
+      AND d.current_status IN ('ACTIVE', 'RELEASED')
+      AND d.current_holder_section_id = {$mySid}
+      AND NOT EXISTS (
+        SELECT 1
+        FROM routes r_lifecycle_open
+        WHERE r_lifecycle_open.document_id = d.id
+          AND r_lifecycle_open.received_at IS NULL
+          AND r_lifecycle_open.cancelled_at IS NULL
+      )
+      AND (
+        (
+          d.created_by_user_id = {$myUid}
+          AND NOT EXISTS (
+            SELECT 1
+            FROM routes r_lifecycle_received_any
+            WHERE r_lifecycle_received_any.document_id = d.id
+              AND r_lifecycle_received_any.received_at IS NOT NULL
+              AND r_lifecycle_received_any.cancelled_at IS NULL
+          )
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM routes r_lifecycle_last_received
+          WHERE r_lifecycle_last_received.id = (
+            SELECT r_lifecycle_last_pick.id
+            FROM routes r_lifecycle_last_pick
+            WHERE r_lifecycle_last_pick.document_id = d.id
+              AND r_lifecycle_last_pick.received_at IS NOT NULL
+              AND r_lifecycle_last_pick.cancelled_at IS NULL
+            ORDER BY r_lifecycle_last_pick.received_at DESC, r_lifecycle_last_pick.id DESC
+            LIMIT 1
+          )
+          AND (
+            r_lifecycle_last_received.to_user_id = {$myUid}
+            OR (
+              r_lifecycle_last_received.to_user_id IS NULL
+              AND {$myChiefInt} = 1
+              AND r_lifecycle_last_received.to_section_id = {$mySid}
+            )
+          )
+        )
+      ) THEN 1
+      ELSE 0
+    END AS my_can_change_lifecycle,
+
+    CASE
       WHEN d.created_by_user_id = {$myUid} THEN 1
       WHEN EXISTS (
         SELECT 1
@@ -1535,6 +1586,7 @@ function documentsUrl(array $overrides = []): string {
 
             $myHasOpenInbound = ((int)($d["my_has_open_inbound"] ?? 0) === 1);
             $myHasActionableRole = ((int)($d["my_has_actionable_role"] ?? 0) === 1);
+            $myCanChangeLifecycle = ((int)($d["my_can_change_lifecycle"] ?? 0) === 1);
             $myHasParticipation = ((int)($d["my_has_participation"] ?? 0) === 1);
             $myIsVisibleOnly = ((int)($d["my_is_visible_only"] ?? 0) === 1);
             $myIsOrigin = ((int)($d["my_is_origin"] ?? 0) === 1);
@@ -1716,6 +1768,7 @@ function documentsUrl(array $overrides = []): string {
                 "is_visible_only" => $myIsVisibleOnly ? 1 : 0,
                 "has_real_branches" => $hasRealBranches ? 1 : 0,
                 "my_has_actionable_role" => $myHasActionableRole ? 1 : 0,
+                "my_can_change_lifecycle" => $myCanChangeLifecycle ? 1 : 0,
                 "my_has_open_inbound" => $myHasOpenInbound ? 1 : 0,
 
                 "in_transit" => !empty($d["open_to_section_id"]) ? 1 : 0,
@@ -2100,6 +2153,37 @@ $end   = min($totalPages, $page + 2);
     <div class="modalFooter">
       <button id="btnForwardCancel" type="button" class="btnSecondary">Cancel</button>
       <button id="btnForward" type="button" class="btnComp">Send forward</button>
+    </div>
+  </div>
+</div>
+
+<div id="releaseModal" class="modalWrap" aria-hidden="true">
+  <div id="releaseModalBackdrop" class="modalBackdrop"></div>
+  <div class="modalCard forwardModalCard">
+    <div class="modalHeader">
+      <div>
+        <h3>Release document</h3>
+        <div class="attSub mini">Record where this document was physically released.</div>
+      </div>
+      <button id="releaseModalClose" class="modalClose" type="button">x</button>
+    </div>
+
+    <div class="modalBody forwardModalBody">
+      <label for="d_release_to" style="font-size:12px; font-weight:900;">Released to</label>
+      <input id="d_release_to" type="text" class="search" style="width:100%; margin-top:6px;" placeholder="e.g. COA, Records Unit, requester, outside office">
+      <div class="mini" style="margin-top:6px; opacity:.75;">Free-form text is allowed for recipients outside the tracker.</div>
+
+      <div class="drawerActionRemarks" style="margin-top:12px;">
+        <label for="d_release_remarks" class="drawerActionRemarksLabel">Remarks (optional)</label>
+        <textarea id="d_release_remarks" class="search drawerActionRemarksInput" rows="3" placeholder="Add release notes if needed"></textarea>
+      </div>
+
+      <div id="releaseModalMsg" class="modalMsg" style="display:none;"></div>
+    </div>
+
+    <div class="modalFooter">
+      <button id="btnReleaseCancel" type="button" class="btnSecondary">Cancel</button>
+      <button id="btnReleaseConfirm" type="button" class="btnGreen">Confirm release</button>
     </div>
   </div>
 </div>

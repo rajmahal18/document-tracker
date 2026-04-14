@@ -57,6 +57,14 @@
   const forwardModalClose = document.getElementById("forwardModalClose");
   const btnForwardCancel = document.getElementById("btnForwardCancel");
   const elForwardRemarks = document.getElementById("d_forward_remarks");
+  const releaseModal = document.getElementById("releaseModal");
+  const releaseModalBackdrop = document.getElementById("releaseModalBackdrop");
+  const releaseModalClose = document.getElementById("releaseModalClose");
+  const btnReleaseCancel = document.getElementById("btnReleaseCancel");
+  const btnReleaseConfirm = document.getElementById("btnReleaseConfirm");
+  const inputReleaseTo = document.getElementById("d_release_to");
+  const elReleaseRemarks = document.getElementById("d_release_remarks");
+  const releaseModalMsg = document.getElementById("releaseModalMsg");
 
   const attachForm = document.getElementById("attachForm");
   const attachFile = document.getElementById("attachFile");
@@ -1202,10 +1210,11 @@
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-      if (attModal?.classList.contains("open")) closeAttachmentModal();
-      if (recModal?.classList.contains("open")) closeRecipientsModal();
-      if (forwardModal?.classList.contains("open")) closeForwardModal();
-      else if (drawer?.classList.contains("open")) closeDrawer();
+      if (attModal?.classList.contains("open")) return closeAttachmentModal();
+      if (recModal?.classList.contains("open")) return closeRecipientsModal();
+      if (releaseModal?.classList.contains("open")) return closeReleaseModal();
+      if (forwardModal?.classList.contains("open")) return closeForwardModal();
+      if (drawer?.classList.contains("open")) closeDrawer();
     }
   });
 
@@ -1593,6 +1602,7 @@
                 ${ackSummaryHtml}
 
                 ${i.personal_deadline_at ? `<div class="tNote"><strong>Personal deadline:</strong> ${esc(fmt(i.personal_deadline_at))}</div>` : ``}
+                ${i.released_to ? `<div class="tNote"><strong>Released to:</strong> ${esc(i.released_to)}</div>` : ``}
                 ${i.remarks ? `<div class="tNote"><strong>Remarks:</strong> ${esc(i.remarks)}</div>` : ``}
 
               </div>
@@ -1744,6 +1754,7 @@
                         ${details.length ? `<div class="tLineMove">${details.join(" • ")}</div>` : ``}
                         ${ackSummaryHtml}
                         ${i.personal_deadline_at ? `<div class="tLineNote">Personal deadline: ${esc(fmt(i.personal_deadline_at))}</div>` : ``}
+                        ${i.released_to ? `<div class="tLineNote">Released to: ${esc(i.released_to)}</div>` : ``}
                         ${i.remarks ? `<div class="tLineNote">Remarks: ${esc(i.remarks)}</div>` : ``}
                       </div>
                     </div>
@@ -2024,6 +2035,7 @@
     const openToUserId = Number.parseInt(payload.open_to_user_id, 10) || 0;
     const isPrivileged = myRole === "admin" || myRole === "records";
     const flatActionableByMe = Number(payload.my_has_actionable_role || 0) === 1;
+    const flatLifecycleByMe = Number(payload.my_can_change_lifecycle || 0) === 1;
 
     const canAckReceived = (!currentBranchMode && inTransit && (
       (openToUserId > 0 && myUserId > 0 && openToUserId === myUserId) ||
@@ -2090,7 +2102,7 @@
         btnRelease.textContent = "Undo Release";
         btnRelease.dataset.nextStatus = "ACTIVE";
       }
-      if (isPrivileged || (!currentBranchMode && flatActionableByMe)) {
+      if (isPrivileged || (!currentBranchMode && flatLifecycleByMe)) {
         if (btnRelease) btnRelease.style.display = "";
       }
       syncToggleLabels();
@@ -2142,19 +2154,24 @@
     if (elBranchWrap) elBranchWrap.style.display = "none";
     if (elBranchSelect) elBranchSelect.innerHTML = "";
     if (elBranchMeta) elBranchMeta.textContent = "";
+    closeReleaseModal();
     closeForwardModal();
   }
 
-  async function updateStatus(newStatus) {
+  async function updateStatus(newStatus, options = {}) {
     const docId = elId?.value;
     if (!docId) return;
+
+    const remarks = (options.remarks || "").toString().trim();
+    const releasedTo = (options.releasedTo || "").toString().trim();
 
     const form = appendActingPrincipal(new FormData(), currentPayload);
     form.append("document_id", docId);
     const routeId = Number.parseInt(currentPayload?.open_route_id || "0", 10) || 0;
     if (routeId > 0) form.append("route_id", String(routeId));
     form.append("new_status", newStatus);
-    form.append("remarks", "");
+    form.append("remarks", remarks);
+    if (releasedTo) form.append("released_to", releasedTo);
     form.append("csrf_token", window.__CSRF__ || "");
 
     try {
@@ -2166,11 +2183,21 @@
 
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.ok) {
+        if (releaseModal?.classList.contains("open") && releaseModalMsg) {
+          releaseModalMsg.textContent = data?.error || `Failed to update status. (${res.status})`;
+          releaseModalMsg.className = "modalMsg error";
+          releaseModalMsg.style.display = "";
+        }
         window.DTToast?.error(data?.error || `Failed to update status. (${res.status})`) || console.warn(data?.error || `Failed to update status. (${res.status})`);
         return;
       }
       location.reload();
     } catch {
+      if (releaseModal?.classList.contains("open") && releaseModalMsg) {
+        releaseModalMsg.textContent = "Failed to update status (network error).";
+        releaseModalMsg.className = "modalMsg error";
+        releaseModalMsg.style.display = "";
+      }
       window.DTToast?.error("Failed to update status (network error).") || console.warn("Failed to update status (network error).");
     }
   }
@@ -2415,6 +2442,50 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
     selForwardTo?.focus();
   }
 
+  function openReleaseModal() {
+    if (!releaseModal) return;
+    if (inputReleaseTo) inputReleaseTo.value = "";
+    if (elReleaseRemarks) elReleaseRemarks.value = "";
+    if (releaseModalMsg) {
+      releaseModalMsg.textContent = "";
+      releaseModalMsg.className = "modalMsg";
+      releaseModalMsg.style.display = "none";
+    }
+    releaseModal.classList.add("open");
+    releaseModal.setAttribute("aria-hidden", "false");
+    inputReleaseTo?.focus();
+  }
+
+  function closeReleaseModal() {
+    if (!releaseModal) return;
+    releaseModal.classList.remove("open");
+    releaseModal.setAttribute("aria-hidden", "true");
+  }
+
+  async function confirmRelease() {
+    const releasedTo = (inputReleaseTo?.value || "").toString().trim();
+    const remarks = (elReleaseRemarks?.value || "").toString().trim();
+
+    if (!releasedTo) {
+      if (releaseModalMsg) {
+        releaseModalMsg.textContent = "Please enter who or where the document was released to.";
+        releaseModalMsg.className = "modalMsg error";
+        releaseModalMsg.style.display = "";
+      } else {
+        window.DTToast?.error("Please enter who or where the document was released to.") || console.warn("Please enter who or where the document was released to.");
+      }
+      inputReleaseTo?.focus();
+      return;
+    }
+
+    if (btnReleaseConfirm) btnReleaseConfirm.disabled = true;
+    try {
+      await updateStatus("RELEASED", { releasedTo, remarks });
+    } finally {
+      if (btnReleaseConfirm) btnReleaseConfirm.disabled = false;
+    }
+  }
+
   function closeForwardModal() {
     if (!forwardModal) return;
     forwardModal.classList.remove("open");
@@ -2425,6 +2496,10 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
   forwardModalClose?.addEventListener("click", closeForwardModal);
   btnForwardCancel?.addEventListener("click", closeForwardModal);
   forwardModalBackdrop?.addEventListener("click", closeForwardModal);
+  releaseModalClose?.addEventListener("click", closeReleaseModal);
+  btnReleaseCancel?.addEventListener("click", closeReleaseModal);
+  releaseModalBackdrop?.addEventListener("click", closeReleaseModal);
+  btnReleaseConfirm?.addEventListener("click", confirmRelease);
 
   btnAckReceived?.addEventListener("click", ackReceived);
   btnEditPendingRemarks?.addEventListener("click", () => setPendingRemarksEditing(true));
@@ -2436,7 +2511,14 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
   });
   btnSavePendingRemarks?.addEventListener("click", savePendingRouteRemarks);
   btnUnderAction?.addEventListener("click", () => updateStatus("ACTIVE"));
-  btnRelease?.addEventListener("click", () => updateStatus((btnRelease.dataset.nextStatus || "RELEASED").toUpperCase()));
+  btnRelease?.addEventListener("click", () => {
+    const nextStatus = (btnRelease.dataset.nextStatus || "RELEASED").toUpperCase();
+    if (nextStatus === "RELEASED") {
+      openReleaseModal();
+      return;
+    }
+    updateStatus(nextStatus);
+  });
   btnArchive?.addEventListener("click", () => updateStatus((btnArchive.dataset.nextStatus || "ARCHIVED").toUpperCase()));
   btnForward?.addEventListener("click", forwardDoc);
   btnAttachUpload?.addEventListener("click", uploadAttachment);

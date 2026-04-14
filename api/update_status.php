@@ -17,6 +17,7 @@ require_csrf();
 $docId     = (int)($_POST["document_id"] ?? 0);
 $newStatus = strtoupper(trim((string)($_POST["new_status"] ?? "")));
 $remarks   = trim((string)($_POST["remarks"] ?? ""));
+$releasedTo = trim((string)($_POST["released_to"] ?? ""));
 
 if ($docId <= 0 || $newStatus === "") {
   http_response_code(400);
@@ -118,6 +119,7 @@ try {
     "old_status" => $oldStatus,
     "new_status" => $newStatus,
     "remarks" => $eventRemarks,
+    "released_to" => $releasedTo,
     "branch_mode" => $branchMode,
   ], JSON_UNESCAPED_UNICODE);
 

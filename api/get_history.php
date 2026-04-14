@@ -870,6 +870,7 @@ try {
 
     $shouldRedact = (!$viewerIsAdmin && !$sameDivision && $eventDivision !== '');
     $remarksValue = $normalizeRemarks($payload["remarks"] ?? "");
+    $releasedToValue = $normalizeRemarks($payload["released_to"] ?? "");
     $personalDeadlineValue = trim((string)($payload["personal_deadline_at"] ?? ""));
     $canSeeRemarks = (
       !$shouldRedact
@@ -953,6 +954,7 @@ try {
       "viewer_redacted" => $shouldRedact,
       "branch_split_redacted" => $branchSplitRedacted,
       "remarks" => $canSeeRemarks ? $remarksValue : "",
+      "released_to" => $canSeeRemarks ? $releasedToValue : "",
       "personal_deadline_at" => $personalDeadlineValue,
       "acted_at" => (string)($r["created_at"] ?? ""),
       "actor" => $actor,
