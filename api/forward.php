@@ -22,12 +22,25 @@ function normalize_deadline_input(?string $raw): ?string
     return null;
   }
 
-  $dt = DateTime::createFromFormat('Y-m-d\TH:i', $raw, new DateTimeZone('Asia/Manila'));
+  $tz = new DateTimeZone('Asia/Manila');
+  $dt = DateTime::createFromFormat('!Y-m-d', $raw, $tz);
+  if ($dt) {
+    $errors = DateTime::getLastErrors();
+    if ($errors === false || ((int)$errors['warning_count'] === 0 && (int)$errors['error_count'] === 0)) {
+      return $dt->setTime(23, 59, 59)->format('Y-m-d H:i:s');
+    }
+  }
+
+  $dt = DateTime::createFromFormat('Y-m-d\TH:i', $raw, $tz);
   if (!$dt) {
     return null;
   }
+  $errors = DateTime::getLastErrors();
+  if ($errors !== false && ((int)$errors['warning_count'] > 0 || (int)$errors['error_count'] > 0)) {
+    return null;
+  }
 
-  return $dt->format('Y-m-d H:i:s');
+  return $dt->setTime(23, 59, 59)->format('Y-m-d H:i:s');
 }
 
 $docId       = (int)($_POST["document_id"] ?? 0);
@@ -71,7 +84,7 @@ if ($mySectionId <= 0 || $userId <= 0 || $actualUserId <= 0) {
 
 if ($personalDeadlineRaw !== '' && $personalDeadlineAt === null) {
   http_response_code(400);
-  echo json_encode(["ok" => false, "error" => "Personal deadline must be a valid date and time."]);
+  echo json_encode(["ok" => false, "error" => "Personal deadline must be a valid date."]);
   exit;
 }
 
@@ -313,7 +326,7 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
         INSERT INTO routes
           (document_id, branch_id, from_section_id, to_section_id, from_user_id, to_user_id, route_kind, send_batch_id, received_at, sent_by_user_id, remarks, personal_deadline_at)
         VALUES
-          (?, ?, ?, ?, ?, ?, 'ACTION', ?, NULL, ?, ?, NULL)
+          (?, ?, ?, ?, ?, ?, 'ACTION', ?, NULL, ?, ?, ?)
       ");
 
       foreach ($recipients as $rid) {
@@ -322,7 +335,7 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
         workflow_grant_visibility($conn, $docId, $rid, 'REFERENCE', $sourceBranchId, $actualUserId);
         if ($userId > 0 && $userId !== $actualUserId) workflow_grant_visibility($conn, $docId, $userId, 'PARTICIPANT', $sourceBranchId, $actualUserId);
 
-        $stmtReceiveOnlyRoute->bind_param("iiiiiisis", $docId, $sourceBranchId, $mySectionId, $toSectionId, $actualUserId, $rid, $sendBatchId, $actualUserId, $routeRemarks);
+        $stmtReceiveOnlyRoute->bind_param("iiiiiisiss", $docId, $sourceBranchId, $mySectionId, $toSectionId, $actualUserId, $rid, $sendBatchId, $actualUserId, $routeRemarks, $personalDeadlineAt);
         $stmtReceiveOnlyRoute->execute();
         $routeIds[] = (int)$conn->insert_id;
       }

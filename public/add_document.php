@@ -483,12 +483,25 @@ function normalize_deadline_input(?string $raw): ?string
     return null;
   }
 
-  $dt = DateTime::createFromFormat("Y-m-d\TH:i", $raw, new DateTimeZone("Asia/Manila"));
+  $tz = new DateTimeZone("Asia/Manila");
+  $dt = DateTime::createFromFormat("!Y-m-d", $raw, $tz);
+  if ($dt) {
+    $errors = DateTime::getLastErrors();
+    if ($errors === false || ((int)$errors["warning_count"] === 0 && (int)$errors["error_count"] === 0)) {
+      return $dt->setTime(23, 59, 59)->format("Y-m-d H:i:s");
+    }
+  }
+
+  $dt = DateTime::createFromFormat("Y-m-d\TH:i", $raw, $tz);
   if (!$dt) {
     return null;
   }
+  $errors = DateTime::getLastErrors();
+  if ($errors !== false && ((int)$errors["warning_count"] > 0 || (int)$errors["error_count"] > 0)) {
+    return null;
+  }
 
-  return $dt->format("Y-m-d H:i:s");
+  return $dt->setTime(23, 59, 59)->format("Y-m-d H:i:s");
 }
 
 if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
@@ -632,7 +645,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   } elseif ($fromSectionId <= 0) {
     $error = "Your account has no section assigned. Ask admin to set your section_id.";
   } elseif ($deadlineAtRaw !== "" && $deadlineAt === null) {
-    $error = "Deadline must be a valid date and time.";
+    $error = "Deadline must be a valid date.";
   } elseif (!$routeOnCreate && $genChoice === "transmittal") {
     $error = "Transmittal Memo needs a destination. Choose Save and route now, or generate a division tracking slip instead.";
   } else {
@@ -1355,11 +1368,11 @@ require __DIR__ . "/../includes/layout.php";
         <div class="authField">
           <label>Deadline</label>
           <input
-            type="datetime-local"
+            type="date"
             name="deadline_at"
             value="<?= htmlspecialchars($_POST["deadline_at"] ?? "") ?>"
           >
-          <div class="mini">Optional. Used for countdown + urgency sorting.</div>
+          <div class="mini">Optional. Deadlines stay active until 11:59 PM of the selected date.</div>
         </div>
 
         <div class="authField addDocFieldWide">

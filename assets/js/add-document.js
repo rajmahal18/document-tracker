@@ -509,7 +509,7 @@
             ${canSetPersonalDeadline ? `
               <label class="destDeadlineInline">
                 <span>Personal deadline</span>
-                <input type="datetime-local" value="${esc(dest.personalDeadline || '')}" data-personal-deadline="${esc(sid)}">
+                <input type="date" value="${esc((dest.personalDeadline || '').slice(0, 10))}" data-personal-deadline="${esc(sid)}">
               </label>
             ` : '<span class="mini">&nbsp;</span>'}
           </div>

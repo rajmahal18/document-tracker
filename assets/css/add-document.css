@@ -109,7 +109,6 @@
 }
 
 .addDocumentPage input[type="date"],
-.addDocumentPage input[type="datetime-local"],
 .addDocumentPage input[type="text"],
 .addDocumentPage .select,
 .addDocumentPage .fileInput {

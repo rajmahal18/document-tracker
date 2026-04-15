@@ -516,15 +516,15 @@ $myCompletePredicate = "(
 
 $personalDeadlineSelectSql = "NULL AS my_personal_deadline_at";
 $personalDeadlineJoinSql = "";
-$effectiveDeadlineOrderExpr = "d.deadline_at";
-$effectiveDeadlineFilterExpr = "d.deadline_at";
+$effectiveDeadlineOrderExpr = "TIMESTAMP(DATE(d.deadline_at), '23:59:59')";
+$effectiveDeadlineFilterExpr = "TIMESTAMP(DATE(d.deadline_at), '23:59:59')";
 
 if ($routePersonalDeadlineEnabled) {
-  $effectiveDeadlineOrderExpr = "COALESCE(rpd_me.personal_deadline_at, d.deadline_at)";
+  $effectiveDeadlineOrderExpr = "TIMESTAMP(DATE(COALESCE(rpd_me.personal_deadline_at, d.deadline_at)), '23:59:59')";
   $personalDeadlineSelectSql = "rpd_me.personal_deadline_at AS my_personal_deadline_at";
 
   if ($branchMode) {
-    $effectiveDeadlineFilterExpr = "COALESCE((
+    $effectiveDeadlineFilterExpr = "TIMESTAMP(DATE(COALESCE((
       SELECT MAX(rpd.personal_deadline_at)
       FROM routes rpd
       LEFT JOIN document_branches bpd ON bpd.id = rpd.branch_id
@@ -544,7 +544,7 @@ if ($routePersonalDeadlineEnabled) {
             AND dpd.current_holder_section_id = {$mySid}
           )
         )
-    ), d.deadline_at)";
+    ), d.deadline_at)), '23:59:59')";
     $personalDeadlineJoinSql = "
   LEFT JOIN (
     SELECT
@@ -572,7 +572,7 @@ if ($routePersonalDeadlineEnabled) {
   LEFT JOIN routes rpd_me ON rpd_me.id = rpd_pick.my_personal_route_id
 ";
   } else {
-    $effectiveDeadlineFilterExpr = "COALESCE((
+    $effectiveDeadlineFilterExpr = "TIMESTAMP(DATE(COALESCE((
       SELECT MAX(rpd.personal_deadline_at)
       FROM routes rpd
       JOIN documents dpd ON dpd.id = rpd.document_id
@@ -583,7 +583,7 @@ if ($routePersonalDeadlineEnabled) {
           rpd.received_at IS NULL
           OR dpd.current_holder_section_id = {$mySid}
         )
-    ), d.deadline_at)";
+    ), d.deadline_at)), '23:59:59')";
 
     $personalDeadlineJoinSql = "
   LEFT JOIN (
@@ -1543,9 +1543,10 @@ function documentsUrl(array $overrides = []): string {
             $myPersonalDeadlineRaw = trim((string)($d["my_personal_deadline_at"] ?? ""));
             $hasPersonalDeadline = ($myPersonalDeadlineRaw !== "");
             $effectiveDeadlineRaw = $hasPersonalDeadline ? $myPersonalDeadlineRaw : $docDeadlineRaw;
-            $effectiveDeadlineTs = $effectiveDeadlineRaw !== "" ? strtotime($effectiveDeadlineRaw) : false;
-            $docDeadlineText = $docDeadlineRaw !== "" ? date("M d, Y g:i A", strtotime($docDeadlineRaw)) : "—";
-            $personalDeadlineText = $myPersonalDeadlineRaw !== "" ? date("M d, Y g:i A", strtotime($myPersonalDeadlineRaw)) : "—";
+            $effectiveDeadlineBaseTs = $effectiveDeadlineRaw !== "" ? strtotime($effectiveDeadlineRaw) : false;
+            $effectiveDeadlineTs = $effectiveDeadlineBaseTs !== false ? strtotime(date("Y-m-d", $effectiveDeadlineBaseTs) . " 23:59:59") : false;
+            $docDeadlineText = $docDeadlineRaw !== "" ? date("M d, Y", strtotime($docDeadlineRaw)) : "—";
+            $personalDeadlineText = $myPersonalDeadlineRaw !== "" ? date("M d, Y", strtotime($myPersonalDeadlineRaw)) : "—";
             $deadlineBadgeText = "NO DEADLINE";
             $deadlineBadgeClass = "neutral";
             $deadlineToneClass = "";
@@ -2140,8 +2141,8 @@ $end   = min($totalPages, $page + 2);
 
       <div id="forwardPersonalDeadlineWrap" class="forwardDeadlineWrap" style="display:none; margin-top:12px;">
         <label for="f_personal_deadline" style="font-size:12px; font-weight:900; display:block; margin-bottom:6px;">Personal deadline</label>
-        <input id="f_personal_deadline" type="datetime-local" class="search" style="width:100%;">
-        <div class="mini" style="margin-top:6px; opacity:.75;">Only section chiefs can set a personal deadline for the selected recipient(s).</div>
+        <input id="f_personal_deadline" type="date" class="search" style="width:100%;">
+        <div class="mini" style="margin-top:6px; opacity:.75;">Only section chiefs can set a personal deadline. Deadlines stay active until 11:59 PM of the selected date.</div>
       </div>
 
       <div class="drawerActionRemarks" style="margin-top:12px;">

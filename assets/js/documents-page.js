@@ -342,6 +342,20 @@
     ));
   }
 
+  function manilaDeadlineDateFromSql(dt) {
+    const parts = parseSqlDateParts(dt);
+    if (!parts) return null;
+
+    return new Date(Date.UTC(
+      parts.year,
+      parts.month - 1,
+      parts.day,
+      23 - 8,
+      59,
+      59
+    ));
+  }
+
   function timestampMs(dt) {
     const manilaDate = manilaDateFromSql(dt);
     if (manilaDate && !Number.isNaN(manilaDate.getTime())) {
@@ -383,6 +397,17 @@
     }).format(d).replace(",", "");
   }
 
+  function fmtDate(dt) {
+    const d = manilaDateFromSql(dt) || new Date((dt || "").toString());
+    if (isNaN(d.getTime())) return dt || "";
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: MANILA_TZ,
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }).format(d).replace(",", "");
+  }
+
   function formatCountdown(ms) {
     const totalMinutes = Math.max(0, Math.floor(ms / 60000));
     const days = Math.floor(totalMinutes / (60 * 24));
@@ -399,8 +424,8 @@
     const personalRaw = (personalDeadlineAt || "").toString().trim();
     const effectiveRaw = personalRaw || docRaw;
 
-    if (elDeadline) elDeadline.textContent = docRaw ? fmt(docRaw) : "—";
-    if (elPersonalDeadline) elPersonalDeadline.textContent = personalRaw ? fmt(personalRaw) : "—";
+    if (elDeadline) elDeadline.textContent = docRaw ? fmtDate(docRaw) : "—";
+    if (elPersonalDeadline) elPersonalDeadline.textContent = personalRaw ? fmtDate(personalRaw) : "—";
 
     if (deadlineTicker) {
       clearInterval(deadlineTicker);
@@ -413,7 +438,7 @@
       return;
     }
 
-    const deadlineDate = manilaDateFromSql(effectiveRaw) || new Date(effectiveRaw.replace(" ", "T"));
+    const deadlineDate = manilaDeadlineDateFromSql(effectiveRaw) || manilaDateFromSql(effectiveRaw) || new Date(effectiveRaw.replace(" ", "T"));
     if (Number.isNaN(deadlineDate.getTime())) {
       elDeadlineCountdown.textContent = "—";
       return;
@@ -1601,7 +1626,7 @@
 
                 ${ackSummaryHtml}
 
-                ${i.personal_deadline_at ? `<div class="tNote"><strong>Personal deadline:</strong> ${esc(fmt(i.personal_deadline_at))}</div>` : ``}
+                ${i.personal_deadline_at ? `<div class="tNote"><strong>Personal deadline:</strong> ${esc(fmtDate(i.personal_deadline_at))}</div>` : ``}
                 ${i.released_to ? `<div class="tNote"><strong>Released to:</strong> ${esc(i.released_to)}</div>` : ``}
                 ${i.remarks ? `<div class="tNote"><strong>Remarks:</strong> ${esc(i.remarks)}</div>` : ``}
 
@@ -1753,7 +1778,7 @@
                         ${movement ? `<div class="tLineMove">${movement}</div>` : ``}
                         ${details.length ? `<div class="tLineMove">${details.join(" • ")}</div>` : ``}
                         ${ackSummaryHtml}
-                        ${i.personal_deadline_at ? `<div class="tLineNote">Personal deadline: ${esc(fmt(i.personal_deadline_at))}</div>` : ``}
+                        ${i.personal_deadline_at ? `<div class="tLineNote">Personal deadline: ${esc(fmtDate(i.personal_deadline_at))}</div>` : ``}
                         ${i.released_to ? `<div class="tLineNote">Released to: ${esc(i.released_to)}</div>` : ``}
                         ${i.remarks ? `<div class="tLineNote">Remarks: ${esc(i.remarks)}</div>` : ``}
                       </div>
