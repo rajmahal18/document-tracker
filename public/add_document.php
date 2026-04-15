@@ -635,7 +635,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   }
 
   if (strcasecmp((string)($_POST["content_type"] ?? ""), "Others") === 0 && $content_type_other === "") {
-    $error = "Please specify the content type when Others is selected.";
+    $error = "Please specify the document type when Others is selected.";
   } elseif ($requester === "" || $document_date === "" || $subject === "" || $content_type === "") {
     $error = "Please fill in all required fields.";
   } elseif ($routeOnCreate && $builderContractEnabled && !$hasSeededDestinations) {
@@ -1387,9 +1387,9 @@ require __DIR__ . "/../includes/layout.php";
         </div>
 
         <div class="authField authFieldStacked" id="contentTypeField">
-          <label>Content Type <span class="req">*</span></label>
+          <label>Document Type <span class="req">*</span></label>
           <select name="content_type" id="contentTypeSelect" class="select" required>
-            <option value="">-- Please Select Type --</option>
+            <option value="">-- Please Select Document Type --</option>
             <?php foreach ($contentTypeOptions as $typeOption): ?>
               <option value="<?= htmlspecialchars($typeOption) ?>" <?= ($contentTypeSelectedValue === $typeOption) ? "selected" : "" ?>><?= htmlspecialchars($typeOption) ?></option>
             <?php endforeach; ?>
@@ -1401,7 +1401,7 @@ require __DIR__ . "/../includes/layout.php";
               type="text"
               name="content_type_other"
               id="contentTypeOtherInput"
-              placeholder="Enter content type"
+              placeholder="Enter document type"
               value="<?= htmlspecialchars($postedContentTypeOther) ?>"
             >
             <div class="mini">Use this only when the document type is not in the list above.</div>

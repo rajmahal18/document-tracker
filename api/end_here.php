@@ -200,7 +200,7 @@ try {
     if (!$branch || (int)($branch["completed_by_user_id"] ?? 0) !== $principalUserId) {
       $conn->rollback();
       http_response_code(403);
-      echo json_encode(["ok" => false, "error" => "You can only undo an End Here action that you made."]);
+      echo json_encode(["ok" => false, "error" => "You can only reopen an End Now action that you made."]);
       exit;
     }
 
@@ -330,7 +330,7 @@ try {
   if ($oldStatus !== "RELEASED" || !workflow_user_can_act_legacy_document($conn, $docId, $principalUserId, $mySectionId, $isChief, true)) {
     $conn->rollback();
     http_response_code(403);
-    echo json_encode(["ok" => false, "error" => "You can only undo End Here while the document is still released by your final action."]);
+    echo json_encode(["ok" => false, "error" => "You can only reopen End Now while the document is still ended by your final action."]);
     exit;
   }
 
@@ -352,7 +352,7 @@ try {
   if ($lastKind !== "document_ended_here") {
     $conn->rollback();
     http_response_code(409);
-    echo json_encode(["ok" => false, "error" => "The latest lifecycle action was not End Here."]);
+    echo json_encode(["ok" => false, "error" => "The latest lifecycle action was not End Now."]);
     exit;
   }
 

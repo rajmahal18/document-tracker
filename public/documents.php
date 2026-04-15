@@ -666,7 +666,12 @@ $sql = "
       FROM document_events e_end
       WHERE e_end.document_id = d.id
         AND e_end.event_type = 'updated'
-        AND e_end.payload_json LIKE '%ended_here%'
+        AND JSON_UNQUOTE(JSON_EXTRACT(e_end.payload_json, '$.kind')) IN (
+          'branch_ended_here',
+          'document_ended_here',
+          'branch_end_here_undone',
+          'document_end_here_undone'
+        )
       ORDER BY e_end.created_at DESC, e_end.id DESC
       LIMIT 1
     ), '') AS last_end_here_kind,
@@ -2117,7 +2122,7 @@ $end   = min($totalPages, $page + 2);
       <button type="button" class="btnSecondary" id="btnToggleForward">Forward</button>
 
       <button id="btnAckReceived" class="btnGreen" type="button" style="display:none;">Received</button>
-      <button id="btnEndHere" class="btnComp" type="button" style="display:none;">End Here</button>
+      <button id="btnEndHere" class="btnComp" type="button" style="display:none;">End Now</button>
       <button id="btnUndoEndHere" class="btnSecondary" type="button" style="display:none;">Reopen Lifecycle</button>
       <button id="btnRelease" class="btnGreen" type="button" style="display:none;">Release</button>
       <button id="btnArchive" class="btnComp" type="button" style="display:none;">Archive</button>
@@ -2226,7 +2231,7 @@ $end   = min($totalPages, $page + 2);
   <div class="modalCard forwardModalCard">
     <div class="modalHeader">
       <div>
-        <h3 id="endHereModalTitle">End document lifecycle?</h3>
+        <h3 id="endHereModalTitle">End document lifecycle now?</h3>
         <div class="attSub mini" id="endHereModalSub">This stops routing for the selected lane. Use this only if no further action or forwarding is needed.</div>
       </div>
       <button id="endHereModalClose" class="modalClose" type="button">x</button>

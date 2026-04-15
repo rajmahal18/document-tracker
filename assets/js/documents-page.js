@@ -1007,7 +1007,7 @@
     }
 
     if (isPrivileged && !currentBranchMode && docStatus === "ACTIVE") {
-      // Admin keeps Release/Archive as administrative lifecycle actions; End Here is for the active holder.
+      // Admin keeps Release/Archive as administrative lifecycle actions; End Now is for the active holder.
       if (btnEndHere) btnEndHere.style.display = flatActionable ? "" : "none";
     }
   }
@@ -2125,6 +2125,7 @@
     const openToSectionId = Number.parseInt(payload.open_to_section_id, 10) || 0;
     const openToUserId = Number.parseInt(payload.open_to_user_id, 10) || 0;
     const isPrivileged = myRole === "admin" || myRole === "records";
+    const isStatusAdmin = myRole === "admin";
     const flatActionableByMe = Number(payload.my_has_actionable_role || 0) === 1;
     const flatLifecycleByMe = Number(payload.my_can_change_lifecycle || 0) === 1;
 
@@ -2184,7 +2185,7 @@
     }
 
     if (docStatus === "ARCHIVED") {
-      if (isPrivileged && btnArchive) {
+      if (isStatusAdmin && btnArchive) {
         btnArchive.textContent = "Undo Archive";
         btnArchive.dataset.nextStatus = "RELEASED";
         btnArchive.style.display = "";
@@ -2199,7 +2200,7 @@
         btnRelease.dataset.nextStatus = "ACTIVE";
       }
       const releasedByEndHere = isLifecycleEndedKind(payload.last_end_here_kind || "");
-      if (!releasedByEndHere && (isPrivileged || (!currentBranchMode && flatLifecycleByMe))) {
+      if (!releasedByEndHere && (isStatusAdmin || (!currentBranchMode && flatLifecycleByMe))) {
         if (btnRelease) btnRelease.style.display = "";
       }
       syncEndHereButtons();
@@ -2211,8 +2212,8 @@
       if (!currentBranchMode && canAckReceivedPrivileged && btnAckReceived) {
         btnAckReceived.style.display = "";
       }
-      if (btnRelease) btnRelease.style.display = "";
-      if (btnArchive) btnArchive.style.display = "";
+      if ((isStatusAdmin || (!currentBranchMode && flatActionableByMe)) && btnRelease) btnRelease.style.display = "";
+      if ((isStatusAdmin || (!currentBranchMode && flatActionableByMe)) && btnArchive) btnArchive.style.display = "";
       syncEndHereButtons();
       syncToggleLabels();
       return;
@@ -2227,6 +2228,7 @@
 
       if (flatActionableByMe) {
         if (btnEndHere) btnEndHere.style.display = "";
+        if (btnRelease) btnRelease.style.display = "";
       }
     }
 
@@ -2314,7 +2316,7 @@
     }
 
     if (endHereModalTitle) {
-      endHereModalTitle.textContent = currentEndHereMode === "undo" ? "Reopen document lifecycle?" : "End document lifecycle?";
+      endHereModalTitle.textContent = currentEndHereMode === "undo" ? "Reopen document lifecycle?" : "End document lifecycle now?";
     }
     if (endHereModalSub) {
       endHereModalSub.textContent = currentEndHereMode === "undo"
@@ -2322,7 +2324,7 @@
         : "This stops routing for the selected lane. Use this only if no further action or forwarding is needed.";
     }
     if (btnEndHereConfirm) {
-      btnEndHereConfirm.textContent = currentEndHereMode === "undo" ? "Reopen lifecycle" : "End lifecycle";
+      btnEndHereConfirm.textContent = currentEndHereMode === "undo" ? "Reopen lifecycle" : "End now";
     }
 
     endHereModal.classList.add("open");
@@ -2361,7 +2363,7 @@
 
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.ok) {
-        const message = data?.error || `Failed to update End Here. (${res.status})`;
+        const message = data?.error || `Failed to update End Now. (${res.status})`;
         if (endHereModalMsg) {
           endHereModalMsg.textContent = message;
           endHereModalMsg.className = "modalMsg error";
@@ -2375,7 +2377,7 @@
       saveDrawerRestoreState(docId, selectedBranchBefore);
       location.reload();
     } catch {
-      const message = "Failed to update End Here (network error).";
+      const message = "Failed to update End Now (network error).";
       if (endHereModalMsg) {
         endHereModalMsg.textContent = message;
         endHereModalMsg.className = "modalMsg error";
