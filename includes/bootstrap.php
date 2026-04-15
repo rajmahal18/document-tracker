@@ -365,8 +365,38 @@ function csrf_token(): string {
   return $_SESSION["csrf_token"];
 }
 
+function php_upload_size_to_bytes(string $value): int {
+  $value = trim($value);
+  if ($value === '') {
+    return 0;
+  }
+
+  $unit = strtolower(substr($value, -1));
+  $number = (float)$value;
+
+  return match ($unit) {
+    'g' => (int)($number * 1024 * 1024 * 1024),
+    'm' => (int)($number * 1024 * 1024),
+    'k' => (int)($number * 1024),
+    default => (int)$number,
+  };
+}
+
 function require_csrf(): void {
   $token = $_POST["csrf_token"] ?? "";
+  $contentLength = (int)($_SERVER["CONTENT_LENGTH"] ?? 0);
+  $postMaxBytes = php_upload_size_to_bytes((string)ini_get("post_max_size"));
+
+  if ($_SERVER["REQUEST_METHOD"] === "POST" && $contentLength > 0 && $postMaxBytes > 0 && $contentLength > $postMaxBytes) {
+    http_response_code(413);
+    header("Content-Type: application/json");
+    echo json_encode([
+      "ok" => false,
+      "error" => "Upload is too large for the server limit. Server post_max_size is " . ini_get("post_max_size") . ".",
+    ]);
+    exit;
+  }
+
   if (!is_string($token) || $token === "" || !hash_equals($_SESSION["csrf_token"] ?? "", $token)) {
     http_response_code(403);
     header("Content-Type: application/json");

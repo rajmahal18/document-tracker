@@ -1922,7 +1922,7 @@
     form.append("file", f0);
     form.append("is_append", (attachType?.value || "1") === "1" ? "1" : "0");
     form.append("note", attachNote ? attachNote.value : "");
-    form.append("csrf_token", window.__CSRF__ || "");
+    form.append("csrf_token", window.__CSRF__ || window.__APP__?.csrf || "");
 
     try {
       const res = await fetch(`${API}/attachments_upload.php`, {
