@@ -334,9 +334,8 @@ function get_next_division_tracking_number(mysqli $conn, int $divisionId, ?DateT
     $stmt = $conn->prepare("SELECT last_number FROM division_tracking_sequences WHERE division_id = ? AND tracking_date = ? FOR UPDATE");
     $stmt->bind_param('is', $divisionId, $trackingDate);
     $stmt->execute();
-    $row = $stmt->get_result()->fetch_assoc();
-    $last = (int)($row['last_number'] ?? 0);
-    $next = $last + 1;
+    $stmt->get_result()->fetch_assoc();
+    $next = find_next_available_division_tracking_sequence($conn, $divisionId, $trackingDate);
 
     $stmt = $conn->prepare("UPDATE division_tracking_sequences SET last_number = ? WHERE division_id = ? AND tracking_date = ?");
     $stmt->bind_param('iis', $next, $divisionId, $trackingDate);
@@ -350,6 +349,34 @@ function get_next_division_tracking_number(mysqli $conn, int $divisionId, ?DateT
   return sprintf('%s %s%02d', $meta['code'], $now->format('mdy'), $next);
 }
 
+function find_next_available_division_tracking_sequence(mysqli $conn, int $divisionId, string $trackingDate): int
+{
+  $stmt = $conn->prepare("SELECT sequence_no
+    FROM document_division_tracking
+    WHERE division_id = ?
+      AND tracking_date = ?
+    ORDER BY sequence_no ASC");
+  $stmt->bind_param('is', $divisionId, $trackingDate);
+  $stmt->execute();
+  $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+  $used = [];
+  foreach ($rows as $row) {
+    $seq = (int)($row['sequence_no'] ?? 0);
+    if ($seq > 0 && $seq <= 99) {
+      $used[$seq] = true;
+    }
+  }
+
+  for ($seq = 1; $seq <= 99; $seq++) {
+    if (empty($used[$seq])) {
+      return $seq;
+    }
+  }
+
+  throw new RuntimeException('All division tracking numbers for this date are already in use.');
+}
+
 function preview_next_division_tracking_number(mysqli $conn, int $divisionId, ?DateTimeImmutable $now = null): string
 {
   ensure_division_tracking_tables($conn);
@@ -359,11 +386,7 @@ function preview_next_division_tracking_number(mysqli $conn, int $divisionId, ?D
   }
   $now = $now ?? new DateTimeImmutable('now', new DateTimeZone('Asia/Manila'));
   $trackingDate = $now->format('Y-m-d');
-  $stmt = $conn->prepare("SELECT last_number FROM division_tracking_sequences WHERE division_id = ? AND tracking_date = ? LIMIT 1");
-  $stmt->bind_param('is', $divisionId, $trackingDate);
-  $stmt->execute();
-  $row = $stmt->get_result()->fetch_assoc();
-  $next = ((int)($row['last_number'] ?? 0)) + 1;
+  $next = find_next_available_division_tracking_sequence($conn, $divisionId, $trackingDate);
   return sprintf('%s %s%02d', $meta['code'], $now->format('mdy'), $next);
 }
 
