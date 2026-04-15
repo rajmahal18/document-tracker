@@ -656,6 +656,10 @@
 .action-forwarded { color: #f2994a; }
 .action-received { color: #2f80ed; }
 .action-released { color: #27ae60; }
+.action-branch_ended_here,
+.action-document_ended_here { color: #027a48; }
+.action-branch_end_here_undone,
+.action-document_end_here_undone { color: #0b5ea8; }
 .action-archived { color: #667085; }
 .action-cancelled { color: #b42318; }
 .action-status_changed,
@@ -666,6 +670,10 @@
 .action-forwarded .tIcon { background: #f2994a; }
 .action-received .tIcon { background: #2f80ed; }
 .action-released .tIcon { background: #27ae60; }
+.action-branch_ended_here .tIcon,
+.action-document_ended_here .tIcon { background: #027a48; }
+.action-branch_end_here_undone .tIcon,
+.action-document_end_here_undone .tIcon { background: #0b5ea8; }
 .action-archived .tIcon { background: #667085; }
 .action-cancelled .tIcon { background: #b42318; }
 .action-status_changed .tIcon,

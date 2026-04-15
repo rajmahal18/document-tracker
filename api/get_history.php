@@ -518,6 +518,14 @@ try {
     if ($eventKey === "updated" && (($payload["kind"] ?? "") === "attachment_added")) {
       $eventKey = "attachment_added";
     }
+    if ($eventKey === "updated" && in_array(($payload["kind"] ?? ""), [
+      "branch_ended_here",
+      "branch_end_here_undone",
+      "document_ended_here",
+      "document_end_here_undone",
+    ], true)) {
+      $eventKey = (string)$payload["kind"];
+    }
 
     $actor = (string)($r["actor"] ?? "—");
     $actingPrincipalName = trim((string)($payload["acting_principal_name"] ?? ""));
@@ -656,6 +664,16 @@ try {
 
       case "received":
         $title = "{$actor} received the document";
+        break;
+
+      case "branch_ended_here":
+      case "document_ended_here":
+        $title = "{$actor} ended the document lifecycle";
+        break;
+
+      case "branch_end_here_undone":
+      case "document_end_here_undone":
+        $title = "{$actor} reopened the document lifecycle";
         break;
 
       case "released":
@@ -925,6 +943,14 @@ try {
           break;
         case 'released':
           $title = "{$safeDivision} released the document";
+          break;
+        case 'branch_ended_here':
+        case 'document_ended_here':
+          $title = "{$safeDivision} ended the document lifecycle";
+          break;
+        case 'branch_end_here_undone':
+        case 'document_end_here_undone':
+          $title = "{$safeDivision} reopened the document lifecycle";
           break;
         case 'release_undone':
           $title = "{$safeDivision} undid the release";

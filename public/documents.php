@@ -661,6 +661,15 @@ $sql = "
     d.content_type,
     d.comm_type,
     d.current_status,
+    COALESCE((
+      SELECT JSON_UNQUOTE(JSON_EXTRACT(e_end.payload_json, '$.kind'))
+      FROM document_events e_end
+      WHERE e_end.document_id = d.id
+        AND e_end.event_type = 'updated'
+        AND e_end.payload_json LIKE '%ended_here%'
+      ORDER BY e_end.created_at DESC, e_end.id DESC
+      LIMIT 1
+    ), '') AS last_end_here_kind,
 
     d.current_holder_section_id,
     sh.name AS current_holder_name,
@@ -675,6 +684,23 @@ $sql = "
 
     ro.any_open_route_id,
     COALESCE(ro.open_count, 0) AS open_route_count,
+    COALESCE((
+      SELECT r_my_open.id
+      FROM routes r_my_open
+      WHERE r_my_open.document_id = d.id
+        AND r_my_open.received_at IS NULL
+        AND r_my_open.cancelled_at IS NULL
+        AND (
+          r_my_open.to_user_id = {$myUid}
+          OR (
+            r_my_open.to_user_id IS NULL
+            AND {$myChiefInt} = 1
+            AND r_my_open.to_section_id = {$mySid}
+          )
+        )
+      ORDER BY r_my_open.id DESC
+      LIMIT 1
+    ), 0) AS my_open_route_id,
 
     {$personalDeadlineSelectSql},
     {$effectiveDeadlineOrderExpr} AS effective_deadline_at,
@@ -1443,7 +1469,7 @@ function documentsUrl(array $overrides = []): string {
       <a class="docsQuickFilter <?= $quick === 'pending' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('pending')) ?>">Pending <span><?= $stats['pending'] ?></span></a>
       <a class="docsQuickFilter <?= $quick === 'completed' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('completed')) ?>">Completed <span><?= $stats['completed'] ?></span></a>
       <a class="docsQuickFilter <?= $quick === 'overdue' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('overdue')) ?>">Overdue <span><?= $stats['overdue'] ?></span></a>
-      <a class="docsQuickFilter <?= $quick === 'released' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('released')) ?>">Released <span><?= $stats['released'] ?></span></a>
+      <a class="docsQuickFilter <?= $quick === 'released' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('released')) ?>">Closed <span><?= $stats['released'] ?></span></a>
       <a class="docsQuickFilter <?= $quick === 'archived' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('archived')) ?>">Archived <span><?= $stats['archived'] ?></span></a>
     </div>
 
@@ -1489,7 +1515,7 @@ function documentsUrl(array $overrides = []): string {
           <select class="select" name="status">
             <option value="">All</option>
             <option value="ACTIVE" <?= strtoupper($statusGet) === "ACTIVE" ? "selected" : "" ?>>ACTIVE</option>
-            <option value="RELEASED" <?= strtoupper($statusGet) === "RELEASED" ? "selected" : "" ?>>RELEASED</option>
+            <option value="RELEASED" <?= strtoupper($statusGet) === "RELEASED" ? "selected" : "" ?>>CLOSED</option>
             <option value="ARCHIVED" <?= strtoupper($statusGet) === "ARCHIVED" ? "selected" : "" ?>>ARCHIVED</option>
           </select>
         </div>
@@ -1584,6 +1610,8 @@ function documentsUrl(array $overrides = []): string {
             $inTransit = ($openCount > 0);
             $currentStatus = strtoupper((string)($d["current_status"] ?? "ACTIVE"));
             $hasRealBranches = ((int)($d["has_real_branches"] ?? 0) === 1);
+            $lastEndHereKind = (string)($d["last_end_here_kind"] ?? "");
+            $isLifecycleEnded = in_array($lastEndHereKind, ["branch_ended_here", "document_ended_here"], true);
 
             $myHasOpenInbound = ((int)($d["my_has_open_inbound"] ?? 0) === 1);
             $myHasActionableRole = ((int)($d["my_has_actionable_role"] ?? 0) === 1);
@@ -1618,10 +1646,10 @@ function documentsUrl(array $overrides = []): string {
               $drawerStatusChipClass = "chip archived";
               $docStateHint = "Filed record";
             } elseif ($currentStatus === "RELEASED") {
-              $docStateLabel = "RELEASED";
+              $docStateLabel = $isLifecycleEnded ? "LIFECYCLE ENDED" : "RELEASED";
               $docStateToneClass = "isReleased";
               $drawerStatusChipClass = "chip released";
-              $docStateHint = "Completed routing";
+              $docStateHint = $isLifecycleEnded ? "No further routing" : "Completed routing";
             } elseif ($inTransit) {
               $docStateLabel = "IN TRANSIT";
               $docStateToneClass = "isTransit";
@@ -1780,6 +1808,7 @@ function documentsUrl(array $overrides = []): string {
                 "open_from_section_name" => (string)($d["open_from_section_name"] ?? ""),
                 "open_from_section_id" => (int)($d["open_from_section_id"] ?? 0),
                 "open_route_id" => (int)($d["any_open_route_id"] ?? 0),
+                "my_open_route_id" => (int)($d["my_open_route_id"] ?? 0),
                 "open_route_count" => $openCount,
 
                 "movement_text" => $movementText,
@@ -1788,6 +1817,7 @@ function documentsUrl(array $overrides = []): string {
 
                 "current_holder_section_id" => (int)($d["current_holder_section_id"] ?? 0),
                 "current_status" => (string)($d["current_status"] ?? "ACTIVE"),
+                "last_end_here_kind" => (string)($d["last_end_here_kind"] ?? ""),
                 "days_stuck" => $days,
                 "acting_principal_user_id" => $assistantModeEnabled ? (int)($activeAssistantPrincipal['id'] ?? 0) : 0,
               ], JSON_UNESCAPED_UNICODE),
@@ -2087,6 +2117,8 @@ $end   = min($totalPages, $page + 2);
       <button type="button" class="btnSecondary" id="btnToggleForward">Forward</button>
 
       <button id="btnAckReceived" class="btnGreen" type="button" style="display:none;">Received</button>
+      <button id="btnEndHere" class="btnComp" type="button" style="display:none;">End Here</button>
+      <button id="btnUndoEndHere" class="btnSecondary" type="button" style="display:none;">Reopen Lifecycle</button>
       <button id="btnRelease" class="btnGreen" type="button" style="display:none;">Release</button>
       <button id="btnArchive" class="btnComp" type="button" style="display:none;">Archive</button>
     </div>
@@ -2185,6 +2217,33 @@ $end   = min($totalPages, $page + 2);
     <div class="modalFooter">
       <button id="btnReleaseCancel" type="button" class="btnSecondary">Cancel</button>
       <button id="btnReleaseConfirm" type="button" class="btnGreen">Confirm release</button>
+    </div>
+  </div>
+</div>
+
+<div id="endHereModal" class="modalWrap" aria-hidden="true">
+  <div id="endHereModalBackdrop" class="modalBackdrop"></div>
+  <div class="modalCard forwardModalCard">
+    <div class="modalHeader">
+      <div>
+        <h3 id="endHereModalTitle">End document lifecycle?</h3>
+        <div class="attSub mini" id="endHereModalSub">This stops routing for the selected lane. Use this only if no further action or forwarding is needed.</div>
+      </div>
+      <button id="endHereModalClose" class="modalClose" type="button">x</button>
+    </div>
+
+    <div class="modalBody forwardModalBody">
+      <div class="drawerActionRemarks">
+        <label for="d_end_here_remarks" class="drawerActionRemarksLabel">Final note (optional)</label>
+        <textarea id="d_end_here_remarks" class="search drawerActionRemarksInput" rows="3" placeholder="Add a short final note if needed"></textarea>
+      </div>
+
+      <div id="endHereModalMsg" class="modalMsg" style="display:none;"></div>
+    </div>
+
+    <div class="modalFooter">
+      <button id="btnEndHereCancel" type="button" class="btnSecondary">Cancel</button>
+      <button id="btnEndHereConfirm" type="button" class="btnComp">End lifecycle</button>
     </div>
   </div>
 </div>

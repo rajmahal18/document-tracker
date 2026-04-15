@@ -261,6 +261,7 @@
 /* Keep modals opened from the documents drawer above the drawer layer. */
 #forwardModal .modalBackdrop,
 #releaseModal .modalBackdrop,
+#endHereModal .modalBackdrop,
 #attModal .attBackdrop,
 #recModal .attBackdrop {
   z-index: 2320;
@@ -268,6 +269,7 @@
 
 #forwardModal .modalCard,
 #releaseModal .modalCard,
+#endHereModal .modalCard,
 #attModal .attDialog,
 #recModal .attDialog {
   z-index: 2330;

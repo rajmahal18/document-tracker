@@ -75,8 +75,19 @@
 
   const btnUnderAction = document.getElementById("btnUnderAction");
   const btnAckReceived = document.getElementById("btnAckReceived");
+  const btnEndHere = document.getElementById("btnEndHere");
+  const btnUndoEndHere = document.getElementById("btnUndoEndHere");
   const btnRelease = document.getElementById("btnRelease");
   const btnArchive = document.getElementById("btnArchive");
+  const endHereModal = document.getElementById("endHereModal");
+  const endHereModalBackdrop = document.getElementById("endHereModalBackdrop");
+  const endHereModalClose = document.getElementById("endHereModalClose");
+  const endHereModalTitle = document.getElementById("endHereModalTitle");
+  const endHereModalSub = document.getElementById("endHereModalSub");
+  const endHereModalMsg = document.getElementById("endHereModalMsg");
+  const elEndHereRemarks = document.getElementById("d_end_here_remarks");
+  const btnEndHereCancel = document.getElementById("btnEndHereCancel");
+  const btnEndHereConfirm = document.getElementById("btnEndHereConfirm");
 
   const selForwardTo = document.getElementById("f_to_section");
   const elUserList = document.getElementById("f_user_list");
@@ -115,6 +126,7 @@
   let currentBranches = [];
   let currentBranchId = 0;
   let currentPendingRemarksState = null;
+  let currentEndHereMode = "end";
   const pendingRemarkLocalEvents = new Map();
   let deadlineTicker = null;
 
@@ -478,6 +490,10 @@
       pending_remarks_added: "Pending Remarks Added",
       pending_remarks_updated: "Pending Remarks Updated",
       pending_remarks_cleared: "Pending Remarks Cleared",
+      branch_ended_here: "Lifecycle Ended",
+      branch_end_here_undone: "Lifecycle Reopened",
+      document_ended_here: "Lifecycle Ended",
+      document_end_here_undone: "Lifecycle Reopened",
       cancelled: "Cancelled",
       under_action: "Under Action",
       updated: "Updated",
@@ -497,6 +513,10 @@
       pending_remarks_added: "✎",
       pending_remarks_updated: "✎",
       pending_remarks_cleared: "⌫",
+      branch_ended_here: "■",
+      branch_end_here_undone: "↩",
+      document_ended_here: "■",
+      document_end_here_undone: "↩",
       released: "⤴",
       release_undone: "↩",
       archived: "⧉",
@@ -807,6 +827,7 @@
     refreshDrawerBranchContext();
     syncAttachmentButtonVisibility();
     updateForwardUI();
+    syncEndHereButtons();
     if (currentPayload?.id) {
       loadAttachments(currentPayload.id);
       loadPendingRouteRemarks(currentPayload.id, currentBranchId);
@@ -944,6 +965,51 @@
     }
 
     updateForwardModeUI();
+  }
+
+  function getEndHereBranchState() {
+    const branch = currentBranchMode ? getSelectedBranch() : null;
+    return {
+      branch,
+      canEnd: !!(branch && Number(branch.can_forward || 0) === 1),
+      canUndo: !!(branch && Number(branch.can_undo_end_here || 0) === 1),
+    };
+  }
+
+  function isLifecycleEndedKind(kind) {
+    return ["branch_ended_here", "document_ended_here"].includes((kind || "").toString());
+  }
+
+  function syncEndHereButtons(options = {}) {
+    const docStatus = ((currentPayload?.current_status || "ACTIVE").toString().toUpperCase());
+    const flatActionable = Number(currentPayload?.my_has_actionable_role || 0) === 1;
+    const flatLifecycle = Number(currentPayload?.my_can_change_lifecycle || 0) === 1;
+    const lastEndKind = (currentPayload?.last_end_here_kind || "").toString();
+    const isPrivileged = ((window.__CTX__?.myRole || "user").toString().toLowerCase() === "admin");
+    const branchState = getEndHereBranchState();
+
+    let showEnd = false;
+    let showUndo = false;
+
+    if (currentBranchMode) {
+      showEnd = docStatus === "ACTIVE" && branchState.canEnd;
+      showUndo = branchState.canUndo;
+    } else {
+      showEnd = docStatus === "ACTIVE" && flatActionable;
+      showUndo = docStatus === "RELEASED" && flatLifecycle && isLifecycleEndedKind(lastEndKind);
+    }
+
+    if (btnEndHere) btnEndHere.style.display = showEnd ? "" : "none";
+    if (btnUndoEndHere) btnUndoEndHere.style.display = showUndo ? "" : "none";
+
+    if (!options.keepModal && !showEnd && !showUndo) {
+      closeEndHereModal();
+    }
+
+    if (isPrivileged && !currentBranchMode && docStatus === "ACTIVE") {
+      // Admin keeps Release/Archive as administrative lifecycle actions; End Here is for the active holder.
+      if (btnEndHere) btnEndHere.style.display = flatActionable ? "" : "none";
+    }
   }
 
   function loadSectionsOptions() {
@@ -2062,7 +2128,10 @@
     const flatActionableByMe = Number(payload.my_has_actionable_role || 0) === 1;
     const flatLifecycleByMe = Number(payload.my_can_change_lifecycle || 0) === 1;
 
+    const myOpenRouteId = Number.parseInt(payload.my_open_route_id || "0", 10) || 0;
+
     const canAckReceived = (!currentBranchMode && inTransit && (
+      myOpenRouteId > 0 ||
       (openToUserId > 0 && myUserId > 0 && openToUserId === myUserId) ||
       (openToUserId === 0 && isChief && openToSectionId > 0 && mySectionId > 0 && openToSectionId === mySectionId)
     ));
@@ -2095,6 +2164,8 @@
     updateForwardModeUI();
 
     if (btnAckReceived) btnAckReceived.style.display = "none";
+    if (btnEndHere) btnEndHere.style.display = "none";
+    if (btnUndoEndHere) btnUndoEndHere.style.display = "none";
     if (btnRelease) btnRelease.style.display = "none";
     if (btnArchive) btnArchive.style.display = "none";
     if (btnUnderAction) btnUnderAction.style.display = "none";
@@ -2127,9 +2198,11 @@
         btnRelease.textContent = "Undo Release";
         btnRelease.dataset.nextStatus = "ACTIVE";
       }
-      if (isPrivileged || (!currentBranchMode && flatLifecycleByMe)) {
+      const releasedByEndHere = isLifecycleEndedKind(payload.last_end_here_kind || "");
+      if (!releasedByEndHere && (isPrivileged || (!currentBranchMode && flatLifecycleByMe))) {
         if (btnRelease) btnRelease.style.display = "";
       }
+      syncEndHereButtons();
       syncToggleLabels();
       return;
     }
@@ -2140,6 +2213,7 @@
       }
       if (btnRelease) btnRelease.style.display = "";
       if (btnArchive) btnArchive.style.display = "";
+      syncEndHereButtons();
       syncToggleLabels();
       return;
     }
@@ -2152,10 +2226,11 @@
       }
 
       if (flatActionableByMe) {
-        if (btnRelease) btnRelease.style.display = "";
+        if (btnEndHere) btnEndHere.style.display = "";
       }
     }
 
+    syncEndHereButtons();
     syncToggleLabels();
   }
 
@@ -2179,6 +2254,7 @@
     if (elBranchWrap) elBranchWrap.style.display = "none";
     if (elBranchSelect) elBranchSelect.innerHTML = "";
     if (elBranchMeta) elBranchMeta.textContent = "";
+    closeEndHereModal();
     closeReleaseModal();
     closeForwardModal();
   }
@@ -2227,6 +2303,90 @@
     }
   }
 
+  function openEndHereModal(mode = "end") {
+    if (!endHereModal) return;
+    currentEndHereMode = mode === "undo" ? "undo" : "end";
+    if (elEndHereRemarks) elEndHereRemarks.value = "";
+    if (endHereModalMsg) {
+      endHereModalMsg.textContent = "";
+      endHereModalMsg.className = "modalMsg";
+      endHereModalMsg.style.display = "none";
+    }
+
+    if (endHereModalTitle) {
+      endHereModalTitle.textContent = currentEndHereMode === "undo" ? "Reopen document lifecycle?" : "End document lifecycle?";
+    }
+    if (endHereModalSub) {
+      endHereModalSub.textContent = currentEndHereMode === "undo"
+        ? "This will reopen the selected lane and put the document back with you for action."
+        : "This stops routing for the selected lane. Use this only if no further action or forwarding is needed.";
+    }
+    if (btnEndHereConfirm) {
+      btnEndHereConfirm.textContent = currentEndHereMode === "undo" ? "Reopen lifecycle" : "End lifecycle";
+    }
+
+    endHereModal.classList.add("open");
+    endHereModal.setAttribute("aria-hidden", "false");
+    elEndHereRemarks?.focus();
+  }
+
+  function closeEndHereModal() {
+    if (!endHereModal) return;
+    endHereModal.classList.remove("open");
+    endHereModal.setAttribute("aria-hidden", "true");
+  }
+
+  async function submitEndHere() {
+    const docId = elId?.value;
+    if (!docId) return;
+
+    const branch = currentBranchMode ? getSelectedBranch() : null;
+    const form = appendActingPrincipal(new FormData(), currentPayload);
+    form.append("document_id", docId);
+    form.append("mode", currentEndHereMode === "undo" ? "undo" : "end");
+    if (currentBranchMode && Number(branch?.id || 0) > 0) {
+      form.append("branch_id", String(Number(branch.id || 0)));
+    }
+    form.append("remarks", (elEndHereRemarks?.value || "").toString().trim());
+    form.append("csrf_token", window.__CSRF__ || "");
+
+    if (btnEndHereConfirm) btnEndHereConfirm.disabled = true;
+
+    try {
+      const res = await fetch(`${API}/end_here.php`, {
+        method: "POST",
+        body: form,
+        headers: { Accept: "application/json" }
+      });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        const message = data?.error || `Failed to update End Here. (${res.status})`;
+        if (endHereModalMsg) {
+          endHereModalMsg.textContent = message;
+          endHereModalMsg.className = "modalMsg error";
+          endHereModalMsg.style.display = "";
+        }
+        window.DTToast?.error(message) || console.warn(message);
+        return;
+      }
+
+      const selectedBranchBefore = currentBranchMode ? Number(branch?.id || 0) : 0;
+      saveDrawerRestoreState(docId, selectedBranchBefore);
+      location.reload();
+    } catch {
+      const message = "Failed to update End Here (network error).";
+      if (endHereModalMsg) {
+        endHereModalMsg.textContent = message;
+        endHereModalMsg.className = "modalMsg error";
+        endHereModalMsg.style.display = "";
+      }
+      window.DTToast?.error(message) || console.warn(message);
+    } finally {
+      if (btnEndHereConfirm) btnEndHereConfirm.disabled = false;
+    }
+  }
+
   async function ackReceived() {
     const docId = elId?.value;
     if (!docId) return;
@@ -2237,7 +2397,7 @@
     const selectedBranchBefore = currentBranchMode ? Number(branch?.id || 0) : 0;
     const routeId = currentBranchMode
       ? (Number.parseInt(branch?.my_pending_route_id || "0", 10) || 0)
-      : (Number.parseInt(currentPayload?.open_route_id || "0", 10) || 0);
+      : (Number.parseInt(currentPayload?.my_open_route_id || currentPayload?.open_route_id || "0", 10) || 0);
     if (routeId > 0) form.append("route_id", String(routeId));
     form.append("remarks", "");
     form.append("csrf_token", window.__CSRF__ || "");
@@ -2525,6 +2685,12 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
   btnReleaseCancel?.addEventListener("click", closeReleaseModal);
   releaseModalBackdrop?.addEventListener("click", closeReleaseModal);
   btnReleaseConfirm?.addEventListener("click", confirmRelease);
+  btnEndHere?.addEventListener("click", () => openEndHereModal("end"));
+  btnUndoEndHere?.addEventListener("click", () => openEndHereModal("undo"));
+  endHereModalClose?.addEventListener("click", closeEndHereModal);
+  btnEndHereCancel?.addEventListener("click", closeEndHereModal);
+  endHereModalBackdrop?.addEventListener("click", closeEndHereModal);
+  btnEndHereConfirm?.addEventListener("click", submitEndHere);
 
   btnAckReceived?.addEventListener("click", ackReceived);
   btnEditPendingRemarks?.addEventListener("click", () => setPendingRemarksEditing(true));

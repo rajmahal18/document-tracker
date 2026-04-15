@@ -361,6 +361,7 @@ function workflow_get_branch_state(mysqli $conn, int $documentId, int $viewerUse
         b.is_reference,
         b.current_assignee_user_id,
         b.current_assignee_section_id,
+        b.completed_by_user_id,
         b.created_at,
         b.updated_at,
         u.full_name AS current_assignee_name,
@@ -408,6 +409,7 @@ function workflow_get_branch_state(mysqli $conn, int $documentId, int $viewerUse
         $row['is_reference'] = ((int)($row['is_reference'] ?? 0) === 1) ? 1 : 0;
         $row['current_assignee_user_id'] = (int)($row['current_assignee_user_id'] ?? 0);
         $row['current_assignee_section_id'] = (int)($row['current_assignee_section_id'] ?? 0);
+        $row['completed_by_user_id'] = (int)($row['completed_by_user_id'] ?? 0);
         $row['open_action_route_count'] = (int)($row['open_action_route_count'] ?? 0);
         $row['my_pending_route_id'] = (int)($row['my_pending_route_id'] ?? 0);
 
@@ -416,6 +418,13 @@ function workflow_get_branch_state(mysqli $conn, int $documentId, int $viewerUse
             && (int)$row['is_reference'] === 0
             && (int)$row['current_assignee_user_id'] === $viewerUserId
             && (int)$row['my_pending_route_id'] === 0
+            && (int)$row['open_action_route_count'] === 0
+        ) ? 1 : 0;
+
+        $row['can_undo_end_here'] = (
+            strtoupper((string)($row['branch_status'] ?? '')) === 'COMPLETED'
+            && (int)$row['is_reference'] === 0
+            && (int)$row['completed_by_user_id'] === $viewerUserId
             && (int)$row['open_action_route_count'] === 0
         ) ? 1 : 0;
     }
@@ -455,8 +464,10 @@ function workflow_get_branch_state(mysqli $conn, int $documentId, int $viewerUse
 
         if (
             (int)($row['current_assignee_user_id'] ?? 0) === $viewerUserId
+            || (int)($row['completed_by_user_id'] ?? 0) === $viewerUserId
             || (int)($row['my_pending_route_id'] ?? 0) > 0
             || (int)($row['can_forward'] ?? 0) === 1
+            || (int)($row['can_undo_end_here'] ?? 0) === 1
         ) {
             $viewerBranches[$bid] = true;
         }
