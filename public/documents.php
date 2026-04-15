@@ -715,6 +715,8 @@ $sql = "
     rr_latest.latest_remark_from_user_id,
     rr_latest.latest_remark_to_user_id,
     rr_latest.latest_remark_received_by_user_id,
+    rr_latest.latest_remark_to_section_id,
+    rr_latest.latest_remark_from_section_id,
 
     -- last holder (fallback when not in transit)
     sf_last.name AS last_holder_name,
@@ -1195,6 +1197,7 @@ if ($docIdsOnPage !== []) {
       $docRowId = (int)($docRow['id'] ?? 0);
       if ($docRowId > 0 && isset($latestRemarksByDocId[$docRowId])) {
         $docRow['latest_route_remark'] = $latestRemarksByDocId[$docRowId];
+        $docRow['latest_remark_visible_to_me'] = 1;
       }
     }
     unset($docRow);
@@ -1749,7 +1752,9 @@ function documentsUrl(array $overrides = []): string {
             $latestRemarkVisibleToMe = false;
             if ($latestRemarkText !== "") {
               $latestRemarkVisibleToMe = (
-                (int)($d["latest_remark_sent_by_user_id"] ?? 0) === $myUserId
+                !empty($d["latest_remark_visible_to_me"])
+                || $isPrivileged
+                || (int)($d["latest_remark_sent_by_user_id"] ?? 0) === $myUserId
                 || (int)($d["latest_remark_from_user_id"] ?? 0) === $myUserId
                 || (int)($d["latest_remark_to_user_id"] ?? 0) === $myUserId
                 || (int)($d["latest_remark_received_by_user_id"] ?? 0) === $myUserId
