@@ -362,7 +362,11 @@ function generate_document_tracking_no(mysqli $conn, ?DateTimeImmutable $now = n
   return sprintf('DOC-%04d-%05d', $year, $nextNumber);
 }
 
-$pageTitle = "Add Document";
+$editDocumentId = (int)($_POST["edit_id"] ?? $_GET["edit_id"] ?? 0);
+$editDocument = null;
+$editMode = false;
+$editAccessError = "";
+$pageTitle = $editDocumentId > 0 ? "Edit Document" : "Add Document";
 $error = "";
 
 // ✅ Must be logged in only.
@@ -504,6 +508,80 @@ function normalize_deadline_input(?string $raw): ?string
   return $dt->setTime(23, 59, 59)->format("Y-m-d H:i:s");
 }
 
+if ($editDocumentId > 0) {
+  $stmt = $conn->prepare("
+    SELECT
+      d.id,
+      d.tracking_no,
+      d.requester,
+      d.document_date,
+      d.deadline_at,
+      d.subject,
+      d.content_type,
+      d.comm_type,
+      d.current_status,
+      d.origin_section_id,
+      d.current_holder_section_id,
+      d.created_by_user_id,
+      COALESCE(ddt.tracking_no, '') AS division_tracking_no,
+      (
+        SELECT COUNT(*)
+        FROM routes r
+        WHERE r.document_id = d.id
+      ) AS route_count,
+      (
+        SELECT COUNT(*)
+        FROM document_branches b
+        WHERE b.document_id = d.id
+      ) AS branch_count
+    FROM documents d
+    LEFT JOIN document_division_tracking ddt
+      ON ddt.document_id = d.id
+     AND ddt.division_id = ?
+    WHERE d.id = ?
+    LIMIT 1
+  ");
+  $stmt->bind_param("ii", $myDivisionId, $editDocumentId);
+  $stmt->execute();
+  $editDocument = $stmt->get_result()->fetch_assoc() ?: null;
+
+  if (!$editDocument) {
+    $editAccessError = "Document not found.";
+  } else {
+    $createdBy = (int)($editDocument["created_by_user_id"] ?? 0);
+    $routeCount = (int)($editDocument["route_count"] ?? 0);
+    $branchCount = (int)($editDocument["branch_count"] ?? 0);
+    $status = strtoupper((string)($editDocument["current_status"] ?? ""));
+    $canEditOwner = ($roleNorm === "admin" || $createdBy === $userId);
+
+    if (!$canEditOwner) {
+      $editAccessError = "Only the creator or an admin can edit this document.";
+    } elseif ($status !== "ACTIVE") {
+      $editAccessError = "Only active documents can be edited.";
+    } elseif ($routeCount > 0 || $branchCount > 0) {
+      $editAccessError = "This document has already been routed, so its details are locked.";
+    } else {
+      $editMode = true;
+    }
+  }
+
+  if ($editAccessError !== "" && $error === "") {
+    $error = $editAccessError;
+  }
+}
+
+if ($editMode && $_SERVER["REQUEST_METHOD"] !== "POST") {
+  $_POST["requester"] = (string)($editDocument["requester"] ?? "");
+  $_POST["document_date"] = (string)($editDocument["document_date"] ?? $defaultDocDate);
+  $_POST["deadline_at"] = trim((string)($editDocument["deadline_at"] ?? "")) !== ""
+    ? date("Y-m-d", strtotime((string)$editDocument["deadline_at"]))
+    : "";
+  $_POST["subject"] = (string)($editDocument["subject"] ?? "");
+  $_POST["content_type"] = (string)($editDocument["content_type"] ?? "");
+  $_POST["comm_type"] = (string)($editDocument["comm_type"] ?? "internal");
+  $_POST["division_tracking_no"] = (string)($editDocument["division_tracking_no"] ?? "");
+}
+
 if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   if (($_POST["remove_saved_attachment"] ?? "") === "1") {
     clear_saved_temp_attachment();
@@ -528,19 +606,22 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   if (!in_array($creationMode, ["review", "route_now"], true)) {
     $creationMode = "route_now";
   }
+  if ($editMode) {
+    $creationMode = "review";
+  }
   $routeOnCreate = ($creationMode === "route_now");
   $selectedSectionId = (int)($_POST["to_section_id"] ?? 0); // picker only
 
   $fileErrorCode = (int)($_FILES["attach_file"]["error"] ?? UPLOAD_ERR_NO_FILE);
-  if ($fileErrorCode === UPLOAD_ERR_OK) {
+  if (!$editMode && $fileErrorCode === UPLOAD_ERR_OK) {
     try {
       stash_uploaded_attachment($_FILES["attach_file"], $userId);
     } catch (Throwable $e) {
       $error = $e->getMessage();
     }
-  } elseif ($fileErrorCode !== UPLOAD_ERR_NO_FILE) {
+  } elseif (!$editMode && $fileErrorCode !== UPLOAD_ERR_NO_FILE) {
     $error = attachment_upload_error_message($fileErrorCode);
-  } elseif (get_saved_temp_attachment() !== null) {
+  } elseif (!$editMode && get_saved_temp_attachment() !== null) {
     $saved = get_saved_temp_attachment();
     if (is_array($saved)) {
       $saved["note"] = trim((string)($_POST["attach_note"] ?? ""));
@@ -649,6 +730,127 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   } elseif (!$routeOnCreate && $genChoice === "transmittal") {
     $error = "Transmittal Memo needs a destination. Choose Save and route now, or generate a division tracking slip instead.";
   } else {
+    if ($editMode) {
+      $txStarted = false;
+      $txCommitted = false;
+
+      try {
+        $conn->begin_transaction();
+        $txStarted = true;
+
+        $stmtLock = $conn->prepare("
+          SELECT
+            d.created_by_user_id,
+            d.current_status,
+            (
+              SELECT COUNT(*)
+              FROM routes r
+              WHERE r.document_id = d.id
+            ) AS route_count,
+            (
+              SELECT COUNT(*)
+              FROM document_branches b
+              WHERE b.document_id = d.id
+            ) AS branch_count
+          FROM documents d
+          WHERE d.id = ?
+          FOR UPDATE
+        ");
+        $stmtLock->bind_param("i", $editDocumentId);
+        $stmtLock->execute();
+        $lockRow = $stmtLock->get_result()->fetch_assoc();
+        if (!$lockRow) {
+          throw new RuntimeException("Document not found.");
+        }
+
+        $createdBy = (int)($lockRow["created_by_user_id"] ?? 0);
+        $canEditOwner = ($roleNorm === "admin" || $createdBy === $userId);
+        if (!$canEditOwner) {
+          throw new RuntimeException("Only the creator or an admin can edit this document.");
+        }
+        if (strtoupper((string)($lockRow["current_status"] ?? "")) !== "ACTIVE") {
+          throw new RuntimeException("Only active documents can be edited.");
+        }
+        if ((int)($lockRow["route_count"] ?? 0) > 0 || (int)($lockRow["branch_count"] ?? 0) > 0) {
+          throw new RuntimeException("This document has already been routed, so its details are locked.");
+        }
+
+        $stmt = $conn->prepare("
+          UPDATE documents
+          SET requester = ?,
+              document_date = ?,
+              deadline_at = ?,
+              subject = ?,
+              content_type = ?,
+              comm_type = ?,
+              updated_at = NOW()
+          WHERE id = ?
+          LIMIT 1
+        ");
+        $stmt->bind_param(
+          "ssssssi",
+          $requester,
+          $document_date,
+          $deadlineAt,
+          $subject,
+          $content_type,
+          $comm_type,
+          $editDocumentId
+        );
+        $stmt->execute();
+
+        if ($hasOwnDivisionSlip && $myDivisionId > 0 && $divisionTrackingInput !== "") {
+          upsert_document_division_tracking(
+            $conn,
+            $editDocumentId,
+            $myDivisionId,
+            $divisionTrackingInput,
+            $userId,
+            strtoupper(trim($divisionTrackingInput)) !== strtoupper(trim((string)($editDocument["division_tracking_no"] ?? "")))
+          );
+        }
+
+        $payloadUpdated = json_encode([
+          "kind" => "document_details_updated",
+          "tracking_no" => (string)($editDocument["tracking_no"] ?? ""),
+          "subject" => $subject,
+        ], JSON_UNESCAPED_UNICODE);
+
+        $stmt = $conn->prepare("
+          INSERT INTO document_events
+            (document_id, event_type, actor_user_id, actor_section_id, payload_json)
+          VALUES (?, 'updated', ?, ?, ?)
+        ");
+        $stmt->bind_param("iiis", $editDocumentId, $userId, $fromSectionId, $payloadUpdated);
+        $stmt->execute();
+
+        $conn->commit();
+        $txCommitted = true;
+
+        $_SESSION["documents_created_flash"] = [
+          "doc_id" => $editDocumentId,
+          "tracking_no" => (string)($editDocument["tracking_no"] ?? ""),
+          "message" => "Document details updated.",
+          "created_at" => time(),
+        ];
+
+        $documentsRedirect = PUBLIC_PATH . "/documents.php?sort=newest&page=1";
+        if ($assistantModeEnabled && $actingPrincipalUserId > 0) {
+          $documentsRedirect .= "&view=assistant&acting_principal_user_id=" . $actingPrincipalUserId;
+        }
+        redirect($documentsRedirect);
+      } catch (Throwable $e) {
+        try {
+          if ($txStarted && !$txCommitted && isset($conn) && $conn instanceof mysqli && @$conn->ping()) {
+            $conn->rollback();
+          }
+        } catch (Throwable $rollbackError) {
+          // Ignore rollback failure
+        }
+
+        $error = "Failed to update document: " . $e->getMessage();
+      }
+    } else {
     // Build final recipient map from destination modes.
     $finalRecipientMap = [];
 
@@ -1272,6 +1474,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         $error = "Failed to add document: " . $e->getMessage();
       }
     }
+    }
   }
 }
 
@@ -1314,12 +1517,30 @@ require __DIR__ . "/../includes/layout.php";
   </div>
 <?php endif; ?>
 
+<?php if ($editDocumentId > 0 && !$editMode): ?>
+  <div class="card docFormCard addDocumentPage" style="max-width:760px;margin-top:14px;">
+    <div class="docFormHead addDocHeader">
+      <div>
+        <div class="addDocEyebrow">Document Correction</div>
+        <h2 style="margin:6px 0 0;">Details Locked</h2>
+        <div class="mini addDocLead">This document can no longer be edited from intake.</div>
+      </div>
+    </div>
+    <div class="docActions addDocActions">
+      <a href="<?= PUBLIC_PATH ?>/documents.php" class="btnGhost" style="text-decoration:none;">Back to Documents</a>
+    </div>
+  </div>
+<?php else: ?>
 <div class="card docFormCard addDocumentPage" style="max-width:1040px;margin-top:14px;">
   <div class="docFormHead addDocHeader">
     <div>
-      <div class="addDocEyebrow">Document Intake</div>
-      <h2 style="margin:6px 0 0;">Add New Document</h2>
-      <div class="mini addDocLead">Fill in the basic details first, then choose destinations and optional auto-generated files.</div>
+      <div class="addDocEyebrow"><?= $editMode ? "Document Correction" : "Document Intake" ?></div>
+      <h2 style="margin:6px 0 0;"><?= $editMode ? "Edit Document Details" : "Add New Document" ?></h2>
+      <div class="mini addDocLead">
+        <?= $editMode
+          ? "Correct the document details before it is routed. Tracking number stays unchanged."
+          : "Fill in the basic details first, then choose destinations and optional auto-generated files." ?>
+      </div>
     </div>
     <div class="addDocRequiredNote">
       Fields with <b>*</b> are required
@@ -1327,12 +1548,15 @@ require __DIR__ . "/../includes/layout.php";
   </div>
 
   <form method="POST" enctype="multipart/form-data" class="docFormGrid addDocForm" data-remove-saved-attachment-url="<?= API_PATH ?>/remove_saved_attachment.php">
+    <?php if ($editMode): ?>
+      <input type="hidden" name="edit_id" value="<?= (int)$editDocumentId ?>">
+    <?php endif; ?>
     <?php if ($assistantModeEnabled && $actingPrincipalUserId > 0): ?>
       <input type="hidden" name="acting_principal_user_id" value="<?= (int)$actingPrincipalUserId ?>">
     <?php endif; ?>
     <input type="hidden" name="remove_saved_attachment" value="0" id="removeSavedAttachmentInput">
     <input type="hidden" name="destination_builder_contract" value="0" id="destinationBuilderContractInput">
-    <?php $postedCreationMode = (string)($_POST["creation_mode_choice"] ?? $_POST["creation_mode"] ?? "route_now"); ?>
+    <?php $postedCreationMode = $editMode ? "review" : (string)($_POST["creation_mode_choice"] ?? $_POST["creation_mode"] ?? "route_now"); ?>
     <input type="hidden" name="creation_mode" value="<?= htmlspecialchars($postedCreationMode) ?>" id="creationModeInput">
 
     <section class="addDocSection addDocSection-basic span2">
@@ -1415,9 +1639,23 @@ require __DIR__ . "/../includes/layout.php";
             <option value="external" <?= (($_POST["comm_type"] ?? "") === "external") ? "selected" : "" ?>>External</option>
           </select>
         </div>
+
+        <?php if ($editMode && $hasOwnDivisionSlip): ?>
+          <div class="authField">
+            <label>Own Division Tracking Number</label>
+            <input
+              type="text"
+              name="division_tracking_no"
+              value="<?= htmlspecialchars($_POST["division_tracking_no"] ?? "") ?>"
+              placeholder="<?= htmlspecialchars($ownDivisionTrackingPreview) ?>"
+            >
+            <div class="mini">Format: <?= htmlspecialchars($myDivisionCode) ?> MMDDYYNN.</div>
+          </div>
+        <?php endif; ?>
       </div>
     </section>
 
+    <?php if (!$editMode): ?>
     <section class="addDocSection span2">
       <div class="addDocSectionHead">
         <div>
@@ -1596,17 +1834,27 @@ require __DIR__ . "/../includes/layout.php";
       <div class="mini" style="margin-top:6px;">If saving fails, the uploaded file is now preserved for retry on this page.</div>
     </div>
 
+    <?php endif; ?>
+
     <div class="docActions span2 addDocActions">
+      <?php if ($editMode): ?>
+        <button type="submit" class="btnComp">Save Changes</button>
+      <?php else: ?>
       <button type="submit" class="btnComp" data-creation-mode-submit="route_now" id="btnSubmitRouteNow">Save and Route Now</button>
       <button type="submit" class="btnSecondary" data-creation-mode-submit="review" id="btnSubmitReview">Save for Principal Review</button>
+      <?php endif; ?>
       <a href="<?= PUBLIC_PATH ?>/documents.php" class="btnGhost" style="text-decoration:none;">Cancel</a>
     </div>
+    <?php if (!$editMode): ?>
     </section>
+    <?php endif; ?>
   </form>
 </div>
+<?php endif; ?>
 
 <script>
   window.addDocumentConfig = <?= json_encode([
+    "editMode" => $editMode,
     "hasOwnDivisionSlip" => $hasOwnDivisionSlip,
     "apiPath" => API_PATH,
     "sectionLabels" => $sectionLabelMap,

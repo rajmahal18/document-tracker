@@ -39,6 +39,8 @@
 
   const elAttachments = document.getElementById("d_attachments");
   const btnViewDocument = document.getElementById("btnViewDocument");
+  const rowEditDocumentDetails = document.getElementById("rowEditDocumentDetails");
+  const btnEditDocumentDetails = document.getElementById("btnEditDocumentDetails");
 
   const rowPpdSlip = document.getElementById("rowPpdSlip");
   const btnPpdSlipGenerate = document.getElementById("btnPpdSlipGenerate");
@@ -2037,6 +2039,13 @@
       }
     }
 
+    if (rowEditDocumentDetails && btnEditDocumentDetails) {
+      const canEditDetails = Number(payload.can_edit_details || 0) === 1;
+      const docId = payload.id || "";
+      rowEditDocumentDetails.style.display = (canEditDetails && docId) ? "" : "none";
+      btnEditDocumentDetails.dataset.docId = canEditDetails ? String(docId || "") : "";
+    }
+
     if (rowPpdSlip) {
       const hasOwnDivisionSlip = !!APP.hasOwnDivisionSlip;
       const docId = payload.id || "";
@@ -2777,6 +2786,16 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
     }
 
     document.dispatchEvent(new CustomEvent("dt:view_document", { detail: { documentId: docId, branchId: selectedBranchId, actingPrincipalUserId: actingPrincipalId() } }));
+  });
+
+  btnEditDocumentDetails?.addEventListener("click", () => {
+    const docId = btnEditDocumentDetails.dataset.docId || elId?.value || "";
+    if (!docId) return;
+
+    const qs = new URLSearchParams({ edit_id: String(docId) });
+    const actingId = actingPrincipalId();
+    if (actingId > 0) qs.set("acting_principal_user_id", String(actingId));
+    window.location.href = `${APP.public || ""}/add_document.php?${qs.toString()}`;
   });
 
   syncToggleLabels();

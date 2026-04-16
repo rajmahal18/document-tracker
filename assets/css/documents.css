@@ -277,10 +277,19 @@
 
 .docsTableModern {
   width: 100%;
-  min-width: 1100px;
+  min-width: 1180px;
+  table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
 }
+
+.docsColStatus { width: 11%; }
+.docsColDocument { width: 22%; }
+.docsColRoute { width: 21%; }
+.docsColState { width: 10%; }
+.docsColRemark { width: 18%; }
+.docsColDeadline { width: 9%; }
+.docsColRequester { width: 9%; }
 
 .docsTableModern th,
 .docsTableModern td {
@@ -401,17 +410,31 @@
 .requesterName { font-size: 14px; line-height: 1.35; font-weight: 800; color: #101828; }
 .docsEmptyState { padding: 34px 18px !important; text-align: center; color: #667085; }
 
-.latestRemarkCell { min-width: 0; min-height: 48px; justify-content: center; }
+.docsTableModern td[data-label="Latest remark"],
+.docsTableModern th:nth-child(5) {
+  max-width: 0;
+}
+
+.latestRemarkCell {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  justify-content: center;
+}
+
 .latestRemarkText {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   font-size: 12px;
   line-height: 1.45;
   color: #344054;
   font-weight: 600;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
   overflow: hidden;
-  word-break: break-word;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  hyphens: auto;
 }
 
 .latestRemarkCell.hasRemark {

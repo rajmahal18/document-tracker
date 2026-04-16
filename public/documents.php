@@ -118,6 +118,7 @@ $createdDocFlash = $_SESSION["documents_created_flash"] ?? null;
 unset($_SESSION["documents_created_flash"]);
 $createdDocId = is_array($createdDocFlash) ? (int)($createdDocFlash["doc_id"] ?? 0) : 0;
 $createdTrackingNo = is_array($createdDocFlash) ? trim((string)($createdDocFlash["tracking_no"] ?? "")) : "";
+$createdFlashMessage = is_array($createdDocFlash) ? trim((string)($createdDocFlash["message"] ?? "")) : "";
 ?>
 <?php if ($createdDocId > 0): ?>
 <script>
@@ -194,6 +195,7 @@ if (!in_array($sort, $allowedSorts, true)) {
  * Legacy mode = previous section-aware fallback.
  */
 $isPrivileged = ($role === "admin");
+$isPrivilegedInt = $isPrivileged ? 1 : 0;
 if (!$isPrivileged) {
   if ($myUserId <= 0) {
     $where[] = "1=0";
@@ -689,6 +691,22 @@ $sql = "
 
     ro.any_open_route_id,
     COALESCE(ro.open_count, 0) AS open_route_count,
+    CASE
+      WHEN d.current_status = 'ACTIVE'
+       AND ({$isPrivilegedInt} = 1 OR d.created_by_user_id = {$myUid})
+       AND NOT EXISTS (
+         SELECT 1
+         FROM routes r_edit
+         WHERE r_edit.document_id = d.id
+       )
+       AND NOT EXISTS (
+         SELECT 1
+         FROM document_branches b_edit
+         WHERE b_edit.document_id = d.id
+       )
+      THEN 1
+      ELSE 0
+    END AS can_edit_details,
     COALESCE((
       SELECT r_my_open.id
       FROM routes r_my_open
@@ -1551,6 +1569,15 @@ function documentsUrl(array $overrides = []): string {
     </div>
 
     <table class="docTable docsTableModern">
+      <colgroup>
+        <col class="docsColStatus">
+        <col class="docsColDocument">
+        <col class="docsColRoute">
+        <col class="docsColState">
+        <col class="docsColRemark">
+        <col class="docsColDeadline">
+        <col class="docsColRequester">
+      </colgroup>
       <thead>
         <tr>
           <th>My Status</th>
@@ -1820,6 +1847,7 @@ function documentsUrl(array $overrides = []): string {
                 "open_route_id" => (int)($d["any_open_route_id"] ?? 0),
                 "my_open_route_id" => (int)($d["my_open_route_id"] ?? 0),
                 "open_route_count" => $openCount,
+                "can_edit_details" => (int)($d["can_edit_details"] ?? 0),
 
                 "movement_text" => $movementText,
                 "current_holder_text" => $currentHolderText,
@@ -1938,7 +1966,7 @@ function documentsUrl(array $overrides = []): string {
     row.scrollIntoView({ behavior: "smooth", block: "center" });
 
     if (window.DTToast?.success) {
-      window.DTToast.success("Document added successfully.");
+      window.DTToast.success(<?= json_encode($createdFlashMessage !== "" ? $createdFlashMessage : "Document added successfully.") ?>);
     }
   });
 </script>
@@ -2053,6 +2081,10 @@ $end   = min($totalPages, $page + 2);
     <div class="kv"><div class="k">Subject</div><div class="v" id="d_subject"></div></div>
     <div class="kv"><div class="k">Type</div><div class="v" id="d_type"></div></div>
     <div class="kv"><div class="k">Days stuck</div><div class="v" id="d_days"></div></div>
+    <div class="kv" id="rowEditDocumentDetails" style="display:none;">
+      <div class="k">Correction</div>
+      <div class="v"><button type="button" class="btnSecondary" id="btnEditDocumentDetails">Edit details</button></div>
+    </div>
     <div class="kv"><div class="k">Full Document</div><div class="v"><button type="button" class="btnComp" id="btnViewDocument">View document</button></div></div>
     <div class="drawerRow" id="rowPpdSlip" style="display:none;">
       <div class="k" id="rowPpdSlipLabel"><?= htmlspecialchars($ownDivisionSlipLabel !== "" ? $ownDivisionSlipLabel : "Division Tracking Slip") ?></div>

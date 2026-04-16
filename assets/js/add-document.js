@@ -3,6 +3,7 @@
   if (!cfg) return;
 
   const apiPath = String(cfg.apiPath || "");
+  const editMode = !!cfg.editMode;
   const hasOwnDivisionSlip = !!cfg.hasOwnDivisionSlip;
   const sectionLabels = cfg.sectionLabels && typeof cfg.sectionLabels === "object" ? cfg.sectionLabels : {};
   const sectionMeta = cfg.sectionMeta && typeof cfg.sectionMeta === "object" ? cfg.sectionMeta : {};
@@ -42,7 +43,7 @@
 
   let divisionChiefQuickMode = false;
 
-  if (destinationBuilderContractInput) destinationBuilderContractInput.value = "1";
+  if (destinationBuilderContractInput) destinationBuilderContractInput.value = editMode ? "0" : "1";
 
   function selectedCreationMode() {
     const checked = form?.querySelector('input[name="creation_mode_choice"]:checked');
@@ -665,6 +666,7 @@
   });
 
   form?.addEventListener("submit", (event) => {
+    if (editMode) return;
     const submitterMode = event.submitter?.getAttribute?.("data-creation-mode-submit");
     if (submitterMode) syncCreationMode(submitterMode);
     const mode = selectedCreationMode();
