@@ -41,16 +41,69 @@ if (!is_array($myDivision) || !is_supported_division_tracking_code($myDivision['
   exit;
 }
 $divisionId = (int)$myDivision['id'];
-$divisionCode = (string)$myDivision['code'];
+$divisionCode = strtoupper(trim((string)$myDivision['code']));
 $divisionName = (string)$myDivision['name'];
 
-$stmt = $conn->prepare("SELECT d.id, d.tracking_no, d.requester, d.document_date, d.deadline_at, d.subject, d.origin_section_id, d.created_by_user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), '') AS created_by_name FROM documents d LEFT JOIN users u ON u.id = d.created_by_user_id WHERE d.id = ? LIMIT 1");
-$stmt->bind_param('i', $docId);
+$roleNorm = strtolower(trim((string)($identity["effective_role"] ?? ($_SESSION["role"] ?? "user"))));
+
+$stmt = $conn->prepare("
+  SELECT
+    d.id,
+    d.tracking_no,
+    d.requester,
+    d.document_date,
+    d.deadline_at,
+    d.subject,
+    d.origin_section_id,
+    d.current_holder_section_id,
+    d.created_by_user_id,
+    COALESCE(NULLIF(TRIM(u.full_name), ''), '') AS created_by_name,
+    EXISTS (
+      SELECT 1
+      FROM routes r_open
+      WHERE r_open.document_id = d.id
+        AND r_open.received_at IS NULL
+        AND r_open.cancelled_at IS NULL
+        AND (
+          r_open.to_user_id = ?
+          OR r_open.to_section_id = ?
+        )
+    ) AS has_open_route_for_me,
+    EXISTS (
+      SELECT 1
+      FROM document_branches b_holder
+      WHERE b_holder.document_id = d.id
+        AND b_holder.branch_status = 'ACTIVE'
+        AND (
+          b_holder.current_assignee_user_id = ?
+          OR b_holder.current_assignee_section_id = ?
+        )
+    ) AS has_branch_holder_for_me
+  FROM documents d
+  LEFT JOIN users u ON u.id = d.created_by_user_id
+  WHERE d.id = ?
+  LIMIT 1
+");
+$stmt->bind_param('iiiii', $userId, $mySectionId, $userId, $mySectionId, $docId);
 $stmt->execute();
 $doc = $stmt->get_result()->fetch_assoc();
 if (!$doc) {
   http_response_code(404);
   echo json_encode(["ok" => false, "error" => "Document not found"]);
+  exit;
+}
+
+$canRegenerate = (
+  $roleNorm === 'admin'
+  || (int)($doc['created_by_user_id'] ?? 0) === $userId
+  || (int)($doc['current_holder_section_id'] ?? 0) === $mySectionId
+  || (int)($doc['has_open_route_for_me'] ?? 0) === 1
+  || (int)($doc['has_branch_holder_for_me'] ?? 0) === 1
+);
+
+if (!$canRegenerate) {
+  http_response_code(403);
+  echo json_encode(["ok" => false, "error" => "Only the origin, current holder, or admin can regenerate this slip"]);
   exit;
 }
 
@@ -101,13 +154,10 @@ if ($requester !== '') {
   }
 }
 
-$receivedBy = trim((string)($doc['created_by_name'] ?? ''));
-if ($receivedBy === '') {
-  $receivedBy = $actualUserFullName;
-}
-$receivedDT = date('m/d/y  g:ia');
+$receivedBy = $actualUserFullName;
+$receivedDT = '';
 $head = resolve_division_head($conn, $divisionId);
-$flowRows = []; // movement auto-generation intentionally disabled
+$flowRows = build_division_slip_flow_rows($conn, $docId, $divisionId, $actualUserFullName);
 $nameEntries = build_division_name_initial_entries($conn, $divisionId, (int)($head['id'] ?? 0));
 $safeTracking = preg_replace('/[^A-Za-z0-9._-]+/', '_', (string)($doc['tracking_no'] ?? 'document')) ?: 'document';
 $safeDivision = preg_replace('/[^A-Za-z0-9._-]+/', '_', $divisionCode) ?: 'DIVISION';
@@ -120,13 +170,23 @@ if ($baseDir === false) {
 $docDir = rtrim((string)$baseDir, "/\\") . "/doc_" . $docId;
 if (!is_dir($docDir)) mkdir($docDir, 0775, true);
 
-$storedName = $safeDivision . '_TRACKING_SLIP_' . $safeTracking . '.pdf';
+$storedName = $safeDivision . '_TRACKING_SLIP_' . $safeTracking . '_' . date('Ymd_His') . '.pdf';
 $abs = $docDir . '/' . $storedName;
 $rel = 'storage/attachments/doc_' . $docId . '/' . $storedName;
 
-$stmt = $conn->prepare("UPDATE document_attachments SET is_deleted = 1 WHERE document_id = ? AND is_deleted = 0 AND note = ?");
 $note = 'AUTO:DIVISION_TRACKING_SLIP:' . $divisionCode;
-$stmt->bind_param('is', $docId, $note);
+$supersededNote = $note . ':SUPERSEDED';
+$stmt = $conn->prepare("
+  UPDATE document_attachments
+  SET note = ?, is_append = 0
+  WHERE document_id = ?
+    AND is_deleted = 0
+    AND (
+      note = ?
+      OR (? = 'PPD' AND note = 'AUTO:PPD_TRACKING_SLIP')
+    )
+");
+$stmt->bind_param('siss', $supersededNote, $docId, $note, $divisionCode);
 $stmt->execute();
 
 $qrToken = null;

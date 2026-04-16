@@ -50,6 +50,7 @@
 
   const btnToggleAttachments = document.getElementById("btnToggleAttachments");
   const btnToggleUpload = document.getElementById("btnToggleUpload");
+  const btnRegenerateDivisionSlip = document.getElementById("btnRegenerateDivisionSlip");
   const btnToggleForward = document.getElementById("btnToggleForward");
 
   const forwardPersonalDeadlineWrap = document.getElementById("forwardPersonalDeadlineWrap");
@@ -117,7 +118,7 @@
   const attDownload = document.getElementById("attDownload");
   const attDialog = document.getElementById("attDialog");
 
-  const APP = window.__APP__ || {};
+  const APP = { ...(window.__APP__ || {}), ...(window.__CTX__ || {}) };
   const fallbackBase = ((window.location.pathname.match(/^(.*?)(?:\/public\/|\/api\/|\/public$|\/api$)/) || [])[1] || '');
   const API = APP.api || (fallbackBase + '/api');
   const PUBLIC = APP.public || (fallbackBase + '/public');
@@ -1324,6 +1325,7 @@
         ${items.map((a) => {
           const name = a.original_name || a.filename || `Attachment #${a.id || ""}`;
           const note = clean(a.note);
+          const superseded = note.startsWith("AUTO:DIVISION_TRACKING_SLIP:") && note.includes(":SUPERSEDED");
           const meta = [
             fmt(a.uploaded_at || a.created_at || ""),
             clean(a.uploaded_by || a.uploaded_by_name || a.actor || ""),
@@ -1342,6 +1344,7 @@
               <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start;">
                 <div style="min-width:0;">
                   <div style="font-weight:900; line-height:1.25; word-break:break-word;">${esc(name)}</div>
+                  ${superseded ? `<div class="mini" style="margin-top:5px; color:#b45309; font-weight:900;">Superseded - visible here, excluded from full document view</div>` : ""}
                   ${meta ? `<div class="mini" style="opacity:.7; margin-top:4px;">${esc(meta)}</div>` : ""}
                   ${scopeLabel ? `<div class="mini" style="margin-top:6px;"><strong>Scope:</strong> ${esc(scopeLabel)}</div>` : ""}
                   ${note ? `<div class="mini" style="margin-top:8px;"><strong>Note:</strong> ${esc(note)}</div>` : ""}
@@ -1379,7 +1382,7 @@
 
       for (const a of items) {
         const note = (a.note || '').toString();
-        if (note === 'AUTO:PPD_TRACKING_SLIP' || note.startsWith('AUTO:DIVISION_TRACKING_SLIP:')) {
+        if (note === 'AUTO:PPD_TRACKING_SLIP' || (note.startsWith('AUTO:DIVISION_TRACKING_SLIP:') && !note.includes(':SUPERSEDED'))) {
           currentPpdSlipAttId = Number(a.id || 0);
           break;
         }
@@ -2047,9 +2050,8 @@
     }
 
     if (rowPpdSlip) {
-      const hasOwnDivisionSlip = !!APP.hasOwnDivisionSlip;
       const docId = payload.id || "";
-      rowPpdSlip.style.display = (hasOwnDivisionSlip && docId) ? "" : "none";
+      rowPpdSlip.style.display = "none";
       const rowPpdSlipLabel = document.getElementById("rowPpdSlipLabel");
       if (rowPpdSlipLabel && APP.ownDivisionSlipLabel) rowPpdSlipLabel.textContent = APP.ownDivisionSlipLabel;
 
@@ -2162,6 +2164,11 @@
     currentCanForward = canForward;
 
     if (btnToggleUpload) btnToggleUpload.style.display = canAttach ? "" : "none";
+    if (btnRegenerateDivisionSlip) {
+      const canRegenerateSlip = !!APP.hasOwnDivisionSlip && Number(payload.can_regenerate_division_slip || 0) === 1;
+      btnRegenerateDivisionSlip.style.display = canRegenerateSlip ? "" : "none";
+      btnRegenerateDivisionSlip.dataset.docId = canRegenerateSlip ? String(payload.id || "") : "";
+    }
     if (btnToggleAttachments) btnToggleAttachments.style.display = "";
     updateForwardUI();
 
@@ -2725,11 +2732,11 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
   btnForward?.addEventListener("click", forwardDoc);
   btnAttachUpload?.addEventListener("click", uploadAttachment);
 
-  btnPpdSlipGenerate?.addEventListener("click", async () => {
-    const docId = btnPpdSlipGenerate.dataset.docId || elId?.value || "";
+  async function regenerateDivisionSlip(triggerButton) {
+    const docId = triggerButton?.dataset?.docId || elId?.value || "";
     if (!docId) return;
 
-    btnPpdSlipGenerate.disabled = true;
+    if (triggerButton) triggerButton.disabled = true;
     try {
       const form = appendActingPrincipal(new FormData(), currentPayload);
       form.append("document_id", docId);
@@ -2743,21 +2750,30 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
 
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.ok) {
-        window.DTToast?.error(data?.error || `Generate failed. (${res.status})`) || console.warn(data?.error || `Generate failed. (${res.status})`);
+        window.DTToast?.error(data?.error || `Generate latest slip failed. (${res.status})`) || console.warn(data?.error || `Generate latest slip failed. (${res.status})`);
         return;
       }
 
       const attId = Number(data.attachment_id || 0);
       await loadAttachments(docId);
+      window.DTToast?.success("Latest division tracking slip generated.") || console.log("Latest division tracking slip generated.");
       if (attId > 0) {
         const principalQs = actingPrincipalId() > 0 ? `&acting_principal_user_id=${actingPrincipalId()}` : "";
         window.open(`${PUBLIC}/view_attachment.php?id=${attId}${principalQs}`, "_blank", "noopener");
       }
     } catch {
-      window.DTToast?.error("Generate failed.") || console.warn("Generate failed.");
+      window.DTToast?.error("Generate latest slip failed.") || console.warn("Generate latest slip failed.");
     } finally {
-      btnPpdSlipGenerate.disabled = false;
+      if (triggerButton) triggerButton.disabled = false;
     }
+  }
+
+  btnPpdSlipGenerate?.addEventListener("click", async () => {
+    await regenerateDivisionSlip(btnPpdSlipGenerate);
+  });
+
+  btnRegenerateDivisionSlip?.addEventListener("click", async () => {
+    await regenerateDivisionSlip(btnRegenerateDivisionSlip);
   });
 
   btnPpdSlipPrint?.addEventListener("click", () => {

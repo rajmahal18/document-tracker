@@ -57,7 +57,7 @@ $branchFieldSql = workflow_branch_attachment_scope_enabled($conn)
   ? 'branch_id'
   : 'NULL AS branch_id';
 
-$whereSql = 'document_id = ? AND is_deleted = 0';
+$whereSql = "document_id = ? AND is_deleted = 0 AND note NOT LIKE 'AUTO:DIVISION_TRACKING_SLIP:%:SUPERSEDED'";
 $bindTypes = 'i';
 $bindValues = [$docId];
 if ($isScoped) {
@@ -106,7 +106,8 @@ if ($atts) {
         return 'PPD';
       }
       if (str_starts_with($note, 'AUTO:DIVISION_TRACKING_SLIP:')) {
-        return strtoupper(trim(substr($note, strlen('AUTO:DIVISION_TRACKING_SLIP:'))));
+        $suffix = strtoupper(trim(substr($note, strlen('AUTO:DIVISION_TRACKING_SLIP:'))));
+        return trim(explode(':', $suffix, 2)[0] ?? '');
       }
       return '';
     };

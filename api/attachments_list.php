@@ -137,7 +137,8 @@ try {
           return 'PPD';
         }
         if (str_starts_with($note, 'AUTO:DIVISION_TRACKING_SLIP:')) {
-          return strtoupper(trim(substr($note, strlen('AUTO:DIVISION_TRACKING_SLIP:'))));
+          $suffix = strtoupper(trim(substr($note, strlen('AUTO:DIVISION_TRACKING_SLIP:'))));
+          return trim(explode(':', $suffix, 2)[0] ?? '');
         }
         return '';
       };

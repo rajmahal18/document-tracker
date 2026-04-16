@@ -84,6 +84,12 @@ function user_initials_from_name(string $name): string
   return $initials;
 }
 
+function division_tracking_initials_label(string $name): string
+{
+  $initials = user_initials_from_name($name);
+  return $initials !== '' ? $initials : trim($name);
+}
+
 function get_division_permanent_staff(mysqli $conn, int $divisionId, int $excludeUserId = 0): array
 {
   ensure_division_tracking_tables($conn);
@@ -480,9 +486,115 @@ function get_document_division_tracking(mysqli $conn, int $documentId, int $divi
   return $row ?: null;
 }
 
-function build_division_slip_flow_rows(mysqli $conn, int $documentId, int $divisionId): array
+function build_division_slip_flow_rows(mysqli $conn, int $documentId, int $divisionId, string $assistantName = ''): array
 {
-  // Movement auto-generation intentionally disabled for now.
-  // Leave the slip movement table blank until a paper-accurate flow rule is finalized.
-  return [];
+  if ($documentId <= 0) return [];
+
+  $stmt = $conn->prepare("
+    SELECT
+      r.sent_at,
+      r.received_at,
+      r.remarks,
+      r.personal_deadline_at,
+      r.route_kind,
+      COALESCE(NULLIF(TRIM(us.full_name), ''), '') AS sent_by_name,
+      COALESCE(NULLIF(TRIM(ur.full_name), ''), '') AS received_by_name,
+      COALESCE(NULLIF(TRIM(ut.full_name), ''), '') AS to_user_name,
+      COALESCE(NULLIF(TRIM(sf.name), ''), '') AS from_section_name,
+      COALESCE(NULLIF(TRIM(st.name), ''), '') AS to_section_name
+    FROM routes r
+    LEFT JOIN users us ON us.id = r.sent_by_user_id
+    LEFT JOIN users ur ON ur.id = r.received_by_user_id
+    LEFT JOIN users ut ON ut.id = r.to_user_id
+    LEFT JOIN sections sf ON sf.id = r.from_section_id
+    LEFT JOIN sections st ON st.id = r.to_section_id
+    WHERE r.document_id = ?
+      AND r.cancelled_at IS NULL
+    ORDER BY r.sent_at ASC, r.id ASC
+    LIMIT 14
+  ");
+  $stmt->bind_param('i', $documentId);
+  $stmt->execute();
+  $routes = $stmt->get_result()->fetch_all(MYSQLI_ASSOC) ?: [];
+
+  $tz = new DateTimeZone('Asia/Manila');
+  $formatDateTime = static function (?string $raw) use ($tz): string {
+    $raw = trim((string)$raw);
+    if ($raw === '') return '';
+    try {
+      return (new DateTime($raw, $tz))->format('m/d/y g:ia');
+    } catch (Throwable) {
+      return '';
+    }
+  };
+  $formatDeadline = static function (?string $raw) use ($tz): string {
+    $raw = trim((string)$raw);
+    if ($raw === '') return '';
+    try {
+      return (new DateTime($raw, $tz))->format('m/d/y');
+    } catch (Throwable) {
+      return '';
+    }
+  };
+
+  $buildForwardSide = static function (array $route, string $fromOverride = '') use ($formatDateTime, $formatDeadline): array {
+    $fromUser = trim($fromOverride);
+    if ($fromUser === '') {
+      $fromUser = trim((string)($route['sent_by_name'] ?? ''));
+    }
+    $toUser = trim((string)($route['to_user_name'] ?? ''));
+    $toSection = trim((string)($route['to_section_name'] ?? ''));
+    $remarks = trim((string)($route['remarks'] ?? ''));
+    if (strcasecmp($remarks, 'none') === 0) {
+      $remarks = '';
+    }
+
+    return [
+      'from_name' => $fromUser !== '' ? division_tracking_initials_label($fromUser) : '',
+      'forwarded_datetime' => $formatDateTime($route['sent_at'] ?? ''),
+      'to_name' => $toUser !== '' ? division_tracking_initials_label($toUser) : $toSection,
+      'forwarded_text' => $remarks,
+      'deadline' => $formatDeadline($route['personal_deadline_at'] ?? ''),
+    ];
+  };
+
+  $buildReceiveSide = static function (array $route) use ($formatDateTime): array {
+    $receivedName = trim((string)($route['received_by_name'] ?? ''));
+    if ($receivedName === '') {
+      $receivedName = trim((string)($route['to_user_name'] ?? ''));
+    }
+    return [
+      'received_datetime' => $formatDateTime($route['received_at'] ?? ''),
+      'received_name' => division_tracking_initials_label($receivedName),
+    ];
+  };
+
+  $rows = [];
+  $routeCount = count($routes);
+  for ($i = 0; $i < $routeCount; $i++) {
+    $left = $i === 0
+      ? [
+        'received_datetime' => '',
+        'received_name' => division_tracking_initials_label($assistantName),
+      ]
+      : $buildReceiveSide($routes[$i - 1]);
+
+    $right = $buildForwardSide($routes[$i], $i === 0 ? $assistantName : '');
+    $rows[] = array_merge($left, $right);
+  }
+
+  if ($routeCount > 0) {
+    $lastRoute = $routes[$routeCount - 1];
+    if (trim((string)($lastRoute['received_at'] ?? '')) !== '') {
+      $rows[] = array_merge($buildReceiveSide($lastRoute), [
+        'from_name' => '',
+        'forwarded_datetime' => '',
+        'to_name' => '',
+        'forwarded_text' => '',
+        'deadline' => '',
+      ]);
+    }
+  }
+
+  return array_slice($rows, 0, 8);
 }

@@ -70,6 +70,14 @@ final class DivisionTrackingSlip
     $pdf->SetAutoPageBreak(false);
     $pdf->AddPage();
 
+    $fontFamily = 'Times';
+    $cambriaFontDir = realpath(__DIR__ . '/../assets/fonts/fpdf');
+    if ($cambriaFontDir !== false && is_file($cambriaFontDir . DIRECTORY_SEPARATOR . 'cambriab.php')) {
+      $pdf->AddFont('Cambria', '', 'cambriab.php', rtrim($cambriaFontDir, '/\\') . DIRECTORY_SEPARATOR);
+      $pdf->AddFont('Cambria', 'B', 'cambriab.php', rtrim($cambriaFontDir, '/\\') . DIRECTORY_SEPARATOR);
+      $fontFamily = 'Cambria';
+    }
+
     // ---------- Helpers ----------
     $line = function(float $x1, float $y1, float $x2, float $y2) use ($pdf): void {
       $pdf->Line($x1, $y1, $x2, $y2);
@@ -79,14 +87,18 @@ final class DivisionTrackingSlip
     };
 
     // allow float font size
-    $txt = function(float $x, float $y, string $text, string $style = '', float $size = 9.0, string $align = 'L') use ($pdf): void {
-      $pdf->SetFont('Arial', $style, $size);
+    $setFont = function(string $style = '', float $size = 9.0) use ($pdf, $fontFamily): void {
+      $pdf->SetFont($fontFamily, $style, $size);
+    };
+
+    $txt = function(float $x, float $y, string $text, string $style = '', float $size = 9.0, string $align = 'L') use ($pdf, $setFont): void {
+      $setFont($style, $size);
       $pdf->SetXY($x, $y);
       $pdf->Cell(0, 5, $text, 0, 0, $align);
     };
 
-    $wrap = function(float $x, float $y, float $w, string $text, string $style = '', float $size = 9.0, float $lh = 4.2, string $align = 'L') use ($pdf): float {
-      $pdf->SetFont('Arial', $style, $size);
+    $wrap = function(float $x, float $y, float $w, string $text, string $style = '', float $size = 9.0, float $lh = 4.2, string $align = 'L') use ($pdf, $setFont): float {
+      $setFont($style, $size);
       $pdf->SetXY($x, $y);
       $pdf->MultiCell($w, $lh, $text, 0, $align);
       return (float)$pdf->GetY();
@@ -155,15 +167,15 @@ final class DivisionTrackingSlip
     $centerW = $w0 - (2 * ($pad + $logoSize + 4.0));
 
     $pdf->SetTextColor(20, 24, 40);
-    $pdf->SetFont('Arial', 'B', 9.4);
+    $setFont('B', 9.4);
     $pdf->SetXY($centerX, $y0 + 5.0);
     $pdf->Cell($centerW, 4.8, 'MINISTRY OF PUBLIC WORKS', 0, 1, 'C');
 
-    $pdf->SetFont('Arial', 'B', 8.7);
+    $setFont('B', 8.7);
     $pdf->SetX($centerX);
     $pdf->Cell($centerW, 4.8, $divisionName !== '' ? strtoupper($divisionName) : 'DIVISION', 0, 1, 'C');
 
-    $pdf->SetFont('Arial', 'B', 10.4);
+    $setFont('B', 10.4);
     $pdf->SetX($centerX);
     $pdf->Cell($centerW, 6.2, 'DOCUMENT TRACKING SLIP', 0, 1, 'C');
 
@@ -253,7 +265,7 @@ final class DivisionTrackingSlip
       $line($x0, $lineY, $x0 + $w0, $lineY);
     }
 
-    $pdf->SetFont('Arial', 'B', 6.4);
+    $setFont('B', 6.4);
     for ($idx = 0; $idx < 9; $idx++) {
       $col = intdiv($idx, $rows);
       $row = $idx % $rows;
@@ -300,7 +312,7 @@ final class DivisionTrackingSlip
       ['For Validation/Verification', 'For Filing', 'See Me'],
     ];
 
-    $pdf->SetFont('Arial', '', 7.4);
+    $setFont('', 7.4);
 
     for ($r = 0; $r < $rows; $r++) {
       $rowTop = $y + ($r * $cellH);
@@ -372,11 +384,11 @@ final class DivisionTrackingSlip
 
     $sigLineY = $y + 8.6;
 
-    $pdf->SetFont('Arial', 'BU', 8.6);
+    $setFont('BU', 8.6);
     $pdf->SetXY($x0, $sigLineY + 1.1);
     $pdf->Cell($w0, 4.5, strtoupper(trim((string)($data['signatory_name'] ?? ''))) ?: ' ', 0, 1, 'C');
 
-    $pdf->SetFont('Arial', '', 7.4);
+    $setFont('', 7.4);
     $pdf->SetX($x0);
     $pdf->Cell($w0, 4.2, trim((string)($data['signatory_title'] ?? '')) ?: ' ', 0, 1, 'C');
 
@@ -391,96 +403,78 @@ final class DivisionTrackingSlip
 
     $rect($x0, $tableY, $w0, $tableH);
 
-    $col1W = $w0 * 0.45;
-    $col2W = $w0 - $col1W;
-    $line($x0 + $col1W, $tableY, $x0 + $col1W, $tableY + $tableH);
+    $hdrH = 10.5;
+    $line($x0, $tableY + $hdrH, $x0 + $w0, $tableY + $hdrH);
 
-    $mainHdrH = 8.0;
-    $subHdrH = 8.5;
-    $line($x0, $tableY + $mainHdrH, $x0 + $w0, $tableY + $mainHdrH);
-    $line($x0, $tableY + $mainHdrH + $subHdrH, $x0 + $w0, $tableY + $mainHdrH + $subHdrH);
+    $rowCount = 8;
+    $rowH = ($tableH - $hdrH) / $rowCount;
 
-    $pdf->SetFont('Arial', 'B', 8.0);
-    $pdf->SetXY($x0, $tableY + 1.8);
-    $pdf->Cell($col1W, 5, 'RECEIVED BY', 0, 0, 'C');
-    $pdf->SetXY($x0 + $col1W, $tableY + 1.8);
-    $pdf->Cell($col2W, 5, 'TRANSMITTED/FORWARDED TO', 0, 0, 'C');
+    $c1 = $w0 * 0.09; // Receive Date/Time
+    $c2 = $w0 * 0.10; // From
+    $c3 = $w0 * 0.09; // Forward Date/Time
+    $c4 = $w0 * 0.10; // To
+    $c6 = $w0 * 0.09; // Deadline
+    $c5 = $w0 - $c1 - $c2 - $c3 - $c4 - $c6; // Remarks gets the space
 
-    $rowCount = 9;
-    $subH = $tableH - $mainHdrH - $subHdrH;
-    $rowH = $subH / $rowCount;
+    $xC1 = $x0;
+    $xC2 = $xC1 + $c1;
+    $xC3 = $xC2 + $c2;
+    $xC4 = $xC3 + $c3;
+    $xC5 = $xC4 + $c4;
+    $xC6 = $xC5 + $c5;
 
-    // left subcolumns must match the printed slip sample: Date/Time | Name | Signature
-    $l_c1 = $col1W * 0.25;
-    $l_c2 = $col1W * 0.39;
-    $l_c3 = $col1W - $l_c1 - $l_c2;
-
-    $xL  = $x0;
-    $xL2 = $xL + $l_c1;
-    $xL3 = $xL2 + $l_c2;
-
-    $line($xL2, $tableY + $mainHdrH, $xL2, $tableY + $tableH);
-    $line($xL3, $tableY + $mainHdrH, $xL3, $tableY + $tableH);
-
-    // right subcolumns must match the sample: Name | Date/Time | Actions/Other Instruction/Remarks | Deadline (if applicable)
-    $r_c1 = $col2W * 0.27;
-    $r_c2 = $col2W * 0.18;
-    $r_c4 = $col2W * 0.16;
-    $r_c3 = $col2W - $r_c1 - $r_c2 - $r_c4;
-
-    $xR  = $x0 + $col1W;
-    $xR2 = $xR + $r_c1;
-    $xR3 = $xR2 + $r_c2;
-    $xR4 = $xR3 + $r_c3;
-
-    $line($xR2, $tableY + $mainHdrH, $xR2, $tableY + $tableH);
-    $line($xR3, $tableY + $mainHdrH, $xR3, $tableY + $tableH);
-    $line($xR4, $tableY + $mainHdrH, $xR4, $tableY + $tableH);
+    foreach ([$xC2, $xC3, $xC4, $xC5, $xC6] as $xx) {
+      $line($xx, $tableY, $xx, $tableY + $tableH);
+    }
 
     for ($i=1; $i<$rowCount; $i++) {
-      $yy = $tableY + $mainHdrH + $subHdrH + ($i * $rowH);
+      $yy = $tableY + $hdrH + ($i * $rowH);
       $line($x0, $yy, $x0 + $w0, $yy);
     }
 
-    $pdf->SetFont('Arial', '', 6.4);
-    $subY = $tableY + $mainHdrH + 0.8;
-
-    $pdf->SetXY($xL,  $subY);  $pdf->Cell($l_c1, 6, 'Date/Time', 0, 0, 'C');
-    $pdf->SetXY($xL2, $subY);  $pdf->Cell($l_c2, 6, 'Name', 0, 0, 'C');
-    $pdf->SetXY($xL3, $subY);  $pdf->Cell($l_c3, 6, 'Signature', 0, 0, 'C');
-
-    $pdf->SetXY($xR,  $subY);  $pdf->Cell($r_c1, 6, 'Name', 0, 0, 'C');
-    $pdf->SetXY($xR2, $subY);  $pdf->Cell($r_c2, 6, 'Date/Time', 0, 0, 'C');
-    $pdf->SetXY($xR3, $subY);  $pdf->Cell($r_c3, 6, 'Actions/Other Instruction/Remarks', 0, 0, 'C');
-    $pdf->SetXY($xR4, $subY + 0.1);
-    $pdf->MultiCell($r_c4, 2.8, 'Deadline
-(if applicable)', 0, 'C');
+    $setFont('B', 5.8);
+    $headY = $tableY + 1.2;
+    $pdf->SetXY($xC1 + 0.8, $headY); $pdf->MultiCell($c1 - 1.6, 2.7, 'Receive Date/Time', 0, 'C');
+    $pdf->SetXY($xC2 + 0.8, $headY); $pdf->MultiCell($c2 - 1.6, 2.7, 'From', 0, 'C');
+    $pdf->SetXY($xC3 + 0.8, $headY); $pdf->MultiCell($c3 - 1.6, 2.7, 'Forward Date/Time', 0, 'C');
+    $pdf->SetXY($xC4 + 0.8, $headY); $pdf->MultiCell($c4 - 1.6, 2.7, 'To', 0, 'C');
+    $pdf->SetXY($xC5 + 0.8, $headY); $pdf->MultiCell($c5 - 1.6, 2.7, 'Actions/Other Instructions/Remarks', 0, 'C');
+    $pdf->SetXY($xC6 + 0.8, $headY); $pdf->MultiCell($c6 - 1.6, 2.7, 'Deadline (if Applicable)', 0, 'C');
 
     $flowRows = $data['flow_rows'] ?? [];
     if (is_array($flowRows) && $flowRows !== []) {
-      $pdf->SetFont('Arial', '', 6.5);
+      $stackDateTime = static function (string $value): string {
+        $value = trim($value);
+        if ($value === '' || !preg_match('/^(.+)\s+(\S+)$/', $value, $matches)) {
+          return $value;
+        }
+        return trim($matches[1]) . "\n" . trim($matches[2]);
+      };
+
+      $setFont('', 6.5);
       foreach (array_slice($flowRows, 0, $rowCount) as $idx => $row) {
-        $rowTop = $tableY + $mainHdrH + $subHdrH + ($idx * $rowH) + 1.0;
-        $receivedDt = self::pdfText(trim((string)($row['received_datetime'] ?? '')));
-        $receivedName = self::pdfText(trim((string)($row['received_name'] ?? '')));
-        $forwardedName = self::pdfText(trim((string)($row['forwarded_name'] ?? '')));
-        $forwardedDt = self::pdfText(trim((string)($row['forwarded_datetime'] ?? '')));
+        $baseRowTop = $tableY + $hdrH + ($idx * $rowH);
+        $rowTop = $baseRowTop + 1.2;
+        $nameY = $baseRowTop + $rowH - 4.8;
+        $receivedDt = self::pdfText($stackDateTime((string)($row['received_datetime'] ?? '')));
+        $fromName = self::pdfText(trim((string)($row['from_name'] ?? $row['received_name'] ?? '')));
+        $forwardedDt = self::pdfText($stackDateTime((string)($row['forwarded_datetime'] ?? '')));
+        $toName = self::pdfText(trim((string)($row['to_name'] ?? $row['forwarded_name'] ?? '')));
         $forwardedText = self::pdfText(trim((string)($row['forwarded_text'] ?? '')));
         $deadlineText = self::pdfText(trim((string)($row['deadline'] ?? '')));
 
-        $pdf->SetXY($xL + 1.0, $rowTop);
-        $pdf->MultiCell($l_c1 - 2.0, 3.0, $receivedDt, 0, 'L');
-        $pdf->SetXY($xL2 + 1.0, $rowTop);
-        $pdf->MultiCell($l_c2 - 2.0, 3.0, $receivedName, 0, 'L');
-
-        $pdf->SetXY($xR + 1.0, $rowTop);
-        $pdf->MultiCell($r_c1 - 2.0, 3.0, $forwardedName, 0, 'L');
-        $pdf->SetXY($xR2 + 1.0, $rowTop);
-        $pdf->MultiCell($r_c2 - 2.0, 3.0, $forwardedDt, 0, 'L');
-        $pdf->SetXY($xR3 + 1.0, $rowTop);
-        $pdf->MultiCell($r_c3 - 2.0, 3.0, $forwardedText, 0, 'L');
-        $pdf->SetXY($xR4 + 1.0, $rowTop);
-        $pdf->MultiCell($r_c4 - 2.0, 3.0, $deadlineText, 0, 'L');
+        $pdf->SetXY($xC1 + 1.0, $rowTop);
+        $pdf->MultiCell($c1 - 2.0, 3.2, $receivedDt, 0, 'C');
+        $pdf->SetXY($xC2 + 1.0, $nameY);
+        $pdf->MultiCell($c2 - 2.0, 3.2, $fromName, 0, 'C');
+        $pdf->SetXY($xC3 + 1.0, $rowTop);
+        $pdf->MultiCell($c3 - 2.0, 3.2, $forwardedDt, 0, 'C');
+        $pdf->SetXY($xC4 + 1.0, $nameY);
+        $pdf->MultiCell($c4 - 2.0, 3.2, $toName, 0, 'C');
+        $pdf->SetXY($xC5 + 1.0, $rowTop);
+        $pdf->MultiCell($c5 - 2.0, 3.2, $forwardedText, 0, 'C');
+        $pdf->SetXY($xC6 + 1.0, $rowTop);
+        $pdf->MultiCell($c6 - 2.0, 3.2, $deadlineText, 0, 'C');
       }
     }
 

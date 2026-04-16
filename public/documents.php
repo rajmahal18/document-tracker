@@ -707,6 +707,34 @@ $sql = "
       THEN 1
       ELSE 0
     END AS can_edit_details,
+    CASE
+      WHEN {$isPrivilegedInt} = 1
+        OR d.created_by_user_id = {$myUid}
+        OR d.current_holder_section_id = {$mySid}
+        OR EXISTS (
+          SELECT 1
+          FROM routes r_slip
+          WHERE r_slip.document_id = d.id
+            AND r_slip.received_at IS NULL
+            AND r_slip.cancelled_at IS NULL
+            AND (
+              r_slip.to_user_id = {$myUid}
+              OR r_slip.to_section_id = {$mySid}
+            )
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM document_branches b_slip
+          WHERE b_slip.document_id = d.id
+            AND b_slip.branch_status = 'ACTIVE'
+            AND (
+              b_slip.current_assignee_user_id = {$myUid}
+              OR b_slip.current_assignee_section_id = {$mySid}
+            )
+        )
+      THEN 1
+      ELSE 0
+    END AS can_regenerate_division_slip,
     COALESCE((
       SELECT r_my_open.id
       FROM routes r_my_open
@@ -1848,6 +1876,7 @@ function documentsUrl(array $overrides = []): string {
                 "my_open_route_id" => (int)($d["my_open_route_id"] ?? 0),
                 "open_route_count" => $openCount,
                 "can_edit_details" => (int)($d["can_edit_details"] ?? 0),
+                "can_regenerate_division_slip" => (int)($d["can_regenerate_division_slip"] ?? 0),
 
                 "movement_text" => $movementText,
                 "current_holder_text" => $currentHolderText,
@@ -2104,6 +2133,7 @@ $end   = min($totalPages, $page + 2);
       </div>
 
       <div class="drawerSectionActions">
+        <button type="button" class="btnSecondary" id="btnRegenerateDivisionSlip" style="display:none;">Generate latest slip</button>
         <button type="button" class="btnSecondary" id="btnToggleAttachments">View all</button>
         <button type="button" class="btnSecondary" id="btnToggleUpload">Add attachment</button>
       </div>

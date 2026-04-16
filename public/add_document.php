@@ -1373,7 +1373,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           $divisionTrackingRow = get_document_division_tracking($conn, $docId, $myDivisionId);
           $divisionSlipNo = trim((string)($divisionTrackingRow['tracking_no'] ?? $divisionTrackingInput));
           $divisionHead = resolve_division_head($conn, $myDivisionId);
-          $flowRows = build_division_slip_flow_rows($conn, $docId, $myDivisionId);
+          $flowRows = build_division_slip_flow_rows($conn, $docId, $myDivisionId, $actualUserFullName);
           $nameEntries = build_division_name_initial_entries($conn, $myDivisionId, (int)($divisionHead['id'] ?? 0));
 
           DivisionTrackingSlip::generateA4([
