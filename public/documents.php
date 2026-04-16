@@ -739,7 +739,37 @@ $sql = "
     -- last holder (fallback when not in transit)
     sf_last.name AS last_holder_name,
 
-    TIMESTAMPDIFF(DAY, d.updated_at, NOW()) AS days_stuck,
+    CASE
+      WHEN d.current_status = 'ACTIVE' THEN TIMESTAMPDIFF(DAY, d.updated_at, NOW())
+      ELSE 0
+    END AS days_stuck,
+    TIMESTAMPDIFF(DAY, COALESCE((
+      SELECT e_closed.created_at
+      FROM document_events e_closed
+      WHERE e_closed.document_id = d.id
+        AND (
+          (
+            d.current_status = 'ARCHIVED'
+            AND e_closed.event_type = 'archived'
+            AND JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.new_status')) = 'ARCHIVED'
+          )
+          OR (
+            d.current_status = 'RELEASED'
+            AND (
+              (
+                e_closed.event_type = 'released'
+                AND JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.new_status')) = 'RELEASED'
+              )
+              OR JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.kind')) IN (
+                'branch_ended_here',
+                'document_ended_here'
+              )
+            )
+          )
+        )
+      ORDER BY e_closed.created_at DESC, e_closed.id DESC
+      LIMIT 1
+    ), d.updated_at), NOW()) AS lifecycle_inactive_days,
 
     CASE
       WHEN EXISTS (
@@ -1599,6 +1629,7 @@ function documentsUrl(array $overrides = []): string {
         <?php foreach ($docs as $d): ?>
           <?php
             $days = (int)($d["days_stuck"] ?? 0);
+            $inactiveDays = max(0, (int)($d["lifecycle_inactive_days"] ?? 0));
 
             $docDeadlineRaw = trim((string)($d["deadline_at"] ?? ""));
             $myPersonalDeadlineRaw = trim((string)($d["my_personal_deadline_at"] ?? ""));
@@ -1647,6 +1678,22 @@ function documentsUrl(array $overrides = []): string {
             $hasRealBranches = ((int)($d["has_real_branches"] ?? 0) === 1);
             $lastEndHereKind = (string)($d["last_end_here_kind"] ?? "");
             $isLifecycleEnded = in_array($lastEndHereKind, ["branch_ended_here", "document_ended_here"], true);
+            $isInactiveLifecycle = in_array($currentStatus, ["RELEASED", "ARCHIVED"], true) || $isLifecycleEnded;
+            $inactiveDayText = $inactiveDays === 1 ? "1 day" : $inactiveDays . " days";
+            $stuckDayText = $days === 1 ? "1 day" : $days . " days";
+            if ($currentStatus === "ARCHIVED") {
+              $activityLabel = "Inactive";
+              $activityValue = $inactiveDays === 0 ? "Today" : "For " . $inactiveDayText;
+              $activityText = $inactiveDays === 0 ? "Inactive today" : "Inactive for " . $inactiveDayText;
+            } elseif ($isInactiveLifecycle) {
+              $activityLabel = "Completed";
+              $activityValue = $inactiveDays === 0 ? "Today" : $inactiveDayText . " ago";
+              $activityText = $inactiveDays === 0 ? "Completed today" : "Completed " . $inactiveDayText . " ago";
+            } else {
+              $activityLabel = "Days stuck";
+              $activityValue = $stuckDayText;
+              $activityText = "Days stuck: " . $days;
+            }
 
             $myHasOpenInbound = ((int)($d["my_has_open_inbound"] ?? 0) === 1);
             $myHasActionableRole = ((int)($d["my_has_actionable_role"] ?? 0) === 1);
@@ -1857,6 +1904,9 @@ function documentsUrl(array $overrides = []): string {
                 "current_status" => (string)($d["current_status"] ?? "ACTIVE"),
                 "last_end_here_kind" => (string)($d["last_end_here_kind"] ?? ""),
                 "days_stuck" => $days,
+                "activity_label" => $activityLabel,
+                "activity_value" => $activityValue,
+                "activity_text" => $activityText,
                 "acting_principal_user_id" => $assistantModeEnabled ? (int)($activeAssistantPrincipal['id'] ?? 0) : 0,
               ], JSON_UNESCAPED_UNICODE),
               ENT_QUOTES,
@@ -1947,7 +1997,7 @@ function documentsUrl(array $overrides = []): string {
             <td data-label="Requester">
               <div class="requesterCell">
                 <div class="requesterName"><?= htmlspecialchars((string)$d["requester"]) ?></div>
-                <div class="requesterMeta">Days stuck: <?= (int)$days ?></div>
+                <div class="requesterMeta"><?= htmlspecialchars($activityText) ?></div>
               </div>
             </td>
           </tr>
@@ -2080,7 +2130,7 @@ $end   = min($totalPages, $page + 2);
     <div class="kv"><div class="k">Urgency</div><div class="v" id="d_deadline_countdown">—</div></div>
     <div class="kv"><div class="k">Subject</div><div class="v" id="d_subject"></div></div>
     <div class="kv"><div class="k">Type</div><div class="v" id="d_type"></div></div>
-    <div class="kv"><div class="k">Days stuck</div><div class="v" id="d_days"></div></div>
+    <div class="kv"><div class="k" id="d_activity_label">Days stuck</div><div class="v" id="d_days"></div></div>
     <div class="kv" id="rowEditDocumentDetails" style="display:none;">
       <div class="k">Correction</div>
       <div class="v"><button type="button" class="btnSecondary" id="btnEditDocumentDetails">Edit details</button></div>

@@ -13,6 +13,7 @@
   const elSubject = document.getElementById("d_subject");
   const elType = document.getElementById("d_type");
   const elDays = document.getElementById("d_days");
+  const elActivityLabel = document.getElementById("d_activity_label");
 
   const elStatus = document.getElementById("d_status");
   const elHolder = document.getElementById("d_holder");
@@ -2069,7 +2070,8 @@
     renderDeadline(payload.deadline_at || "", payload.my_personal_deadline_at || "");
     if (elSubject) elSubject.textContent = payload.subject || "—";
     if (elType) elType.textContent = payload.content_type || "—";
-    if (elDays) elDays.textContent = payload.days_stuck ?? "0";
+    if (elActivityLabel) elActivityLabel.textContent = payload.activity_label || "Days stuck";
+    if (elDays) elDays.textContent = payload.activity_value || (payload.days_stuck ?? "0");
 
     const inTransit = payload.in_transit === 1 || payload.in_transit === "1" || payload.in_transit === true;
     const docStatus = (payload.current_status || "ACTIVE").toString().toUpperCase();
