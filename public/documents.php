@@ -745,6 +745,60 @@ $sql = "
       ORDER BY e_closed.created_at DESC, e_closed.id DESC
       LIMIT 1
     ), d.updated_at), NOW()) AS lifecycle_inactive_days,
+    COALESCE((
+      SELECT e_closed.created_at
+      FROM document_events e_closed
+      WHERE e_closed.document_id = d.id
+        AND (
+          (
+            d.current_status = 'ARCHIVED'
+            AND e_closed.event_type = 'archived'
+            AND JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.new_status')) = 'ARCHIVED'
+          )
+          OR (
+            d.current_status = 'RELEASED'
+            AND (
+              (
+                e_closed.event_type = 'released'
+                AND JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.new_status')) = 'RELEASED'
+              )
+              OR JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.kind')) IN (
+                'branch_ended_here',
+                'document_ended_here'
+              )
+            )
+          )
+        )
+      ORDER BY e_closed.created_at DESC, e_closed.id DESC
+      LIMIT 1
+    ), d.updated_at) AS lifecycle_closed_at,
+    COALESCE((
+      SELECT COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.kind')), ''), e_closed.event_type)
+      FROM document_events e_closed
+      WHERE e_closed.document_id = d.id
+        AND (
+          (
+            d.current_status = 'ARCHIVED'
+            AND e_closed.event_type = 'archived'
+            AND JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.new_status')) = 'ARCHIVED'
+          )
+          OR (
+            d.current_status = 'RELEASED'
+            AND (
+              (
+                e_closed.event_type = 'released'
+                AND JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.new_status')) = 'RELEASED'
+              )
+              OR JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.kind')) IN (
+                'branch_ended_here',
+                'document_ended_here'
+              )
+            )
+          )
+        )
+      ORDER BY e_closed.created_at DESC, e_closed.id DESC
+      LIMIT 1
+    ), '') AS lifecycle_closed_action,
 
     CASE
       WHEN EXISTS (
@@ -1620,33 +1674,6 @@ function documentsUrl(array $overrides = []): string {
             $deadlineMetaLines = [];
             $deadlineSortTs = $effectiveDeadlineTs ? (int)$effectiveDeadlineTs : 0;
 
-            if ($hasPersonalDeadline) {
-              $deadlineMetaLines[] = "Your deadline: " . $personalDeadlineText;
-            }
-            $deadlineMetaLines[] = "Document: " . $docDeadlineText;
-
-            if ($effectiveDeadlineTs !== false) {
-              $secondsLeft = $effectiveDeadlineTs - time();
-              $daysLeft = (int)floor($secondsLeft / 86400);
-              $hoursLeft = (int)floor(abs($secondsLeft) / 3600);
-
-              if ($secondsLeft < 0) {
-                $lateDays = max(1, (int)ceil(abs($secondsLeft) / 86400));
-                $deadlineBadgeText = $lateDays === 1 ? "OVERDUE 1 DAY" : "OVERDUE {$lateDays} DAYS";
-                $deadlineBadgeClass = "danger";
-                $deadlineToneClass = "rowDeadlineOverdue";
-              } elseif ($secondsLeft <= 86400) {
-                $deadlineBadgeText = "DUE TODAY";
-                $deadlineBadgeClass = "today";
-              } elseif ($secondsLeft <= 259200) {
-                $deadlineBadgeText = $daysLeft <= 1 ? "1 DAY LEFT" : $daysLeft . " DAYS LEFT";
-                $deadlineBadgeClass = "warn";
-              } else {
-                $deadlineBadgeText = $daysLeft . " DAYS LEFT";
-                $deadlineBadgeClass = "safe";
-              }
-            }
-
             $openCount = (int)($d["open_route_count"] ?? 0);
             $inTransit = ($openCount > 0);
             $currentStatus = strtoupper((string)($d["current_status"] ?? "ACTIVE"));
@@ -1654,6 +1681,7 @@ function documentsUrl(array $overrides = []): string {
             $lastEndHereKind = (string)($d["last_end_here_kind"] ?? "");
             $isLifecycleEnded = in_array($lastEndHereKind, ["branch_ended_here", "document_ended_here"], true);
             $isInactiveLifecycle = in_array($currentStatus, ["RELEASED", "ARCHIVED"], true) || $isLifecycleEnded;
+            $isDeadlineLifecycleClosed = in_array($currentStatus, ["RELEASED", "ARCHIVED"], true);
             $inactiveDayText = $inactiveDays === 1 ? "1 day" : $inactiveDays . " days";
             $stuckDayText = $days === 1 ? "1 day" : $days . " days";
             if ($currentStatus === "ARCHIVED") {
@@ -1668,6 +1696,66 @@ function documentsUrl(array $overrides = []): string {
               $activityLabel = "Days stuck";
               $activityValue = $stuckDayText;
               $activityText = "Days stuck: " . $days;
+            }
+
+            if ($hasPersonalDeadline) {
+              $deadlineMetaLines[] = "Your deadline: " . $personalDeadlineText;
+            }
+            $deadlineMetaLines[] = "Document: " . $docDeadlineText;
+
+            if ($effectiveDeadlineTs !== false) {
+              if ($isDeadlineLifecycleClosed) {
+                $closedRaw = trim((string)($d["lifecycle_closed_at"] ?? ""));
+                $closedTs = $closedRaw !== "" ? strtotime($closedRaw) : false;
+                $deadlineDate = date_create(date("Y-m-d", $effectiveDeadlineTs));
+                $closedDate = $closedTs !== false ? date_create(date("Y-m-d", $closedTs)) : null;
+                $closedAction = trim((string)($d["lifecycle_closed_action"] ?? ""));
+                $outcomePrefix = $currentStatus === "ARCHIVED"
+                  ? "ARCHIVED"
+                  : (in_array($closedAction, ["branch_ended_here", "document_ended_here"], true) ? "DONE" : "RELEASED");
+
+                if ($deadlineDate && $closedDate) {
+                  $deltaDays = (int)$deadlineDate->diff($closedDate)->format("%r%a");
+                  if ($deltaDays < 0) {
+                    $earlyDays = abs($deltaDays);
+                    $deadlineBadgeText = $outcomePrefix . " · " . ($earlyDays === 1 ? "1D EARLY" : "{$earlyDays}D EARLY");
+                    $deadlineBadgeClass = "safe";
+                  } elseif ($deltaDays === 0) {
+                    $deadlineBadgeText = $outcomePrefix . " · ON TIME";
+                    $deadlineBadgeClass = "safe";
+                  } else {
+                    $deadlineBadgeText = $outcomePrefix . " · " . ($deltaDays === 1 ? "1D LATE" : "{$deltaDays}D LATE");
+                    $deadlineBadgeClass = "danger";
+                  }
+                } else {
+                  $deadlineBadgeText = $outcomePrefix;
+                  $deadlineBadgeClass = "neutral";
+                }
+              } else {
+                $secondsLeft = $effectiveDeadlineTs - time();
+                $daysLeft = (int)floor($secondsLeft / 86400);
+
+                if ($secondsLeft < 0) {
+                  $lateDays = max(1, (int)ceil(abs($secondsLeft) / 86400));
+                  $deadlineBadgeText = $lateDays === 1 ? "OVERDUE 1 DAY" : "OVERDUE {$lateDays} DAYS";
+                  $deadlineBadgeClass = "danger";
+                  $deadlineToneClass = "rowDeadlineOverdue";
+                } elseif ($secondsLeft <= 86400) {
+                  $deadlineBadgeText = "DUE TODAY";
+                  $deadlineBadgeClass = "today";
+                } elseif ($secondsLeft <= 259200) {
+                  $deadlineBadgeText = $daysLeft <= 1 ? "1 DAY LEFT" : $daysLeft . " DAYS LEFT";
+                  $deadlineBadgeClass = "warn";
+                } else {
+                  $deadlineBadgeText = $daysLeft . " DAYS LEFT";
+                  $deadlineBadgeClass = "safe";
+                }
+              }
+            } elseif ($isDeadlineLifecycleClosed) {
+              $deadlineBadgeText = $currentStatus === "ARCHIVED"
+                ? "ARCHIVED"
+                : (in_array(trim((string)($d["lifecycle_closed_action"] ?? "")), ["branch_ended_here", "document_ended_here"], true) ? "DONE" : "RELEASED");
+              $deadlineBadgeClass = "neutral";
             }
 
             $myHasOpenInbound = ((int)($d["my_has_open_inbound"] ?? 0) === 1);

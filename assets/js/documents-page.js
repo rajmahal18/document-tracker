@@ -434,10 +434,11 @@
     return `${minutes}m`;
   }
 
-  function renderDeadline(documentDeadlineAt, personalDeadlineAt = "") {
+  function renderDeadline(documentDeadlineAt, personalDeadlineAt = "", finalOutcomeText = "") {
     const docRaw = (documentDeadlineAt || "").toString().trim();
     const personalRaw = (personalDeadlineAt || "").toString().trim();
     const effectiveRaw = personalRaw || docRaw;
+    const outcomeText = (finalOutcomeText || "").toString().trim();
 
     if (elDeadline) elDeadline.textContent = docRaw ? fmtDate(docRaw) : "—";
     if (elPersonalDeadline) elPersonalDeadline.textContent = personalRaw ? fmtDate(personalRaw) : "—";
@@ -448,6 +449,11 @@
     }
 
     if (!elDeadlineCountdown) return;
+    if (outcomeText) {
+      elDeadlineCountdown.textContent = outcomeText;
+      return;
+    }
+
     if (!effectiveRaw) {
       elDeadlineCountdown.textContent = "No deadline set";
       return;
@@ -2067,7 +2073,10 @@
     if (elTracking) elTracking.textContent = payload.tracking_display || payload.tracking_no || "";
     if (elRequester) elRequester.textContent = payload.requester || "—";
     if (elDate) elDate.textContent = payload.document_date || "—";
-    renderDeadline(payload.deadline_at || "", payload.my_personal_deadline_at || "");
+    const deadlineOutcome = ((payload.current_status || "ACTIVE").toString().toUpperCase() === "ACTIVE")
+      ? ""
+      : (payload.deadline_badge_text || "");
+    renderDeadline(payload.deadline_at || "", payload.my_personal_deadline_at || "", deadlineOutcome);
     if (elSubject) elSubject.textContent = payload.subject || "—";
     if (elType) elType.textContent = payload.content_type || "—";
     if (elActivityLabel) elActivityLabel.textContent = payload.activity_label || "Days stuck";
