@@ -74,8 +74,8 @@ try {
       exit;
     }
   } else {
-    $stmt = $conn->prepare("\n      SELECT\n        r.id AS route_id,\n        r.from_section_id,\n        r.to_section_id,\n        r.to_user_id,\n        r.send_batch_id,\n        d.current_holder_section_id,\n        d.current_status\n      FROM routes r\n      JOIN documents d ON d.id = r.document_id\n      WHERE r.document_id = ?\n        AND r.received_at IS NULL\n        AND r.cancelled_at IS NULL\n        AND r.to_user_id = ?\n      ORDER BY r.id DESC\n      LIMIT 1\n    ");
-    $stmt->bind_param("ii", $docId, $userId);
+    $stmt = $conn->prepare("\n      SELECT\n        r.id AS route_id,\n        r.from_section_id,\n        r.to_section_id,\n        r.to_user_id,\n        r.send_batch_id,\n        d.current_holder_section_id,\n        d.current_status\n      FROM routes r\n      JOIN documents d ON d.id = r.document_id\n      WHERE r.document_id = ?\n        AND r.received_at IS NULL\n        AND r.cancelled_at IS NULL\n        AND r.to_user_id = ?\n        AND (? <= 0 OR r.id = ?)\n      ORDER BY r.id DESC\n      LIMIT 1\n    ");
+    $stmt->bind_param("iiii", $docId, $userId, $routeId, $routeId);
     $stmt->execute();
     $row = $stmt->get_result()->fetch_assoc();
 
@@ -87,8 +87,8 @@ try {
         exit;
       }
 
-      $stmt = $conn->prepare("\n        SELECT\n          r.id AS route_id,\n          r.from_section_id,\n          r.to_section_id,\n          r.to_user_id,\n          r.send_batch_id,\n          d.current_holder_section_id,\n          d.current_status\n        FROM routes r\n        JOIN documents d ON d.id = r.document_id\n        WHERE r.document_id = ?\n          AND r.received_at IS NULL\n          AND r.cancelled_at IS NULL\n          AND r.to_section_id = ?\n          AND r.to_user_id IS NULL\n        ORDER BY r.id DESC\n        LIMIT 1\n      ");
-      $stmt->bind_param("ii", $docId, $mySectionId);
+      $stmt = $conn->prepare("\n        SELECT\n          r.id AS route_id,\n          r.from_section_id,\n          r.to_section_id,\n          r.to_user_id,\n          r.send_batch_id,\n          d.current_holder_section_id,\n          d.current_status\n        FROM routes r\n        JOIN documents d ON d.id = r.document_id\n        WHERE r.document_id = ?\n          AND r.received_at IS NULL\n          AND r.cancelled_at IS NULL\n          AND r.to_section_id = ?\n          AND r.to_user_id IS NULL\n          AND (? <= 0 OR r.id = ?)\n        ORDER BY r.id DESC\n        LIMIT 1\n      ");
+      $stmt->bind_param("iiii", $docId, $mySectionId, $routeId, $routeId);
       $stmt->execute();
       $row = $stmt->get_result()->fetch_assoc();
       if ($row) {

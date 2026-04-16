@@ -3,96 +3,25 @@ declare(strict_types=1);
 
 require __DIR__ . "/../includes/bootstrap.php";
 
-// If already logged in, go to documents
+$next = app_safe_next_path((string)($_POST["next"] ?? $_GET["next"] ?? ""), PUBLIC_PATH . "/documents.php");
+
+// If already logged in, continue to the requested internal page.
 if (is_logged_in()) {
-  redirect(PUBLIC_PATH . "/documents.php");
+  redirect($next);
 }
 
 $pageTitle = "Login - Document Tracker";
 $error = "";
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
-  $username = trim($_POST["username"] ?? "");
-  $password = $_POST["password"] ?? "";
-
-  if ($username === "" || $password === "") {
-    $error = "Please enter your username/email and password.";
+  $login = login_with_credentials($conn, (string)($_POST["username"] ?? ""), (string)($_POST["password"] ?? ""));
+  if (empty($login["ok"])) {
+    $error = (string)($login["error"] ?? "Invalid login credentials.");
   } else {
-
-    $hasOfficialTitle = db_column_exists($conn, "users", "official_title");
-    $hasAuthorityRole = db_column_exists($conn, "users", "authority_role");
-
-    $hasUsername = username_column_exists($conn);
-
-    $sql = "
-      SELECT
-        u.id,
-        u.full_name,
-        " . ($hasUsername ? "u.username" : "NULL") . " AS username,
-        u.email,
-        u.password_hash,
-        u.must_change_password,
-        u.role,
-        u.section_id,
-        u.is_chief,
-        " . ($hasOfficialTitle ? "u.official_title" : "NULL") . " AS official_title,
-        " . ($hasAuthorityRole ? "u.authority_role" : "NULL") . " AS authority_role,
-        s.name AS section_name,
-        d.id AS division_id,
-        d.name AS division_name
-      FROM users u
-      LEFT JOIN sections s ON s.id = u.section_id
-      LEFT JOIN divisions d ON d.id = s.division_id
-      WHERE " . ($hasUsername ? "(u.email = ? OR u.username = ?)" : "u.email = ?") . "
-      LIMIT 1
-    ";
-    $stmt = $conn->prepare($sql);
-    if ($hasUsername) {
-      $stmt->bind_param("ss", $username, $username);
-    } else {
-      $stmt->bind_param("s", $username);
+    if ((int)($login["must_change_password"] ?? 0) === 1) {
+      redirect(PUBLIC_PATH . "/change_password.php");
     }
-    $stmt->execute();
-    $user = $stmt->get_result()->fetch_assoc();
-
-    if (!$user || !password_verify($password, (string)$user["password_hash"])) {
-      $error = "Invalid login credentials.";
-    } else {
-
-      // ✅ Store session data
-      $_SESSION["user_id"]       = (int)$user["id"];
-      $_SESSION["full_name"]     = (string)$user["full_name"];
-      $_SESSION["username"]      = trim((string)($user["username"] ?? ""));
-      $_SESSION["email"]         = (string)($user["email"] ?? "");
-      $_SESSION["role"]          = (string)($user["role"] ?? "user");
-      $_SESSION["must_change_password"] = (int)($user["must_change_password"] ?? 0);
-
-      $_SESSION["section_id"]    = isset($user["section_id"]) ? (int)$user["section_id"] : null;
-      $_SESSION["section_name"]  = (string)($user["section_name"] ?? "");
-      $_SESSION["division_id"]   = isset($user["division_id"]) ? (int)$user["division_id"] : null;
-      $_SESSION["division_name"] = (string)($user["division_name"] ?? "");
-
-      $rawAuthorityRole = trim((string)($user["authority_role"] ?? ""));
-      if ($rawAuthorityRole === "") {
-        if ((string)($user["role"] ?? "user") === "admin") {
-          $rawAuthorityRole = "admin";
-        } elseif ((int)($user["is_chief"] ?? 0) === 1) {
-          $rawAuthorityRole = "section_head";
-        } else {
-          $rawAuthorityRole = "staff";
-        }
-      }
-
-      $_SESSION["authority_role"] = $rawAuthorityRole;
-      $_SESSION["official_title"] = trim((string)($user["official_title"] ?? ""));
-      $_SESSION["is_chief"]       = (int)($user["is_chief"] ?? 0);
-
-      if ((int)($_SESSION["must_change_password"] ?? 0) === 1) {
-        redirect(PUBLIC_PATH . "/change_password.php");
-      }
-
-      redirect(PUBLIC_PATH . "/documents.php");
-    }
+    redirect($next);
   }
 }
 
@@ -114,6 +43,8 @@ require __DIR__ . "/../includes/layout.php";
     <?php endif; ?>
 
     <form class="authForm" method="POST" action="<?= PUBLIC_PATH ?>/login.php" novalidate>
+      <input type="hidden" name="next" value="<?= htmlspecialchars($next, ENT_QUOTES, "UTF-8") ?>">
+
       <div class="authField">
         <label for="username">Username / Email</label>
         <input
@@ -121,10 +52,10 @@ require __DIR__ . "/../includes/layout.php";
           type="text"
           name="username"
           placeholder="Enter your username or email"
-          value="<?= htmlspecialchars($_POST["username"] ?? "") ?>"
+          value="<?= htmlspecialchars((string)($_POST["username"] ?? "")) ?>"
           autocomplete="username"
           required
-        />
+        >
       </div>
 
       <div class="authField">
@@ -136,12 +67,12 @@ require __DIR__ . "/../includes/layout.php";
           placeholder="Enter your password"
           autocomplete="current-password"
           required
-        />
+        >
       </div>
 
       <div class="authRow">
         <label class="authCheck">
-          <input type="checkbox" name="remember" />
+          <input type="checkbox" name="remember">
           <span>Keep me signed in</span>
         </label>
 
@@ -177,45 +108,45 @@ require __DIR__ . "/../includes/layout.php";
 </div>
 
 <div id="accessModal" class="modalWrap" aria-hidden="true">
-      <div class="modalBackdrop" onclick="closeAccessModal()"></div>
+  <div class="modalBackdrop" onclick="closeAccessModal()"></div>
 
-      <div class="modalCard" role="dialog" aria-modal="true" aria-labelledby="accessModalTitle">
-        <div class="modalHeader">
-          <h3 id="accessModalTitle">Request System Access</h3>
-          <button type="button" class="modalClose" onclick="closeAccessModal()" aria-label="Close">✕</button>
-        </div>
-
-        <form id="accessForm" class="modalBody" onsubmit="submitAccessRequest(event)">
-          <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token(), ENT_QUOTES, "UTF-8") ?>">
-
-          <div class="authField">
-            <label>Full Name</label>
-            <input name="full_name" type="text" placeholder="Enter your full name" required maxlength="150">
-          </div>
-
-          <div class="authField">
-            <label>Office / Section</label>
-            <input name="office_section" type="text" placeholder="Enter your office or section" required maxlength="150">
-          </div>
-
-          <div class="authField">
-            <label>Email</label>
-            <input name="email" type="text" placeholder="Enter your official email" required maxlength="190">
-          </div>
-
-          <div class="authField">
-            <label>Reason for Access</label>
-            <textarea name="reason" class="modalTextarea" placeholder="Briefly state the reason" required maxlength="500"></textarea>
-          </div>
-
-          <div id="accessMsg" class="modalMsg" style="display:none;"></div>
-        </form>
-
-        <div class="modalFooter">
-          <button type="button" class="btnComp" onclick="closeAccessModal()">Cancel</button>
-          <button type="submit" class="btnSecondary" form="accessForm">Submit Request</button>
-        </div>
-      </div>
+  <div class="modalCard" role="dialog" aria-modal="true" aria-labelledby="accessModalTitle">
+    <div class="modalHeader">
+      <h3 id="accessModalTitle">Request System Access</h3>
+      <button type="button" class="modalClose" onclick="closeAccessModal()" aria-label="Close">&times;</button>
     </div>
+
+    <form id="accessForm" class="modalBody" onsubmit="submitAccessRequest(event)">
+      <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token(), ENT_QUOTES, "UTF-8") ?>">
+
+      <div class="authField">
+        <label>Full Name</label>
+        <input name="full_name" type="text" placeholder="Enter your full name" required maxlength="150">
+      </div>
+
+      <div class="authField">
+        <label>Office / Section</label>
+        <input name="office_section" type="text" placeholder="Enter your office or section" required maxlength="150">
+      </div>
+
+      <div class="authField">
+        <label>Email</label>
+        <input name="email" type="text" placeholder="Enter your official email" required maxlength="190">
+      </div>
+
+      <div class="authField">
+        <label>Reason for Access</label>
+        <textarea name="reason" class="modalTextarea" placeholder="Briefly state the reason" required maxlength="500"></textarea>
+      </div>
+
+      <div id="accessMsg" class="modalMsg" style="display:none;"></div>
+    </form>
+
+    <div class="modalFooter">
+      <button type="button" class="btnComp" onclick="closeAccessModal()">Cancel</button>
+      <button type="submit" class="btnSecondary" form="accessForm">Submit Request</button>
+    </div>
+  </div>
+</div>
 
 <?php require __DIR__ . "/../includes/footer.php"; ?>

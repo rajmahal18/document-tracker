@@ -319,6 +319,32 @@ function redirect(string $path): void {
   exit;
 }
 
+function app_safe_next_path(string $next, string $fallback = ''): string {
+  $fallback = $fallback !== '' ? $fallback : PUBLIC_PATH . '/documents.php';
+  $next = trim(str_replace(["\r", "\n"], '', $next));
+  if ($next === '' || preg_match('#^[a-z][a-z0-9+.-]*:#i', $next) || str_starts_with($next, '//')) {
+    return $fallback;
+  }
+
+  $parts = parse_url($next);
+  if (!is_array($parts) || isset($parts['scheme']) || isset($parts['host'])) {
+    return $fallback;
+  }
+
+  $path = app_normalize_url_path((string)($parts['path'] ?? ''));
+  if ($path === '') {
+    return $fallback;
+  }
+
+  $base = BASE_PATH;
+  if ($base !== '' && $path !== $base && !str_starts_with($path . '/', $base . '/')) {
+    return $fallback;
+  }
+
+  $query = isset($parts['query']) && $parts['query'] !== '' ? '?' . $parts['query'] : '';
+  return $path . $query;
+}
+
 function is_logged_in(): bool {
   return isset($_SESSION["user_id"]);
 }
@@ -340,6 +366,44 @@ function require_login(): void {
       redirect(PUBLIC_PATH . "/change_password.php");
     }
   }
+}
+
+function login_with_credentials(mysqli $conn, string $username, string $password): array {
+  $username = trim($username);
+  if ($username === '' || $password === '') {
+    return ['ok' => false, 'error' => 'Please enter your username/email and password.'];
+  }
+
+  $hasUsername = username_column_exists($conn);
+  $sql = '
+    SELECT u.id, u.password_hash
+    FROM users u
+    WHERE ' . ($hasUsername ? '(u.email = ? OR u.username = ?)' : 'u.email = ?') . '
+    LIMIT 1
+  ';
+  $stmt = $conn->prepare($sql);
+  if (!$stmt) {
+    return ['ok' => false, 'error' => 'Unable to process login right now.'];
+  }
+  if ($hasUsername) {
+    $stmt->bind_param('ss', $username, $username);
+  } else {
+    $stmt->bind_param('s', $username);
+  }
+  $stmt->execute();
+  $user = $stmt->get_result()->fetch_assoc();
+  $stmt->close();
+
+  if (!$user || !password_verify($password, (string)($user['password_hash'] ?? ''))) {
+    return ['ok' => false, 'error' => 'Invalid login credentials.'];
+  }
+
+  refresh_session_identity($conn, (int)$user['id']);
+  return [
+    'ok' => true,
+    'user_id' => (int)$user['id'],
+    'must_change_password' => (int)($_SESSION['must_change_password'] ?? 0),
+  ];
 }
 
 /**
@@ -428,6 +492,69 @@ function db_column_exists(mysqli $conn, string $table, string $column): bool {
   return $cache[$key];
 }
 
+function db_table_exists(mysqli $conn, string $table): bool {
+  static $cache = [];
+
+  if (array_key_exists($table, $cache)) {
+    return $cache[$table];
+  }
+
+  $tableEsc = $conn->real_escape_string($table);
+  $sql = "SHOW TABLES LIKE '{$tableEsc}'";
+  $result = $conn->query($sql);
+  $cache[$table] = $result instanceof mysqli_result && $result->num_rows > 0;
+
+  if ($result instanceof mysqli_result) {
+    $result->free();
+  }
+
+  return $cache[$table];
+}
+
+function assistant_assignments_table_ready(mysqli $conn): bool {
+  static $ready = null;
+  if ($ready !== null) return $ready;
+
+  $ok = $conn->query("
+    CREATE TABLE IF NOT EXISTS principal_assistants (
+      principal_user_id INT NOT NULL,
+      assistant_user_id INT NOT NULL,
+      assigned_by_user_id INT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (principal_user_id, assistant_user_id),
+      KEY idx_principal_assistants_assistant (assistant_user_id),
+      KEY idx_principal_assistants_principal (principal_user_id),
+      CONSTRAINT fk_principal_assistants_principal
+        FOREIGN KEY (principal_user_id) REFERENCES users(id)
+        ON DELETE CASCADE,
+      CONSTRAINT fk_principal_assistants_assistant
+        FOREIGN KEY (assistant_user_id) REFERENCES users(id)
+        ON DELETE CASCADE,
+      CONSTRAINT fk_principal_assistants_assigned_by
+        FOREIGN KEY (assigned_by_user_id) REFERENCES users(id)
+        ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  ");
+
+  if (!$ok) {
+    $ready = db_table_exists($conn, 'principal_assistants');
+    return $ready;
+  }
+
+  if (db_column_exists($conn, 'users', 'chief_assistant_user_id')) {
+    $conn->query("
+      INSERT IGNORE INTO principal_assistants (principal_user_id, assistant_user_id)
+      SELECT id, chief_assistant_user_id
+      FROM users
+      WHERE chief_assistant_user_id IS NOT NULL
+        AND chief_assistant_user_id > 0
+    ");
+  }
+
+  $ready = true;
+  return $ready;
+}
+
 /**
  * ===== Permission Helpers =====
  */
@@ -452,9 +579,26 @@ function is_chief_user(): bool {
  */
 
 function assistant_fetch_assigned_principals(mysqli $conn, int $assistantUserId): array {
-  if ($assistantUserId <= 0 || !db_column_exists($conn, 'users', 'chief_assistant_user_id')) return [];
+  if ($assistantUserId <= 0) return [];
   $hasAuthorityRole = db_column_exists($conn, 'users', 'authority_role');
   $hasOfficialTitle = db_column_exists($conn, 'users', 'official_title');
+  $hasLegacyAssistant = db_column_exists($conn, 'users', 'chief_assistant_user_id');
+  $hasAssignmentTable = assistant_assignments_table_ready($conn);
+  if (!$hasLegacyAssistant && !$hasAssignmentTable) return [];
+
+  $assignmentWhere = [];
+  if ($hasAssignmentTable) {
+    $assignmentWhere[] = 'EXISTS (
+      SELECT 1
+      FROM principal_assistants pa
+      WHERE pa.principal_user_id = u.id
+        AND pa.assistant_user_id = ?
+    )';
+  }
+  if ($hasLegacyAssistant) {
+    $assignmentWhere[] = 'u.chief_assistant_user_id = ?';
+  }
+
   $sql = '
     SELECT u.id, u.full_name, u.section_id, u.role, u.is_chief, '
     . ($hasAuthorityRole ? 'u.authority_role' : 'NULL') . ' AS authority_role, '
@@ -463,11 +607,18 @@ function assistant_fetch_assigned_principals(mysqli $conn, int $assistantUserId)
     . 'FROM users u '
     . 'LEFT JOIN sections s ON s.id = u.section_id '
     . 'LEFT JOIN divisions d ON d.id = s.division_id '
-    . 'WHERE u.is_active = 1 AND u.chief_assistant_user_id = ? '
+    . 'WHERE u.is_active = 1 AND (' . implode(' OR ', $assignmentWhere) . ') '
+    . ($hasAuthorityRole ? "AND u.authority_role IN ('director', 'division_head', 'section_head') " : 'AND u.is_chief = 1 ')
     . 'ORDER BY u.full_name ASC';
   $stmt = $conn->prepare($sql);
   if (!$stmt) return [];
-  $stmt->bind_param('i', $assistantUserId);
+  $types = str_repeat('i', count($assignmentWhere));
+  $params = array_fill(0, count($assignmentWhere), $assistantUserId);
+  $bind = [&$types];
+  foreach ($params as $k => $v) {
+    $bind[] = &$params[$k];
+  }
+  call_user_func_array([$stmt, 'bind_param'], $bind);
   $stmt->execute();
   $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
   $stmt->close();

@@ -19,32 +19,7 @@ $requestedActingPrincipalUserId = (int)($_GET['acting_principal_user_id'] ?? 0);
 
 $actualUserIdForAssistantLookup = (int)($_SESSION['user_id'] ?? 0);
 if ($actualUserIdForAssistantLookup > 0) {
-  $assistantAssignmentSql = "
-    SELECT
-      principal.id,
-      principal.full_name,
-      principal.authority_role,
-      principal.section_id,
-      COALESCE(sec.name, '') AS section_name,
-      COALESCE(sec.division_id, 0) AS division_id,
-      COALESCE(dv.name, '') AS division_name
-    FROM users principal
-    LEFT JOIN sections sec ON sec.id = principal.section_id
-    LEFT JOIN divisions dv ON dv.id = sec.division_id
-    WHERE principal.chief_assistant_user_id = ?
-      AND principal.is_active = 1
-      AND principal.authority_role IN ('director', 'division_head', 'section_head')
-    ORDER BY principal.full_name ASC
-  ";
-  if ($assistantAssignmentStmt = $conn->prepare($assistantAssignmentSql)) {
-    $assistantAssignmentStmt->bind_param('i', $actualUserIdForAssistantLookup);
-    $assistantAssignmentStmt->execute();
-    $assistantAssignmentResult = $assistantAssignmentStmt->get_result();
-    while ($assistantRow = $assistantAssignmentResult->fetch_assoc()) {
-      $assistantPrincipals[] = $assistantRow;
-    }
-    $assistantAssignmentStmt->close();
-  }
+  $assistantPrincipals = assistant_fetch_assigned_principals($conn, $actualUserIdForAssistantLookup);
 }
 
 if ($assistantPrincipals !== [] && $requestedDocumentsTab === 'assistant') {

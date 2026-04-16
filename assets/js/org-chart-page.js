@@ -40,14 +40,25 @@
     editModeBtn.textContent = on ? 'Disable edit mode' : 'Enable edit mode';
   }
 
-  function populateAssistantOptions(rawCandidates, selectedValue) {
+  function selectedAssistantIdsFromButton(button) {
+    const csv = String(button.dataset.chiefAssistantUserIds || '').trim();
+    if (csv) {
+      return csv.split(',').map((id) => String(Number(id) || 0)).filter((id) => id !== '0');
+    }
+    const single = String(button.dataset.chiefAssistantUserId || '0');
+    return single !== '0' ? [single] : [];
+  }
+
+  function populateAssistantOptions(rawCandidates, selectedValues) {
     if (!assistantSelect) return;
     const candidates = Array.isArray(rawCandidates) ? rawCandidates : [];
+    const selected = new Set((Array.isArray(selectedValues) ? selectedValues : [selectedValues]).map((id) => String(id || '0')));
     assistantSelect.innerHTML = '';
 
     const defaultOpt = document.createElement('option');
     defaultOpt.value = '0';
-    defaultOpt.textContent = 'No assigned assistant';
+    defaultOpt.textContent = 'No assigned assistants';
+    defaultOpt.selected = selected.size === 0 || selected.has('0');
     assistantSelect.appendChild(defaultOpt);
 
     candidates.forEach((candidate) => {
@@ -55,13 +66,10 @@
       opt.value = String(candidate.id || 0);
       const suffix = candidate.display_title ? ` — ${candidate.display_title}` : (candidate.section_name ? ` — ${candidate.section_name}` : '');
       opt.textContent = `${candidate.full_name || 'Unnamed user'}${suffix}`;
+      opt.selected = selected.has(opt.value);
       assistantSelect.appendChild(opt);
     });
 
-    assistantSelect.value = String(selectedValue || '0');
-    if (assistantSelect.value !== String(selectedValue || '0')) {
-      assistantSelect.value = '0';
-    }
   }
 
   function setBasicFieldsEditable(canEditBasic) {
@@ -94,22 +102,22 @@
       assistantField.hidden = !canAssignAssistant;
       assistantSelect.disabled = !canAssignAssistant;
       if (canAssignAssistant) {
-        populateAssistantOptions(candidates, button.dataset.chiefAssistantUserId || '0');
+        populateAssistantOptions(candidates, selectedAssistantIdsFromButton(button));
         if (assistantHelp) {
           assistantHelp.textContent = candidates.length
-            ? 'Choose the staff user who can assist this chief inside the allowed domain.'
+            ? 'Choose one or more staff users who can assist this chief inside the allowed domain.'
             : 'No eligible staff candidate found yet in this allowed domain.';
         }
       } else {
-        populateAssistantOptions([], '0');
+        populateAssistantOptions([], []);
       }
     }
 
     if (scopeNote) {
       if (canEditBasic && canAssignAssistant) {
-        scopeNote.textContent = 'You can update org details here and assign an assistant for this chief within your allowed scope.';
+        scopeNote.textContent = 'You can update org details here and assign assistants for this chief within your allowed scope.';
       } else if (canAssignAssistant) {
-        scopeNote.textContent = 'You can assign an assistant for this chief here. Basic org fields are read-only for this account.';
+        scopeNote.textContent = 'You can assign assistants for this chief here. Basic org fields are read-only for this account.';
       } else {
         scopeNote.textContent = 'Section and division are read-only in this pass. Use this to update account ownership and org details inside your allowed scope.';
       }

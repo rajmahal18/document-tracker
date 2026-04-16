@@ -1499,8 +1499,21 @@ body[data-theme="dark"] .scanStatusBadge {
 .qrActionRow {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
   margin-top: 12px;
+}
+
+.qrLoginForm {
+  margin-top: 10px;
+}
+
+.qrLoginError {
+  margin: 10px 0 0;
+}
+
+.qrFullLoginLink {
+  text-decoration: none;
 }
 
 @media (max-width: 900px) {
