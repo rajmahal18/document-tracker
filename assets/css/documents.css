@@ -786,6 +786,10 @@ body[data-theme="dark"] .docsQuickFilter.isActive span {
     min-width: 0;
   }
 
+  .docsTableModern td[data-label="Latest remark"] {
+    max-width: none;
+  }
+
   .docsRow td:first-child { border-left: 0; }
   .docsRow.rowToneIncoming,
   .docsRow.rowTonePending,
@@ -852,7 +856,20 @@ body[data-theme="dark"] .docsQuickFilter.isActive span {
   .routeLine { grid-template-columns: 64px minmax(0, 1fr); gap: 8px; }
   .routeLabel { font-size: 9.5px; }
   .routeValue.strong { font-size: 12px; }
+  .latestRemarkCell {
+    min-height: 0;
+    align-items: stretch;
+    justify-content: flex-start;
+  }
   .latestRemarkCell.hasRemark { padding: 8px 10px; border-radius: 12px; }
+  .latestRemarkBlank {
+    min-height: 0;
+    color: #98a2b3;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.4;
+  }
+  .latestRemarkBlank::before { content: "No latest remark"; }
   .deadlineBadge { align-self: flex-start; }
   .docsResultsMeta { font-size: 11px; }
 }
