@@ -7,7 +7,7 @@ require_admin();
 $pageTitle = 'Admin - Document Tracker';
 
 $activeTab = strtolower(trim((string)($_GET['tab'] ?? 'users')));
-if (!in_array($activeTab, ['users', 'documents'], true)) {
+if (!in_array($activeTab, ['users', 'documents', 'calendar'], true)) {
   $activeTab = 'users';
 }
 
@@ -104,6 +104,59 @@ if ($stmt = $conn->prepare($documentsSql)) {
   $stmt->close();
 }
 
+$calendarSettings = [
+  'timezone' => 'Asia/Manila',
+  'default_start_time' => '08:00:00',
+  'default_end_time' => '17:00:00',
+  'workdays' => '1,2,3,4,5',
+  'updated_at' => '',
+  'updated_by_name' => '',
+];
+$calendarExceptions = [];
+$calendarUnavailable = false;
+
+try {
+  $settingsResult = $conn->query("
+    SELECT
+      w.timezone,
+      w.default_start_time,
+      w.default_end_time,
+      w.workdays,
+      w.updated_at,
+      COALESCE(u.full_name, '') AS updated_by_name
+    FROM working_calendar_settings w
+    LEFT JOIN users u ON u.id = w.updated_by_user_id
+    WHERE w.id = 1
+    LIMIT 1
+  ");
+  $settingsRow = $settingsResult ? $settingsResult->fetch_assoc() : null;
+  if (is_array($settingsRow)) {
+    $calendarSettings = array_replace($calendarSettings, $settingsRow);
+  }
+
+  $exceptionsResult = $conn->query("
+    SELECT
+      e.id,
+      e.exception_date,
+      e.exception_type,
+      e.title,
+      e.start_time,
+      e.end_time,
+      e.notes,
+      e.updated_at,
+      COALESCE(u.full_name, '') AS updated_by_name
+    FROM working_calendar_exceptions e
+    LEFT JOIN users u ON u.id = e.updated_by_user_id
+    WHERE e.exception_date BETWEEN DATE_SUB(CURDATE(), INTERVAL 18 MONTH)
+      AND DATE_ADD(CURDATE(), INTERVAL 18 MONTH)
+    ORDER BY e.exception_date ASC
+    LIMIT 180
+  ");
+  $calendarExceptions = $exceptionsResult ? $exceptionsResult->fetch_all(MYSQLI_ASSOC) : [];
+} catch (Throwable) {
+  $calendarUnavailable = true;
+}
+
 require __DIR__ . '/../includes/layout.php';
 ?>
 <style>
@@ -153,10 +206,41 @@ require __DIR__ . '/../includes/layout.php';
 .adminMessage { display:none; margin-top:12px; padding:11px 13px; border-radius:12px; font-size:.92rem; }
 .adminMessage.ok { display:block; background:#ecfdf3; color:#166534; border:1px solid #bbf7d0; }
 .adminMessage.error { display:block; background:#fef2f2; color:#991b1b; border:1px solid #fecaca; }
+.adminCalendarGrid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px; }
+.adminFormGrid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; }
+.adminFormGrid .span2 { grid-column:1 / -1; }
+.adminFormGrid label { display:block; margin-bottom:6px; font-size:.78rem; font-weight:800; color:#475569; text-transform:uppercase; letter-spacing:.04em; }
+.adminFormGrid input, .adminFormGrid select, .adminFormGrid textarea { width:100%; min-height:40px; border-radius:12px; border:1px solid #dbe2ea; padding:0 12px; }
+.adminFormGrid textarea { min-height:86px; padding:10px 12px; resize:vertical; }
+.adminChecks { display:flex; gap:8px; flex-wrap:wrap; }
+.adminChecks label { margin:0; display:inline-flex; align-items:center; gap:6px; border:1px solid #dbe2ea; border-radius:999px; padding:8px 10px; text-transform:none; letter-spacing:0; font-size:.84rem; color:#0f172a; }
+.adminChecks input { width:auto; min-height:auto; }
+.adminCalendarPicker { border:1px solid #e2e8f0; border-radius:18px; padding:14px; background:linear-gradient(180deg,#fff,#f8fafc); }
+.adminCalendarPickerHead { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px; }
+.adminCalendarPickerTitle { font-weight:900; color:#0f172a; }
+.adminCalendarPickerNav { display:flex; gap:8px; }
+.adminCalendarPickerNav button { min-height:30px; border-radius:999px; padding:0 10px; }
+.adminCalendarWeekdays,
+.adminCalendarDays { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); gap:6px; }
+.adminCalendarWeekdays span { text-align:center; font-size:.72rem; font-weight:900; color:#64748b; text-transform:uppercase; letter-spacing:.04em; }
+.adminCalendarDayBtn { position:relative; min-height:42px; border:1px solid #e2e8f0; border-radius:12px; background:#fff; color:#0f172a; font-weight:900; cursor:pointer; }
+.adminCalendarDayBtn.isMuted { opacity:.42; }
+.adminCalendarDayBtn.isToday { border-color:#0f172a; }
+.adminCalendarDayBtn.isSelected,
+.adminCalendarDayBtn.isRange { background:#0f172a; color:#fff; border-color:#0f172a; }
+.adminCalendarDayBtn.hasException::after { content:""; position:absolute; left:50%; bottom:6px; width:5px; height:5px; border-radius:999px; background:#f97316; transform:translateX(-50%); }
+.adminCalendarDayBtn.isWorkingException::after { background:#16a34a; }
+.adminCalendarLegend { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; font-size:.78rem; color:#64748b; font-weight:700; }
+.adminCalendarLegend span { display:inline-flex; align-items:center; gap:6px; }
+.adminCalendarLegend i { width:7px; height:7px; border-radius:999px; display:inline-block; background:#f97316; }
+.adminCalendarLegend .work i { background:#16a34a; }
+.adminCalendarSelectedHint { margin-top:10px; padding:9px 10px; border-radius:12px; background:#eef2ff; color:#3730a3; font-size:.84rem; font-weight:800; }
 @media (max-width: 860px) {
   .adminHero { flex-direction:column; }
   .adminCounts { justify-content:flex-start; }
   .adminModalGrid { grid-template-columns:1fr; }
+  .adminCalendarGrid, .adminFormGrid { grid-template-columns:1fr; }
+  .adminFormGrid .span2 { grid-column:auto; }
 }
 </style>
 
@@ -182,6 +266,7 @@ $activeDocs = count(array_filter($documents, static fn(array $row): bool => strt
   <div class="adminTabs">
     <a class="adminTab <?= $activeTab === 'users' ? 'isActive' : '' ?>" href="<?= PUBLIC_PATH ?>/admin.php?tab=users">Users</a>
     <a class="adminTab <?= $activeTab === 'documents' ? 'isActive' : '' ?>" href="<?= PUBLIC_PATH ?>/admin.php?tab=documents">Documents</a>
+    <a class="adminTab <?= $activeTab === 'calendar' ? 'isActive' : '' ?>" href="<?= PUBLIC_PATH ?>/admin.php?tab=calendar">Working Calendar</a>
     <a class="adminTab" href="<?= PUBLIC_PATH ?>/access_requests.php">Access Requests</a>
   </div>
 
@@ -279,7 +364,7 @@ $activeDocs = count(array_filter($documents, static fn(array $row): bool => strt
         </div>
       </div>
     </section>
-  <?php else: ?>
+  <?php elseif ($activeTab === 'documents'): ?>
     <section class="adminCard">
       <div class="adminCardHeader">
         <div>
@@ -355,6 +440,198 @@ $activeDocs = count(array_filter($documents, static fn(array $row): bool => strt
             </tbody>
           </table>
         </div>
+      </div>
+    </section>
+  <?php else: ?>
+    <?php
+      $selectedWorkdays = array_values(array_filter(array_map('intval', preg_split('/\s*,\s*/', (string)($calendarSettings['workdays'] ?? '')) ?: [])));
+      $dayLabels = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'Sat', 7 => 'Sun'];
+      $settingStart = substr((string)($calendarSettings['default_start_time'] ?? '08:00:00'), 0, 5);
+      $settingEnd = substr((string)($calendarSettings['default_end_time'] ?? '17:00:00'), 0, 5);
+    ?>
+    <section class="adminCard">
+      <div class="adminCardHeader">
+        <div>
+          <h3>Working Calendar</h3>
+          <p>System source of truth for working days and hours. Duration metrics use this calendar before counting time.</p>
+        </div>
+      </div>
+      <div class="adminCardBody">
+        <div id="adminCalendarMsg" class="adminMessage <?= $calendarUnavailable ? 'error' : '' ?>" style="<?= $calendarUnavailable ? 'display:block;' : '' ?>">
+          <?= $calendarUnavailable ? 'Working calendar tables are not available yet. Run db/migrations/20260420_working_calendar.sql first.' : '' ?>
+        </div>
+
+        <?php if (!$calendarUnavailable): ?>
+          <div class="adminCalendarGrid">
+            <form id="calendarSettingsForm" class="adminCard" style="box-shadow:none; padding:16px;">
+              <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token(), ENT_QUOTES, 'UTF-8') ?>">
+              <input type="hidden" name="action" value="settings">
+              <div class="adminCardHeader" style="padding:0 0 12px;">
+                <div>
+                  <h3>Default office schedule</h3>
+                  <p>Use this for normal weeks. Current fallback is Asia/Manila.</p>
+                </div>
+              </div>
+              <div class="adminFormGrid">
+                <div class="span2">
+                  <label>Timezone</label>
+                  <input type="text" name="timezone" value="<?= htmlspecialchars((string)$calendarSettings['timezone']) ?>" placeholder="Asia/Manila">
+                </div>
+                <div>
+                  <label>Start time</label>
+                  <input type="time" name="default_start_time" value="<?= htmlspecialchars($settingStart) ?>" required>
+                </div>
+                <div>
+                  <label>End time</label>
+                  <input type="time" name="default_end_time" value="<?= htmlspecialchars($settingEnd) ?>" required>
+                </div>
+                <div class="span2">
+                  <label>Working days</label>
+                  <div class="adminChecks">
+                    <?php foreach ($dayLabels as $dayNo => $dayLabel): ?>
+                      <label>
+                        <input type="checkbox" name="workdays[]" value="<?= (int)$dayNo ?>" <?= in_array($dayNo, $selectedWorkdays, true) ? 'checked' : '' ?>>
+                        <?= htmlspecialchars($dayLabel) ?>
+                      </label>
+                    <?php endforeach; ?>
+                  </div>
+                </div>
+              </div>
+              <div class="adminModalActions">
+                <button type="submit" class="adminPrimary">Save default schedule</button>
+              </div>
+              <?php if ((string)($calendarSettings['updated_at'] ?? '') !== ''): ?>
+                <div class="adminMini">Last updated <?= htmlspecialchars((string)$calendarSettings['updated_at']) ?><?= (string)($calendarSettings['updated_by_name'] ?? '') !== '' ? ' by ' . htmlspecialchars((string)$calendarSettings['updated_by_name']) : '' ?></div>
+              <?php endif; ?>
+            </form>
+
+            <form id="calendarExceptionForm" class="adminCard" style="box-shadow:none; padding:16px;">
+              <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token(), ENT_QUOTES, 'UTF-8') ?>">
+              <input type="hidden" name="action" value="exception">
+              <div class="adminCardHeader" style="padding:0 0 12px;">
+                <div>
+                  <h3>Add temporary schedule / exception</h3>
+                  <p>Click dates in the calendar, then choose what kind of schedule or holiday to save.</p>
+                </div>
+              </div>
+              <div class="adminCalendarPicker" id="adminCalendarPicker">
+                <div class="adminCalendarPickerHead">
+                  <button type="button" class="adminGhost" id="adminCalendarPrevMonth">Prev</button>
+                  <div class="adminCalendarPickerTitle" id="adminCalendarMonthTitle">Calendar</div>
+                  <button type="button" class="adminGhost" id="adminCalendarNextMonth">Next</button>
+                </div>
+                <div class="adminCalendarWeekdays">
+                  <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+                </div>
+                <div class="adminCalendarDays" id="adminCalendarDays"></div>
+                <div class="adminCalendarLegend">
+                  <span><i></i> No-work / holiday</span>
+                  <span class="work"><i></i> Custom or special working</span>
+                </div>
+                <div class="adminCalendarSelectedHint" id="adminCalendarSelectedHint">Select a date or range.</div>
+              </div>
+              <div class="adminFormGrid">
+                <div>
+                  <label>Date from</label>
+                  <input type="date" name="date_from" id="calendarDateFrom" required>
+                </div>
+                <div>
+                  <label>Date to</label>
+                  <input type="date" name="date_to" id="calendarDateTo">
+                </div>
+                <div class="span2">
+                  <label>Type</label>
+                  <select name="exception_type" id="calendarExceptionType">
+                    <option value="custom_hours">Custom hours / energy-saving schedule</option>
+                    <option value="non_working">Non-working day</option>
+                    <option value="special_holiday">Special holiday</option>
+                    <option value="regular_holiday">Regular holiday</option>
+                    <option value="other_non_working">Others / no work</option>
+                    <option value="special_working">Special working day</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Start time</label>
+                  <input type="time" name="start_time" value="<?= htmlspecialchars($settingStart) ?>">
+                </div>
+                <div>
+                  <label>End time</label>
+                  <input type="time" name="end_time" value="<?= htmlspecialchars($settingEnd) ?>">
+                </div>
+                <div class="span2">
+                  <label>Title</label>
+                  <input type="text" name="title" maxlength="160" placeholder="e.g. Energy conservation office hours">
+                </div>
+                <div class="span2">
+                  <label>Notes</label>
+                  <textarea name="notes" placeholder="Optional context for why this schedule applies"></textarea>
+                </div>
+              </div>
+              <div class="adminModalActions">
+                <button type="submit" class="adminPrimary">Save exception/range</button>
+              </div>
+            </form>
+          </div>
+
+          <section class="adminCard" style="box-shadow:none; margin-top:16px;">
+            <div class="adminCardHeader">
+              <div>
+                <h3>Calendar exceptions</h3>
+                <p>Showing upcoming items and recent past items. Later entries override the default weekly schedule for their date.</p>
+              </div>
+            </div>
+            <div class="adminCardBody">
+              <div class="adminTableWrap">
+                <table class="adminTable">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Type</th>
+                      <th>Hours</th>
+                      <th>Title / Notes</th>
+                      <th>Updated</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <?php if ($calendarExceptions === []): ?>
+                      <tr><td colspan="6"><span class="adminMini">No calendar exceptions yet.</span></td></tr>
+                    <?php endif; ?>
+                    <?php foreach ($calendarExceptions as $exception): ?>
+                      <?php
+                        $exceptionType = (string)($exception['exception_type'] ?? 'non_working');
+                        $isNonWorkingException = in_array($exceptionType, ['non_working', 'special_holiday', 'regular_holiday', 'other_non_working'], true);
+                        $hours = $isNonWorkingException
+                          ? 'No work'
+                          : substr((string)($exception['start_time'] ?? ''), 0, 5) . ' - ' . substr((string)($exception['end_time'] ?? ''), 0, 5);
+                      ?>
+                      <tr id="calendar-exception-<?= (int)$exception['id'] ?>">
+                        <td><strong><?= htmlspecialchars((string)$exception['exception_date']) ?></strong></td>
+                        <td><span class="adminBadge <?= $isNonWorkingException ? 'warn' : 'ok' ?>"><?= htmlspecialchars(str_replace('_', ' ', strtoupper($exceptionType))) ?></span></td>
+                        <td><?= htmlspecialchars($hours) ?></td>
+                        <td>
+                          <strong><?= htmlspecialchars((string)($exception['title'] ?? '')) ?></strong>
+                          <?php if (trim((string)($exception['notes'] ?? '')) !== ''): ?>
+                            <div class="adminMini"><?= htmlspecialchars((string)$exception['notes']) ?></div>
+                          <?php endif; ?>
+                        </td>
+                        <td>
+                          <div><?= htmlspecialchars((string)($exception['updated_at'] ?? '')) ?></div>
+                          <?php if (trim((string)($exception['updated_by_name'] ?? '')) !== ''): ?>
+                            <div class="adminMini">by <?= htmlspecialchars((string)$exception['updated_by_name']) ?></div>
+                          <?php endif; ?>
+                        </td>
+                        <td>
+                          <button type="button" class="adminDanger" onclick="deleteCalendarException(<?= (int)$exception['id'] ?>)">Delete</button>
+                        </td>
+                      </tr>
+                    <?php endforeach; ?>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        <?php endif; ?>
       </div>
     </section>
   <?php endif; ?>
@@ -475,7 +752,15 @@ const USER_FORM = document.getElementById('userForm');
 const USER_FORM_MSG = document.getElementById('userFormMsg');
 const USERS_PAGE_MSG = document.getElementById('adminUsersMsg');
 const DOCS_PAGE_MSG = document.getElementById('adminDocsMsg');
+const CALENDAR_PAGE_MSG = document.getElementById('adminCalendarMsg');
 const CREDENTIALS_MODAL = document.getElementById('credentialsModal');
+const CALENDAR_EXCEPTIONS = <?= json_encode(array_map(static function (array $row): array {
+  return [
+    'date' => (string)($row['exception_date'] ?? ''),
+    'type' => (string)($row['exception_type'] ?? ''),
+    'title' => (string)($row['title'] ?? ''),
+  ];
+}, $calendarExceptions), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 
 function setAdminMessage(el, type, text) {
   if (!el) return;
@@ -578,6 +863,168 @@ async function deleteDocument(docId, label) {
     setAdminMessage(DOCS_PAGE_MSG, 'ok', payload.message || 'Document deleted successfully.');
   } catch (error) {
     setAdminMessage(DOCS_PAGE_MSG, 'error', error.message || 'Failed to delete document.');
+  }
+}
+
+async function saveCalendarForm(form) {
+  setAdminMessage(CALENDAR_PAGE_MSG, '', '');
+  try {
+    const payload = await postForm(window.__APP__.api + '/admin_work_calendar_save.php', new FormData(form));
+    setAdminMessage(CALENDAR_PAGE_MSG, 'ok', payload.message || 'Working calendar saved. Reloading...');
+    window.setTimeout(() => window.location.reload(), 550);
+  } catch (error) {
+    setAdminMessage(CALENDAR_PAGE_MSG, 'error', error.message || 'Failed to save working calendar.');
+  }
+}
+
+document.getElementById('calendarSettingsForm')?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  saveCalendarForm(event.currentTarget);
+});
+
+document.getElementById('calendarExceptionForm')?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  saveCalendarForm(event.currentTarget);
+});
+
+(() => {
+  const daysEl = document.getElementById('adminCalendarDays');
+  const titleEl = document.getElementById('adminCalendarMonthTitle');
+  const fromEl = document.getElementById('calendarDateFrom');
+  const toEl = document.getElementById('calendarDateTo');
+  const hintEl = document.getElementById('adminCalendarSelectedHint');
+  const prevBtn = document.getElementById('adminCalendarPrevMonth');
+  const nextBtn = document.getElementById('adminCalendarNextMonth');
+  if (!daysEl || !titleEl || !fromEl || !toEl) return;
+
+  const exceptionMap = new Map((CALENDAR_EXCEPTIONS || []).filter((item) => item.date).map((item) => [item.date, item]));
+  const now = new Date();
+  let visibleYear = now.getFullYear();
+  let visibleMonth = now.getMonth();
+  let anchorDate = '';
+
+  const pad = (value) => String(value).padStart(2, '0');
+  const dateKey = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  const parseKey = (key) => {
+    const [year, month, day] = String(key || '').split('-').map(Number);
+    return Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day) ? new Date(year, month - 1, day) : null;
+  };
+  const monthLabel = () => new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(new Date(visibleYear, visibleMonth, 1));
+
+  function selectedBounds() {
+    const from = fromEl.value || '';
+    const to = toEl.value || from;
+    return [from <= to ? from : to, to >= from ? to : from];
+  }
+
+  function updateHint() {
+    if (!hintEl) return;
+    const [from, to] = selectedBounds();
+    hintEl.textContent = from
+      ? (from === to ? `Selected ${from}` : `Selected ${from} to ${to}`)
+      : 'Select a date or range.';
+  }
+
+  function renderCalendarMonth() {
+    titleEl.textContent = monthLabel();
+    const first = new Date(visibleYear, visibleMonth, 1);
+    const startOffset = (first.getDay() + 6) % 7;
+    const gridStart = new Date(visibleYear, visibleMonth, 1 - startOffset);
+    const todayKey = dateKey(new Date());
+    const [selectedFrom, selectedTo] = selectedBounds();
+    let html = '';
+
+    for (let i = 0; i < 42; i++) {
+      const day = new Date(gridStart);
+      day.setDate(gridStart.getDate() + i);
+      const key = dateKey(day);
+      const exception = exceptionMap.get(key);
+      const isMuted = day.getMonth() !== visibleMonth;
+      const inRange = selectedFrom && key >= selectedFrom && key <= selectedTo;
+      const isEdge = key === selectedFrom || key === selectedTo;
+      const isWorkingException = exception && ['custom_hours', 'special_working'].includes(exception.type);
+      const classes = [
+        'adminCalendarDayBtn',
+        isMuted ? 'isMuted' : '',
+        key === todayKey ? 'isToday' : '',
+        inRange ? 'isRange' : '',
+        isEdge ? 'isSelected' : '',
+        exception ? 'hasException' : '',
+        isWorkingException ? 'isWorkingException' : '',
+      ].filter(Boolean).join(' ');
+      const title = exception ? `${exception.title || exception.type} (${exception.type})` : key;
+      html += `<button type="button" class="${classes}" data-date="${key}" title="${String(title).replaceAll('"', '&quot;')}">${day.getDate()}</button>`;
+    }
+
+    daysEl.innerHTML = html;
+    updateHint();
+  }
+
+  daysEl.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-date]');
+    if (!button) return;
+    const selected = button.getAttribute('data-date') || '';
+    if (!selected) return;
+
+    if (!anchorDate || (fromEl.value && toEl.value && fromEl.value !== toEl.value)) {
+      anchorDate = selected;
+      fromEl.value = selected;
+      toEl.value = selected;
+    } else {
+      const from = anchorDate <= selected ? anchorDate : selected;
+      const to = selected >= anchorDate ? selected : anchorDate;
+      fromEl.value = from;
+      toEl.value = to;
+      anchorDate = '';
+    }
+
+    renderCalendarMonth();
+  });
+
+  [fromEl, toEl].forEach((input) => input.addEventListener('change', () => {
+    const fromDate = parseKey(fromEl.value);
+    if (fromDate) {
+      visibleYear = fromDate.getFullYear();
+      visibleMonth = fromDate.getMonth();
+    }
+    anchorDate = '';
+    renderCalendarMonth();
+  }));
+
+  prevBtn?.addEventListener('click', () => {
+    visibleMonth -= 1;
+    if (visibleMonth < 0) {
+      visibleMonth = 11;
+      visibleYear -= 1;
+    }
+    renderCalendarMonth();
+  });
+
+  nextBtn?.addEventListener('click', () => {
+    visibleMonth += 1;
+    if (visibleMonth > 11) {
+      visibleMonth = 0;
+      visibleYear += 1;
+    }
+    renderCalendarMonth();
+  });
+
+  renderCalendarMonth();
+})();
+
+async function deleteCalendarException(id) {
+  if (!window.confirm('Delete this working calendar exception?')) return;
+  const form = new FormData();
+  form.append('csrf_token', window.__APP__.csrf);
+  form.append('action', 'delete_exception');
+  form.append('id', String(id));
+  try {
+    const payload = await postForm(window.__APP__.api + '/admin_work_calendar_save.php', form);
+    const row = document.getElementById('calendar-exception-' + id);
+    if (row) row.remove();
+    setAdminMessage(CALENDAR_PAGE_MSG, 'ok', payload.message || 'Calendar exception deleted.');
+  } catch (error) {
+    setAdminMessage(CALENDAR_PAGE_MSG, 'error', error.message || 'Failed to delete calendar exception.');
   }
 }
 
