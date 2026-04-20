@@ -975,6 +975,9 @@
     if (forwardDocumentDeadlineWrap) forwardDocumentDeadlineWrap.style.display = showDocumentDeadline ? "" : "none";
     if (forwardPersonalDeadlineWrap) forwardPersonalDeadlineWrap.style.display = showPersonalDeadline ? "" : "none";
 
+    if (!showDocumentDeadline && inputForwardDocumentDeadline) inputForwardDocumentDeadline.value = "";
+    if (!showPersonalDeadline && inputForwardPersonalDeadline) inputForwardPersonalDeadline.value = "";
+
     if (!currentCanForward) {
       if (inputForwardDocumentDeadline) inputForwardDocumentDeadline.value = "";
       if (inputForwardPersonalDeadline) inputForwardPersonalDeadline.value = "";
@@ -2490,7 +2493,8 @@
       form.append("personal_deadline_at", inputForwardPersonalDeadline.value);
     }
 
-    if (inputForwardDocumentDeadline && inputForwardDocumentDeadline.value) {
+    const isInitialRouting = Number(currentPayload?.is_initial_routing || 0) === 1;
+    if (isInitialRouting && inputForwardDocumentDeadline && inputForwardDocumentDeadline.value) {
       form.append("document_deadline_at", inputForwardDocumentDeadline.value);
     }
 
@@ -2658,8 +2662,11 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
   function openForwardModal() {
     if (!currentCanForward || !forwardModal) return;
     updateForwardUI();
+    const isInitialRouting = Number(currentPayload?.is_initial_routing || 0) === 1;
     if (inputForwardDocumentDeadline) {
-      inputForwardDocumentDeadline.value = clean(currentPayload?.deadline_at).slice(0, 10);
+      inputForwardDocumentDeadline.value = isInitialRouting
+        ? clean(currentPayload?.deadline_at).slice(0, 10)
+        : "";
     }
     forwardModal.classList.add("open");
     forwardModal.setAttribute("aria-hidden", "false");
