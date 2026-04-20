@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . "/../includes/bootstrap.php";
 require_once __DIR__ . "/../core/division_tracking.php";
+require_once __DIR__ . "/../core/working_time.php";
 require_login();
 
 /* -------------------------
@@ -638,6 +639,15 @@ $sql = "
     d.content_type,
     d.comm_type,
     d.current_status,
+    d.updated_at,
+    CASE
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM routes r_any
+        WHERE r_any.document_id = d.id
+      ) THEN 1
+      ELSE 0
+    END AS is_initial_routing,
     COALESCE((
       SELECT JSON_UNQUOTE(JSON_EXTRACT(e_end.payload_json, '$.kind'))
       FROM document_events e_end
@@ -714,10 +724,7 @@ $sql = "
     -- last holder (fallback when not in transit)
     sf_last.name AS last_holder_name,
 
-    CASE
-      WHEN d.current_status = 'ACTIVE' THEN TIMESTAMPDIFF(DAY, d.updated_at, NOW())
-      ELSE 0
-    END AS days_stuck,
+    0 AS days_stuck,
     TIMESTAMPDIFF(DAY, COALESCE((
       SELECT e_closed.created_at
       FROM document_events e_closed
@@ -1219,6 +1226,17 @@ if ($params2) $stmt->bind_param($types2, ...$params2);
 $stmt->execute();
 $docs = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
+foreach ($docs as &$docRow) {
+  $workingMinutesStuck = strtoupper((string)($docRow['current_status'] ?? 'ACTIVE')) === 'ACTIVE'
+    ? dt_working_minutes_between((string)($docRow['updated_at'] ?? ''))
+    : 0;
+
+  $docRow['working_minutes_stuck'] = $workingMinutesStuck;
+  $docRow['working_hours_stuck'] = intdiv($workingMinutesStuck, 60);
+  $docRow['days_stuck'] = dt_working_days_from_minutes($workingMinutesStuck);
+}
+unset($docRow);
+
 $docIdsOnPage = array_values(array_unique(array_filter(array_map(static fn($row) => (int)($row['id'] ?? 0), $docs), static fn($id) => $id > 0)));
 if ($docIdsOnPage !== []) {
   $remarkEventSql = "
@@ -1658,6 +1676,8 @@ function documentsUrl(array $overrides = []): string {
         <?php foreach ($docs as $d): ?>
           <?php
             $days = (int)($d["days_stuck"] ?? 0);
+            $workingMinutesStuck = max(0, (int)($d["working_minutes_stuck"] ?? 0));
+            $workingHoursStuck = max(0, (int)($d["working_hours_stuck"] ?? intdiv($workingMinutesStuck, 60)));
             $inactiveDays = max(0, (int)($d["lifecycle_inactive_days"] ?? 0));
 
             $docDeadlineRaw = trim((string)($d["deadline_at"] ?? ""));
@@ -1683,7 +1703,7 @@ function documentsUrl(array $overrides = []): string {
             $isInactiveLifecycle = in_array($currentStatus, ["RELEASED", "ARCHIVED"], true) || $isLifecycleEnded;
             $isDeadlineLifecycleClosed = in_array($currentStatus, ["RELEASED", "ARCHIVED"], true);
             $inactiveDayText = $inactiveDays === 1 ? "1 day" : $inactiveDays . " days";
-            $stuckDayText = $days === 1 ? "1 day" : $days . " days";
+            $stuckDayText = $days === 1 ? "1 working day" : $days . " working days";
             if ($currentStatus === "ARCHIVED") {
               $activityLabel = "Inactive";
               $activityValue = $inactiveDays === 0 ? "Today" : "For " . $inactiveDayText;
@@ -1695,7 +1715,7 @@ function documentsUrl(array $overrides = []): string {
             } else {
               $activityLabel = "Days stuck";
               $activityValue = $stuckDayText;
-              $activityText = "Days stuck: " . $days;
+              $activityText = "Days stuck: " . $stuckDayText;
             }
 
             if ($hasPersonalDeadline) {
@@ -1946,6 +1966,7 @@ function documentsUrl(array $overrides = []): string {
                 "my_has_actionable_role" => $myHasActionableRole ? 1 : 0,
                 "my_can_change_lifecycle" => $myCanChangeLifecycle ? 1 : 0,
                 "my_has_open_inbound" => $myHasOpenInbound ? 1 : 0,
+                "is_initial_routing" => (int)($d["is_initial_routing"] ?? 0),
 
                 "in_transit" => !empty($d["open_to_section_id"]) ? 1 : 0,
                 "open_to_section_id" => (int)($d["open_to_section_id"] ?? 0),
@@ -1967,6 +1988,8 @@ function documentsUrl(array $overrides = []): string {
                 "current_status" => (string)($d["current_status"] ?? "ACTIVE"),
                 "last_end_here_kind" => (string)($d["last_end_here_kind"] ?? ""),
                 "days_stuck" => $days,
+                "working_minutes_stuck" => $workingMinutesStuck,
+                "working_hours_stuck" => $workingHoursStuck,
                 "activity_label" => $activityLabel,
                 "activity_value" => $activityValue,
                 "activity_text" => $activityText,
@@ -2324,6 +2347,12 @@ $end   = min($totalPages, $page + 2);
             </span>
           </span>
         </label>
+      </div>
+
+      <div id="forwardDocumentDeadlineWrap" class="forwardDeadlineWrap" style="display:none; margin-top:12px;">
+        <label for="f_document_deadline" style="font-size:12px; font-weight:900; display:block; margin-bottom:6px;">Document deadline</label>
+        <input id="f_document_deadline" type="date" class="search" style="width:100%;">
+        <div class="mini" style="margin-top:6px; opacity:.75;">Sets the overall document deadline for this initial routing. Separate from personal deadlines.</div>
       </div>
 
       <div id="forwardPersonalDeadlineWrap" class="forwardDeadlineWrap" style="display:none; margin-top:12px;">

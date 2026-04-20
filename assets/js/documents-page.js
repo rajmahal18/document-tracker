@@ -53,6 +53,8 @@
   const btnToggleUpload = document.getElementById("btnToggleUpload");
   const btnToggleForward = document.getElementById("btnToggleForward");
 
+  const forwardDocumentDeadlineWrap = document.getElementById("forwardDocumentDeadlineWrap");
+  const inputForwardDocumentDeadline = document.getElementById("f_document_deadline");
   const forwardPersonalDeadlineWrap = document.getElementById("forwardPersonalDeadlineWrap");
   const inputForwardPersonalDeadline = document.getElementById("f_personal_deadline");
   const forwardModal = document.getElementById("forwardModal");
@@ -961,13 +963,16 @@
 
   function updateForwardUI() {
     const chiefCanSetDeadline = !!(window.__CTX__?.isChief);
+    const isInitialRouting = Number(currentPayload?.is_initial_routing || 0) === 1;
 
     if (btnToggleForward) btnToggleForward.style.display = currentCanForward ? "" : "none";
     if (btnForward) btnForward.style.display = currentCanForward ? "" : "none";
     if (elForwardModeWrap) elForwardModeWrap.style.display = currentCanForward ? "" : "none";
+    if (forwardDocumentDeadlineWrap) forwardDocumentDeadlineWrap.style.display = (currentCanForward && isInitialRouting) ? "" : "none";
     if (forwardPersonalDeadlineWrap) forwardPersonalDeadlineWrap.style.display = (currentCanForward && chiefCanSetDeadline) ? "" : "none";
 
     if (!currentCanForward) {
+      if (inputForwardDocumentDeadline) inputForwardDocumentDeadline.value = "";
       if (inputForwardPersonalDeadline) inputForwardPersonalDeadline.value = "";
       if (elForwardRemarks) elForwardRemarks.value = "";
       closeForwardModal();
@@ -2180,6 +2185,7 @@
     if (attachNote) attachNote.value = "";
     if (attachType) attachType.value = "1";
     if (selForwardTo) selForwardTo.value = "";
+    if (inputForwardDocumentDeadline) inputForwardDocumentDeadline.value = "";
     if (inputForwardPersonalDeadline) inputForwardPersonalDeadline.value = "";
     resetUsersUI();
     updateForwardModeUI();
@@ -2480,6 +2486,10 @@
       form.append("personal_deadline_at", inputForwardPersonalDeadline.value);
     }
 
+    if (inputForwardDocumentDeadline && inputForwardDocumentDeadline.value) {
+      form.append("document_deadline_at", inputForwardDocumentDeadline.value);
+    }
+
     form.append("remarks", (elForwardRemarks?.value || "").toString().trim());
     form.append("csrf_token", window.__CSRF__ || "");
 
@@ -2644,6 +2654,9 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
   function openForwardModal() {
     if (!currentCanForward || !forwardModal) return;
     updateForwardUI();
+    if (inputForwardDocumentDeadline) {
+      inputForwardDocumentDeadline.value = clean(currentPayload?.deadline_at).slice(0, 10);
+    }
     forwardModal.classList.add("open");
     forwardModal.setAttribute("aria-hidden", "false");
     selForwardTo?.focus();
