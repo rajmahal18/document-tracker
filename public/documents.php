@@ -2559,16 +2559,18 @@ $end   = min($totalPages, $page + 2);
         </label>
       </div>
 
-      <div id="forwardDocumentDeadlineWrap" class="forwardDeadlineWrap" style="display:none; margin-top:12px;">
-        <label for="f_document_deadline" style="font-size:12px; font-weight:900; display:block; margin-bottom:6px;">Document deadline</label>
-        <input id="f_document_deadline" type="date" class="search" style="width:100%;">
-        <div class="mini" style="margin-top:6px; opacity:.75;">Sets the overall document deadline for this initial routing. Separate from personal deadlines.</div>
-      </div>
+      <div class="forwardDeadlineGrid" id="forwardDeadlineGrid" style="display:none;">
+        <div id="forwardDocumentDeadlineWrap" class="forwardDeadlineWrap" style="display:none;">
+          <label for="f_document_deadline">Document deadline</label>
+          <input id="f_document_deadline" type="date" class="search">
+          <div class="mini">Overall document deadline.</div>
+        </div>
 
-      <div id="forwardPersonalDeadlineWrap" class="forwardDeadlineWrap" style="display:none; margin-top:12px;">
-        <label for="f_personal_deadline" style="font-size:12px; font-weight:900; display:block; margin-bottom:6px;">Personal deadline</label>
-        <input id="f_personal_deadline" type="date" class="search" style="width:100%;">
-        <div class="mini" style="margin-top:6px; opacity:.75;">Only section chiefs can set a personal deadline. Deadlines stay active until 11:59 PM of the selected date.</div>
+        <div id="forwardPersonalDeadlineWrap" class="forwardDeadlineWrap" style="display:none;">
+          <label for="f_personal_deadline">Personal deadline</label>
+          <input id="f_personal_deadline" type="date" class="search">
+          <div class="mini">Recipient-specific deadline.</div>
+        </div>
       </div>
 
       <div class="drawerActionRemarks" style="margin-top:12px;">

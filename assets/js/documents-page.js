@@ -53,6 +53,7 @@
   const btnToggleUpload = document.getElementById("btnToggleUpload");
   const btnToggleForward = document.getElementById("btnToggleForward");
 
+  const forwardDeadlineGrid = document.getElementById("forwardDeadlineGrid");
   const forwardDocumentDeadlineWrap = document.getElementById("forwardDocumentDeadlineWrap");
   const inputForwardDocumentDeadline = document.getElementById("f_document_deadline");
   const forwardPersonalDeadlineWrap = document.getElementById("forwardPersonalDeadlineWrap");
@@ -964,12 +965,15 @@
   function updateForwardUI() {
     const chiefCanSetDeadline = !!(window.__CTX__?.isChief);
     const isInitialRouting = Number(currentPayload?.is_initial_routing || 0) === 1;
+    const showDocumentDeadline = currentCanForward && isInitialRouting;
+    const showPersonalDeadline = currentCanForward && chiefCanSetDeadline;
 
     if (btnToggleForward) btnToggleForward.style.display = currentCanForward ? "" : "none";
     if (btnForward) btnForward.style.display = currentCanForward ? "" : "none";
     if (elForwardModeWrap) elForwardModeWrap.style.display = currentCanForward ? "" : "none";
-    if (forwardDocumentDeadlineWrap) forwardDocumentDeadlineWrap.style.display = (currentCanForward && isInitialRouting) ? "" : "none";
-    if (forwardPersonalDeadlineWrap) forwardPersonalDeadlineWrap.style.display = (currentCanForward && chiefCanSetDeadline) ? "" : "none";
+    if (forwardDeadlineGrid) forwardDeadlineGrid.style.display = (showDocumentDeadline || showPersonalDeadline) ? "" : "none";
+    if (forwardDocumentDeadlineWrap) forwardDocumentDeadlineWrap.style.display = showDocumentDeadline ? "" : "none";
+    if (forwardPersonalDeadlineWrap) forwardPersonalDeadlineWrap.style.display = showPersonalDeadline ? "" : "none";
 
     if (!currentCanForward) {
       if (inputForwardDocumentDeadline) inputForwardDocumentDeadline.value = "";
