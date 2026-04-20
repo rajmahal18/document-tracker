@@ -2,12 +2,14 @@
 declare(strict_types=1);
 
 require __DIR__ . '/../includes/bootstrap.php';
+require_once __DIR__ . '/../core/division_tracking.php';
 require_admin();
+ensure_division_tracking_tables($conn);
 
 $pageTitle = 'Admin - Document Tracker';
 
 $activeTab = strtolower(trim((string)($_GET['tab'] ?? 'users')));
-if (!in_array($activeTab, ['users', 'documents', 'calendar'], true)) {
+if (!in_array($activeTab, ['users', 'documents', 'calendar', 'slip-order'], true)) {
   $activeTab = 'users';
 }
 
@@ -19,6 +21,54 @@ $sectionsResult = $conn->query(
    ORDER BY d.name ASC, s.name ASC"
 );
 $sections = $sectionsResult ? $sectionsResult->fetch_all(MYSQLI_ASSOC) : [];
+
+$divisionsResult = $conn->query("
+  SELECT id, name, COALESCE(code, '') AS code
+  FROM divisions
+  WHERE is_active = 1
+  ORDER BY name ASC
+");
+$adminDivisions = $divisionsResult ? $divisionsResult->fetch_all(MYSQLI_ASSOC) : [];
+$selectedSlipDivisionId = (int)($_GET['division_id'] ?? 0);
+if ($selectedSlipDivisionId <= 0 && $adminDivisions !== []) {
+  $selectedSlipDivisionId = (int)($adminDivisions[0]['id'] ?? 0);
+}
+$slipOrderUsers = [];
+if ($selectedSlipDivisionId > 0) {
+  $stmt = $conn->prepare("
+    SELECT
+      u.id,
+      u.full_name,
+      COALESCE(NULLIF(TRIM(u.official_title), ''), '') AS official_title,
+      LOWER(TRIM(COALESCE(u.authority_role, ''))) AS authority_role,
+      COALESCE(s.name, '') AS section_name,
+      COALESCE(o.sort_order, 999) AS sort_order
+    FROM users u
+    JOIN sections s ON s.id = u.section_id
+    JOIN divisions d ON d.id = s.division_id
+    LEFT JOIN division_tracking_slip_user_order o
+      ON o.division_id = d.id
+      AND o.user_id = u.id
+    WHERE d.id = ?
+      AND u.is_active = 1
+      AND s.is_active = 1
+      AND d.is_active = 1
+      AND LOWER(TRIM(COALESCE(u.authority_role, ''))) IN ('division_assistant', 'section_head')
+    ORDER BY
+      CASE LOWER(TRIM(COALESCE(u.authority_role, '')))
+        WHEN 'division_assistant' THEN 0
+        WHEN 'section_head' THEN 1
+        ELSE 2
+      END ASC,
+      COALESCE(o.sort_order, 999) ASC,
+      s.name ASC,
+      u.full_name ASC
+  ");
+  $stmt->bind_param('i', $selectedSlipDivisionId);
+  $stmt->execute();
+  $slipOrderUsers = $stmt->get_result()->fetch_all(MYSQLI_ASSOC) ?: [];
+  $stmt->close();
+}
 
 $usersSql = "
   SELECT
@@ -235,11 +285,20 @@ require __DIR__ . '/../includes/layout.php';
 .adminCalendarLegend i { width:7px; height:7px; border-radius:999px; display:inline-block; background:#f97316; }
 .adminCalendarLegend .work i { background:#16a34a; }
 .adminCalendarSelectedHint { margin-top:10px; padding:9px 10px; border-radius:12px; background:#eef2ff; color:#3730a3; font-size:.84rem; font-weight:800; }
+.adminSlipOrderGrid { display:grid; grid-template-columns:minmax(240px,.36fr) minmax(0,1fr); gap:16px; align-items:start; }
+.adminSlipOrderList { display:grid; gap:10px; }
+.adminSlipOrderItem { display:grid; grid-template-columns:74px minmax(0,1fr); gap:12px; align-items:center; padding:12px; border:1px solid #e2e8f0; border-radius:14px; background:#fff; }
+.adminSlipOrderItem input { width:100%; min-height:38px; border:1px solid #dbe2ea; border-radius:12px; padding:0 10px; font-weight:900; }
+.adminSlipOrderName { font-weight:900; color:#0f172a; }
+.adminSlipPreview { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); border:1px solid #cbd5e1; border-radius:14px; overflow:hidden; background:#fff; }
+.adminSlipPreview div { min-height:48px; padding:10px; border-right:1px solid #e2e8f0; border-bottom:1px solid #e2e8f0; font-size:.88rem; font-weight:900; }
+.adminSlipPreview div:nth-child(4n) { border-right:0; }
+.adminSlipPreview div:nth-last-child(-n+4) { border-bottom:0; }
 @media (max-width: 860px) {
   .adminHero { flex-direction:column; }
   .adminCounts { justify-content:flex-start; }
   .adminModalGrid { grid-template-columns:1fr; }
-  .adminCalendarGrid, .adminFormGrid { grid-template-columns:1fr; }
+  .adminCalendarGrid, .adminFormGrid, .adminSlipOrderGrid { grid-template-columns:1fr; }
   .adminFormGrid .span2 { grid-column:auto; }
 }
 </style>
@@ -267,6 +326,7 @@ $activeDocs = count(array_filter($documents, static fn(array $row): bool => strt
     <a class="adminTab <?= $activeTab === 'users' ? 'isActive' : '' ?>" href="<?= PUBLIC_PATH ?>/admin.php?tab=users">Users</a>
     <a class="adminTab <?= $activeTab === 'documents' ? 'isActive' : '' ?>" href="<?= PUBLIC_PATH ?>/admin.php?tab=documents">Documents</a>
     <a class="adminTab <?= $activeTab === 'calendar' ? 'isActive' : '' ?>" href="<?= PUBLIC_PATH ?>/admin.php?tab=calendar">Working Calendar</a>
+    <a class="adminTab <?= $activeTab === 'slip-order' ? 'isActive' : '' ?>" href="<?= PUBLIC_PATH ?>/admin.php?tab=slip-order">DTS Slip Order</a>
     <a class="adminTab" href="<?= PUBLIC_PATH ?>/access_requests.php">Access Requests</a>
   </div>
 
@@ -439,6 +499,93 @@ $activeDocs = count(array_filter($documents, static fn(array $row): bool => strt
               <?php endforeach; ?>
             </tbody>
           </table>
+        </div>
+      </div>
+    </section>
+  <?php elseif ($activeTab === 'slip-order'): ?>
+    <?php
+      $previewHeads = array_slice(array_map(static fn(array $row): string => (string)($row['full_name'] ?? ''), $slipOrderUsers), 0, 4);
+      $previewCells = array_pad(array_merge($previewHeads, ['All Permanent', 'All J.O. Staff', 'All Staff']), 8, '');
+      $selectedSlipDivisionName = '';
+      foreach ($adminDivisions as $division) {
+        if ((int)($division['id'] ?? 0) === $selectedSlipDivisionId) {
+          $selectedSlipDivisionName = (string)($division['name'] ?? '');
+          break;
+        }
+      }
+    ?>
+    <section class="adminCard">
+      <div class="adminCardHeader">
+        <div>
+          <h3>Division Tracking Slip Order</h3>
+          <p>Control the left-to-right order of Assistant Division Chief and Section Chiefs on the division tracking slip. Org Chart stays untouched.</p>
+        </div>
+      </div>
+      <div class="adminCardBody">
+        <div id="adminSlipOrderMsg" class="adminMessage"></div>
+        <div class="adminSlipOrderGrid">
+          <section class="adminCard" style="box-shadow:none; padding:16px;">
+            <div class="adminCardHeader" style="padding:0 0 12px;">
+              <div>
+                <h3>Division</h3>
+                <p>Pick the division whose slip order you want to edit.</p>
+              </div>
+            </div>
+            <form method="get" action="<?= PUBLIC_PATH ?>/admin.php" class="adminFormGrid">
+              <input type="hidden" name="tab" value="slip-order">
+              <div class="span2">
+                <label>Division</label>
+                <select name="division_id" onchange="this.form.submit()">
+                  <?php foreach ($adminDivisions as $division): ?>
+                    <option value="<?= (int)$division['id'] ?>" <?= (int)$division['id'] === $selectedSlipDivisionId ? 'selected' : '' ?>>
+                      <?= htmlspecialchars((string)$division['name']) ?><?= trim((string)($division['code'] ?? '')) !== '' ? ' (' . htmlspecialchars((string)$division['code']) . ')' : '' ?>
+                    </option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+            </form>
+            <div style="margin-top:16px;">
+              <div class="adminMini" style="margin-bottom:8px;">Slip preview for <?= htmlspecialchars($selectedSlipDivisionName ?: 'selected division') ?></div>
+              <div class="adminSlipPreview">
+                <?php foreach (array_slice($previewCells, 0, 8) as $cell): ?>
+                  <div><?= htmlspecialchars($cell) ?></div>
+                <?php endforeach; ?>
+              </div>
+            </div>
+          </section>
+
+          <form id="slipOrderForm" class="adminCard" style="box-shadow:none; padding:16px;">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token(), ENT_QUOTES, 'UTF-8') ?>">
+            <input type="hidden" name="division_id" value="<?= (int)$selectedSlipDivisionId ?>">
+            <div class="adminCardHeader" style="padding:0 0 12px;">
+              <div>
+                <h3>Boss order, left to right</h3>
+                <p>Use lower numbers first. Leave gaps like 10, 20, 30 so inserting later is easier.</p>
+              </div>
+            </div>
+            <div class="adminSlipOrderList">
+              <?php if ($slipOrderUsers === []): ?>
+                <div class="adminMini">No active Assistant Division Chief or Section Chiefs found for this division.</div>
+              <?php endif; ?>
+              <?php foreach ($slipOrderUsers as $idx => $user): ?>
+                <?php
+                  $roleLabel = (string)($user['authority_role'] ?? '') === 'division_assistant' ? 'Assistant Division Chief' : 'Section Chief';
+                  $currentOrder = (int)($user['sort_order'] ?? 999);
+                  if ($currentOrder >= 999) $currentOrder = ($idx + 1) * 10;
+                ?>
+                <label class="adminSlipOrderItem">
+                  <input type="number" min="1" max="999" name="order[<?= (int)$user['id'] ?>]" value="<?= (int)$currentOrder ?>" aria-label="Sort order for <?= htmlspecialchars((string)$user['full_name']) ?>">
+                  <span>
+                    <span class="adminSlipOrderName"><?= htmlspecialchars((string)$user['full_name']) ?></span>
+                    <span class="adminMini"><?= htmlspecialchars($roleLabel) ?><?= trim((string)($user['section_name'] ?? '')) !== '' ? ' · ' . htmlspecialchars((string)$user['section_name']) : '' ?></span>
+                  </span>
+                </label>
+              <?php endforeach; ?>
+            </div>
+            <div class="adminModalActions">
+              <button type="submit" class="adminPrimary" <?= $selectedSlipDivisionId <= 0 ? 'disabled' : '' ?>>Save slip order</button>
+            </div>
+          </form>
         </div>
       </div>
     </section>
@@ -753,6 +900,7 @@ const USER_FORM_MSG = document.getElementById('userFormMsg');
 const USERS_PAGE_MSG = document.getElementById('adminUsersMsg');
 const DOCS_PAGE_MSG = document.getElementById('adminDocsMsg');
 const CALENDAR_PAGE_MSG = document.getElementById('adminCalendarMsg');
+const SLIP_ORDER_PAGE_MSG = document.getElementById('adminSlipOrderMsg');
 const CREDENTIALS_MODAL = document.getElementById('credentialsModal');
 const CALENDAR_EXCEPTIONS = <?= json_encode(array_map(static function (array $row): array {
   return [
@@ -885,6 +1033,18 @@ document.getElementById('calendarSettingsForm')?.addEventListener('submit', (eve
 document.getElementById('calendarExceptionForm')?.addEventListener('submit', (event) => {
   event.preventDefault();
   saveCalendarForm(event.currentTarget);
+});
+
+document.getElementById('slipOrderForm')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  setAdminMessage(SLIP_ORDER_PAGE_MSG, '', '');
+  try {
+    const payload = await postForm(window.__APP__.api + '/admin_division_slip_order_save.php', new FormData(event.currentTarget));
+    setAdminMessage(SLIP_ORDER_PAGE_MSG, 'ok', payload.message || 'Slip order saved. Reloading...');
+    window.setTimeout(() => window.location.reload(), 550);
+  } catch (error) {
+    setAdminMessage(SLIP_ORDER_PAGE_MSG, 'error', error.message || 'Failed to save slip order.');
+  }
 });
 
 (() => {

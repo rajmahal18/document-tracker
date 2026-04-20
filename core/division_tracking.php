@@ -90,6 +90,47 @@ function division_tracking_initials_label(string $name): string
   return $initials !== '' ? $initials : trim($name);
 }
 
+function division_tracking_slip_name_label(string $name): string
+{
+  $parts = preg_split('/\s+/', trim($name)) ?: [];
+  $parts = array_values(array_filter(array_map(
+    static fn(string $part): string => trim($part, ".,- "),
+    $parts
+  ), static fn(string $part): bool => $part !== ''));
+
+  if (count($parts) <= 1) {
+    return strtoupper(trim($name));
+  }
+
+  $suffixes = [];
+  while ($parts !== []) {
+    $candidate = strtoupper(rtrim((string)end($parts), '.'));
+    if (!in_array($candidate, ['JR', 'SR', 'II', 'III', 'IV', 'V', 'VI'], true)) {
+      break;
+    }
+    $suffix = array_pop($parts);
+    $suffixes[] = strtoupper($candidate) === 'JR' || strtoupper($candidate) === 'SR'
+      ? ucfirst(strtolower($candidate)) . '.'
+      : $candidate;
+  }
+
+  if ($parts === []) {
+    return strtoupper(trim($name));
+  }
+
+  $last = array_pop($parts);
+  $last = ucwords(strtolower($last));
+  $prefix = [];
+  foreach ($parts as $part) {
+    $prefix[] = strtoupper(substr($part, 0, 1)) . '.';
+  }
+
+  $suffixText = $suffixes !== [] ? (' ' . implode(' ', array_reverse($suffixes))) : '';
+  $compact = trim(implode(' ', $prefix) . ' ' . $last . $suffixText);
+  $initials = user_initials_from_name($name);
+  return $initials !== '' ? ($compact . ' (' . $initials . ')') : $compact;
+}
+
 function get_division_slip_head_staff(mysqli $conn, int $divisionId, int $excludeUserId = 0): array
 {
   ensure_division_tracking_tables($conn);
@@ -99,10 +140,14 @@ function get_division_slip_head_staff(mysqli $conn, int $divisionId, int $exclud
       u.id,
       u.full_name,
       COALESCE(NULLIF(TRIM(u.official_title), ''), '') AS official_title,
-      LOWER(TRIM(COALESCE(u.authority_role, ''))) AS authority_role
+      LOWER(TRIM(COALESCE(u.authority_role, ''))) AS authority_role,
+      COALESCE(o.sort_order, 999) AS slip_sort_order
     FROM users u
     JOIN sections s ON s.id = u.section_id
     JOIN divisions d ON d.id = s.division_id
+    LEFT JOIN division_tracking_slip_user_order o
+      ON o.division_id = d.id
+      AND o.user_id = u.id
     WHERE d.id = ?
       AND u.is_active = 1
       AND s.is_active = 1
@@ -121,6 +166,7 @@ function get_division_slip_head_staff(mysqli $conn, int $divisionId, int $exclud
       WHEN 'section_head' THEN 1
       ELSE 2
     END ASC,
+    COALESCE(o.sort_order, 999) ASC,
     CASE WHEN LOWER(TRIM(COALESCE(u.authority_role, ''))) = 'section_head' AND u.is_chief = 1 THEN 0 ELSE 1 END ASC,
     s.name ASC,
     u.full_name ASC";
@@ -130,17 +176,16 @@ function get_division_slip_head_staff(mysqli $conn, int $divisionId, int $exclud
   return $stmt->get_result()->fetch_all(MYSQLI_ASSOC) ?: [];
 }
 
-function build_division_name_initial_entries(mysqli $conn, int $divisionId, int $excludeUserId = 0, int $limit = 9): array
+function build_division_name_initial_entries(mysqli $conn, int $divisionId, int $excludeUserId = 0, int $limit = 8): array
 {
   $generalEntries = ['All Permanent', 'All J.O. Staff', 'All Staff'];
-  $headLimit = max(0, $limit - count($generalEntries));
+  $headLimit = min(4, max(0, $limit - count($generalEntries)));
   $rows = get_division_slip_head_staff($conn, $divisionId, $excludeUserId);
   $out = [];
   foreach ($rows as $row) {
-    $name = strtoupper(trim((string)($row['full_name'] ?? '')));
+    $name = trim((string)($row['full_name'] ?? ''));
     if ($name === '') continue;
-    $initials = user_initials_from_name($name);
-    $label = $initials !== '' ? ($name . ' (' . $initials . ')') : $name;
+    $label = division_tracking_slip_name_label($name);
     $out[] = normalize_pdf_text($label);
     if (count($out) >= $headLimit) break;
   }
@@ -185,6 +230,19 @@ function ensure_division_tracking_tables(mysqli $conn): void
     KEY idx_doc_division_tracking_doc (document_id),
     CONSTRAINT fk_doc_division_tracking_doc FOREIGN KEY (document_id) REFERENCES documents(id),
     CONSTRAINT fk_doc_division_tracking_division FOREIGN KEY (division_id) REFERENCES divisions(id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+  $conn->query("CREATE TABLE IF NOT EXISTS division_tracking_slip_user_order (
+    division_id INT NOT NULL,
+    user_id INT NOT NULL,
+    sort_order SMALLINT UNSIGNED NOT NULL DEFAULT 999,
+    updated_by_user_id INT NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (division_id, user_id),
+    KEY idx_division_tracking_slip_order_sort (division_id, sort_order),
+    CONSTRAINT fk_division_tracking_slip_order_division FOREIGN KEY (division_id) REFERENCES divisions(id) ON DELETE CASCADE,
+    CONSTRAINT fk_division_tracking_slip_order_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_division_tracking_slip_order_updated_by FOREIGN KEY (updated_by_user_id) REFERENCES users(id) ON DELETE SET NULL
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 }
 

@@ -240,7 +240,7 @@ final class DivisionTrackingSlip
     $y += $rowH2;
 
     // ---------- Subject ----------
-    $rowH3 = 16.0; // more space
+    $rowH3 = 22.8; // use the space freed by the shorter names block
     $rect($x0, $y, $w0, $rowH3);
 
     $txt($x0 + 2, $y + 2.2, 'SUBJECT:', '', 8.0);
@@ -252,13 +252,13 @@ final class DivisionTrackingSlip
     $pdf->SetTextColor(20, 24, 40);
     $nameEntries = is_array($data['name_entries'] ?? null) ? array_values($data['name_entries']) : [];
 
-    $entries = array_slice($nameEntries, 0, 9);
-    while (count($entries) < 9) {
+    $entries = array_slice($nameEntries, 0, 8);
+    while (count($entries) < 8) {
       $entries[] = '';
     }
 
-    $cols = 3;
-    $rows = 3;
+    $cols = 4;
+    $rows = 2;
     $rH = 6.8;
     $namesH = $rows * $rH;
     $colW = $w0 / $cols;
@@ -274,10 +274,10 @@ final class DivisionTrackingSlip
       $line($x0, $lineY, $x0 + $w0, $lineY);
     }
 
-    $setFont('B', 7.4);
-    for ($idx = 0; $idx < 9; $idx++) {
-      $col = intdiv($idx, $rows);
-      $row = $idx % $rows;
+    $setFont('B', 6.6);
+    for ($idx = 0; $idx < 8; $idx++) {
+      $col = $idx % $cols;
+      $row = intdiv($idx, $cols);
       $cellX = $x0 + ($col * $colW);
       $cellY = $y + ($row * $rH);
 
@@ -397,7 +397,7 @@ final class DivisionTrackingSlip
       $line($x0, $yy, $x0 + $w0, $yy);
     }
 
-    $setFont('B', 5.8);
+    $setFont('B', 6.8);
     $headY = $tableY + 1.2;
     $pdf->SetXY($xC1 + 0.8, $headY); $pdf->MultiCell($c1 - 1.6, 2.7, 'Receive Date/Time', 0, 'C');
     $pdf->SetXY($xC2 + 0.8, $headY); $pdf->MultiCell($c2 - 1.6, 2.7, 'From', 0, 'C');
