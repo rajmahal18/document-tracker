@@ -178,7 +178,7 @@ function get_division_slip_head_staff(mysqli $conn, int $divisionId, int $exclud
 
 function build_division_name_initial_entries(mysqli $conn, int $divisionId, int $excludeUserId = 0, int $limit = 8): array
 {
-  $generalEntries = ['All Permanent', 'All J.O. Staff', 'All Staff'];
+  $generalEntries = ['All Permanent Staff', 'All J.O. Staff', 'All Staff'];
   $headLimit = min(4, max(0, $limit - count($generalEntries)));
   $rows = get_division_slip_head_staff($conn, $divisionId, $excludeUserId);
   $out = [];
