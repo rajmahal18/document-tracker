@@ -13,6 +13,7 @@
   const elSubject = document.getElementById("d_subject");
   const elType = document.getElementById("d_type");
   const elDays = document.getElementById("d_days");
+  const elActivityLabel = document.getElementById("d_activity_label");
 
   const elStatus = document.getElementById("d_status");
   const elHolder = document.getElementById("d_holder");
@@ -53,6 +54,9 @@
   const btnRegenerateDivisionSlip = document.getElementById("btnRegenerateDivisionSlip");
   const btnToggleForward = document.getElementById("btnToggleForward");
 
+  const forwardDeadlineGrid = document.getElementById("forwardDeadlineGrid");
+  const forwardDocumentDeadlineWrap = document.getElementById("forwardDocumentDeadlineWrap");
+  const inputForwardDocumentDeadline = document.getElementById("f_document_deadline");
   const forwardPersonalDeadlineWrap = document.getElementById("forwardPersonalDeadlineWrap");
   const inputForwardPersonalDeadline = document.getElementById("f_personal_deadline");
   const forwardModal = document.getElementById("forwardModal");
@@ -434,10 +438,11 @@
     return `${minutes}m`;
   }
 
-  function renderDeadline(documentDeadlineAt, personalDeadlineAt = "") {
+  function renderDeadline(documentDeadlineAt, personalDeadlineAt = "", finalOutcomeText = "") {
     const docRaw = (documentDeadlineAt || "").toString().trim();
     const personalRaw = (personalDeadlineAt || "").toString().trim();
     const effectiveRaw = personalRaw || docRaw;
+    const outcomeText = (finalOutcomeText || "").toString().trim();
 
     if (elDeadline) elDeadline.textContent = docRaw ? fmtDate(docRaw) : "—";
     if (elPersonalDeadline) elPersonalDeadline.textContent = personalRaw ? fmtDate(personalRaw) : "—";
@@ -448,6 +453,11 @@
     }
 
     if (!elDeadlineCountdown) return;
+    if (outcomeText) {
+      elDeadlineCountdown.textContent = outcomeText;
+      return;
+    }
+
     if (!effectiveRaw) {
       elDeadlineCountdown.textContent = "No deadline set";
       return;
@@ -955,13 +965,22 @@
 
   function updateForwardUI() {
     const chiefCanSetDeadline = !!(window.__CTX__?.isChief);
+    const isInitialRouting = Number(currentPayload?.is_initial_routing || 0) === 1;
+    const showDocumentDeadline = currentCanForward && isInitialRouting;
+    const showPersonalDeadline = currentCanForward && chiefCanSetDeadline;
 
     if (btnToggleForward) btnToggleForward.style.display = currentCanForward ? "" : "none";
     if (btnForward) btnForward.style.display = currentCanForward ? "" : "none";
     if (elForwardModeWrap) elForwardModeWrap.style.display = currentCanForward ? "" : "none";
-    if (forwardPersonalDeadlineWrap) forwardPersonalDeadlineWrap.style.display = (currentCanForward && chiefCanSetDeadline) ? "" : "none";
+    if (forwardDeadlineGrid) forwardDeadlineGrid.style.display = (showDocumentDeadline || showPersonalDeadline) ? "" : "none";
+    if (forwardDocumentDeadlineWrap) forwardDocumentDeadlineWrap.style.display = showDocumentDeadline ? "" : "none";
+    if (forwardPersonalDeadlineWrap) forwardPersonalDeadlineWrap.style.display = showPersonalDeadline ? "" : "none";
+
+    if (!showDocumentDeadline && inputForwardDocumentDeadline) inputForwardDocumentDeadline.value = "";
+    if (!showPersonalDeadline && inputForwardPersonalDeadline) inputForwardPersonalDeadline.value = "";
 
     if (!currentCanForward) {
+      if (inputForwardDocumentDeadline) inputForwardDocumentDeadline.value = "";
       if (inputForwardPersonalDeadline) inputForwardPersonalDeadline.value = "";
       if (elForwardRemarks) elForwardRemarks.value = "";
       closeForwardModal();
@@ -2068,10 +2087,14 @@
     if (elTracking) elTracking.textContent = payload.tracking_display || payload.tracking_no || "";
     if (elRequester) elRequester.textContent = payload.requester || "—";
     if (elDate) elDate.textContent = payload.document_date || "—";
-    renderDeadline(payload.deadline_at || "", payload.my_personal_deadline_at || "");
+    const deadlineOutcome = ((payload.current_status || "ACTIVE").toString().toUpperCase() === "ACTIVE")
+      ? ""
+      : (payload.deadline_badge_text || "");
+    renderDeadline(payload.deadline_at || "", payload.my_personal_deadline_at || "", deadlineOutcome);
     if (elSubject) elSubject.textContent = payload.subject || "—";
     if (elType) elType.textContent = payload.content_type || "—";
-    if (elDays) elDays.textContent = payload.days_stuck ?? "0";
+    if (elActivityLabel) elActivityLabel.textContent = payload.activity_label || "Days stuck";
+    if (elDays) elDays.textContent = payload.activity_value || (payload.days_stuck ?? "0");
 
     const inTransit = payload.in_transit === 1 || payload.in_transit === "1" || payload.in_transit === true;
     const docStatus = (payload.current_status || "ACTIVE").toString().toUpperCase();
@@ -2176,6 +2199,7 @@
     if (attachNote) attachNote.value = "";
     if (attachType) attachType.value = "1";
     if (selForwardTo) selForwardTo.value = "";
+    if (inputForwardDocumentDeadline) inputForwardDocumentDeadline.value = "";
     if (inputForwardPersonalDeadline) inputForwardPersonalDeadline.value = "";
     resetUsersUI();
     updateForwardModeUI();
@@ -2476,6 +2500,11 @@
       form.append("personal_deadline_at", inputForwardPersonalDeadline.value);
     }
 
+    const isInitialRouting = Number(currentPayload?.is_initial_routing || 0) === 1;
+    if (isInitialRouting && inputForwardDocumentDeadline && inputForwardDocumentDeadline.value) {
+      form.append("document_deadline_at", inputForwardDocumentDeadline.value);
+    }
+
     form.append("remarks", (elForwardRemarks?.value || "").toString().trim());
     form.append("csrf_token", window.__CSRF__ || "");
 
@@ -2640,6 +2669,12 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
   function openForwardModal() {
     if (!currentCanForward || !forwardModal) return;
     updateForwardUI();
+    const isInitialRouting = Number(currentPayload?.is_initial_routing || 0) === 1;
+    if (inputForwardDocumentDeadline) {
+      inputForwardDocumentDeadline.value = isInitialRouting
+        ? clean(currentPayload?.deadline_at).slice(0, 10)
+        : "";
+    }
     forwardModal.classList.add("open");
     forwardModal.setAttribute("aria-hidden", "false");
     selForwardTo?.focus();

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . "/../includes/bootstrap.php";
 require_once __DIR__ . "/../core/division_tracking.php";
+require_once __DIR__ . "/../core/working_time.php";
 require_login();
 
 /* -------------------------
@@ -19,32 +20,7 @@ $requestedActingPrincipalUserId = (int)($_GET['acting_principal_user_id'] ?? 0);
 
 $actualUserIdForAssistantLookup = (int)($_SESSION['user_id'] ?? 0);
 if ($actualUserIdForAssistantLookup > 0) {
-  $assistantAssignmentSql = "
-    SELECT
-      principal.id,
-      principal.full_name,
-      principal.authority_role,
-      principal.section_id,
-      COALESCE(sec.name, '') AS section_name,
-      COALESCE(sec.division_id, 0) AS division_id,
-      COALESCE(dv.name, '') AS division_name
-    FROM users principal
-    LEFT JOIN sections sec ON sec.id = principal.section_id
-    LEFT JOIN divisions dv ON dv.id = sec.division_id
-    WHERE principal.chief_assistant_user_id = ?
-      AND principal.is_active = 1
-      AND principal.authority_role IN ('director', 'division_head', 'section_head')
-    ORDER BY principal.full_name ASC
-  ";
-  if ($assistantAssignmentStmt = $conn->prepare($assistantAssignmentSql)) {
-    $assistantAssignmentStmt->bind_param('i', $actualUserIdForAssistantLookup);
-    $assistantAssignmentStmt->execute();
-    $assistantAssignmentResult = $assistantAssignmentStmt->get_result();
-    while ($assistantRow = $assistantAssignmentResult->fetch_assoc()) {
-      $assistantPrincipals[] = $assistantRow;
-    }
-    $assistantAssignmentStmt->close();
-  }
+  $assistantPrincipals = assistant_fetch_assigned_principals($conn, $actualUserIdForAssistantLookup);
 }
 
 if ($assistantPrincipals !== [] && $requestedDocumentsTab === 'assistant') {
@@ -663,6 +639,15 @@ $sql = "
     d.content_type,
     d.comm_type,
     d.current_status,
+    d.updated_at,
+    CASE
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM routes r_any
+        WHERE r_any.document_id = d.id
+      ) THEN 1
+      ELSE 0
+    END AS is_initial_routing,
     COALESCE((
       SELECT JSON_UNQUOTE(JSON_EXTRACT(e_end.payload_json, '$.kind'))
       FROM document_events e_end
@@ -767,7 +752,88 @@ $sql = "
     -- last holder (fallback when not in transit)
     sf_last.name AS last_holder_name,
 
-    TIMESTAMPDIFF(DAY, d.updated_at, NOW()) AS days_stuck,
+    0 AS days_stuck,
+    TIMESTAMPDIFF(DAY, COALESCE((
+      SELECT e_closed.created_at
+      FROM document_events e_closed
+      WHERE e_closed.document_id = d.id
+        AND (
+          (
+            d.current_status = 'ARCHIVED'
+            AND e_closed.event_type = 'archived'
+            AND JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.new_status')) = 'ARCHIVED'
+          )
+          OR (
+            d.current_status = 'RELEASED'
+            AND (
+              (
+                e_closed.event_type = 'released'
+                AND JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.new_status')) = 'RELEASED'
+              )
+              OR JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.kind')) IN (
+                'branch_ended_here',
+                'document_ended_here'
+              )
+            )
+          )
+        )
+      ORDER BY e_closed.created_at DESC, e_closed.id DESC
+      LIMIT 1
+    ), d.updated_at), NOW()) AS lifecycle_inactive_days,
+    COALESCE((
+      SELECT e_closed.created_at
+      FROM document_events e_closed
+      WHERE e_closed.document_id = d.id
+        AND (
+          (
+            d.current_status = 'ARCHIVED'
+            AND e_closed.event_type = 'archived'
+            AND JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.new_status')) = 'ARCHIVED'
+          )
+          OR (
+            d.current_status = 'RELEASED'
+            AND (
+              (
+                e_closed.event_type = 'released'
+                AND JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.new_status')) = 'RELEASED'
+              )
+              OR JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.kind')) IN (
+                'branch_ended_here',
+                'document_ended_here'
+              )
+            )
+          )
+        )
+      ORDER BY e_closed.created_at DESC, e_closed.id DESC
+      LIMIT 1
+    ), d.updated_at) AS lifecycle_closed_at,
+    COALESCE((
+      SELECT COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.kind')), ''), e_closed.event_type)
+      FROM document_events e_closed
+      WHERE e_closed.document_id = d.id
+        AND (
+          (
+            d.current_status = 'ARCHIVED'
+            AND e_closed.event_type = 'archived'
+            AND JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.new_status')) = 'ARCHIVED'
+          )
+          OR (
+            d.current_status = 'RELEASED'
+            AND (
+              (
+                e_closed.event_type = 'released'
+                AND JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.new_status')) = 'RELEASED'
+              )
+              OR JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.kind')) IN (
+                'branch_ended_here',
+                'document_ended_here'
+              )
+            )
+          )
+        )
+      ORDER BY e_closed.created_at DESC, e_closed.id DESC
+      LIMIT 1
+    ), '') AS lifecycle_closed_action,
 
     CASE
       WHEN EXISTS (
@@ -1188,6 +1254,17 @@ if ($params2) $stmt->bind_param($types2, ...$params2);
 $stmt->execute();
 $docs = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
+foreach ($docs as &$docRow) {
+  $workingMinutesStuck = strtoupper((string)($docRow['current_status'] ?? 'ACTIVE')) === 'ACTIVE'
+    ? dt_working_minutes_between((string)($docRow['updated_at'] ?? ''), null, $conn)
+    : 0;
+
+  $docRow['working_minutes_stuck'] = $workingMinutesStuck;
+  $docRow['working_hours_stuck'] = intdiv($workingMinutesStuck, 60);
+  $docRow['days_stuck'] = dt_working_days_from_minutes($workingMinutesStuck, $conn);
+}
+unset($docRow);
+
 $docIdsOnPage = array_values(array_unique(array_filter(array_map(static fn($row) => (int)($row['id'] ?? 0), $docs), static fn($id) => $id > 0)));
 if ($docIdsOnPage !== []) {
   $remarkEventSql = "
@@ -1406,6 +1483,114 @@ function documentsUrl(array $overrides = []): string {
   }
   return PUBLIC_PATH . '/documents.php?' . http_build_query($q);
 }
+
+$workingCalendar = dt_work_calendar($conn);
+$calendarDayLabels = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'Sat', 7 => 'Sun'];
+$calendarWorkdays = array_values(array_filter(array_map('intval', (array)($workingCalendar['workdays'] ?? [1, 2, 3, 4, 5])), static fn($day) => $day >= 1 && $day <= 7));
+$calendarWorkdayText = implode(', ', array_map(static fn($day) => $calendarDayLabels[$day] ?? (string)$day, $calendarWorkdays));
+$calendarStartText = substr((string)($workingCalendar['default_start_time'] ?? '08:00:00'), 0, 5);
+$calendarEndText = substr((string)($workingCalendar['default_end_time'] ?? '17:00:00'), 0, 5);
+$calendarTimezoneText = (string)($workingCalendar['timezone'] ?? 'Asia/Manila');
+
+$calendarToday = new DateTimeImmutable('today', dt_work_timezone($workingCalendar));
+$calendarTodayKey = $calendarToday->format('Y-m-d');
+$calendarTodayWindow = dt_day_window($calendarToday, $workingCalendar);
+$calendarTodayException = (array)($workingCalendar['exceptions'][$calendarTodayKey] ?? []);
+$calendarTodayTitle = trim((string)($calendarTodayException['title'] ?? ''));
+$calendarTodayIsWorking = $calendarTodayWindow !== null;
+if ($calendarTodayWindow !== null) {
+  [$calendarTodayStart, $calendarTodayEnd] = $calendarTodayWindow;
+  $calendarTodayTimeText = $calendarTodayStart->format('H:i') . '-' . $calendarTodayEnd->format('H:i');
+} else {
+  $calendarTodayTimeText = 'No work';
+}
+$calendarTodayDetailText = $calendarTodayTitle !== '' ? $calendarTodayTitle : ($calendarTodayIsWorking ? 'Regular working day' : 'Non-working day');
+
+$oldestDocDateRaw = '';
+try {
+  $oldestDocRow = $conn->query("
+    SELECT MIN(DATE(created_at)) AS oldest_doc_date
+    FROM documents
+  ")->fetch_assoc();
+  $oldestDocDateRaw = trim((string)($oldestDocRow['oldest_doc_date'] ?? ''));
+} catch (Throwable) {
+  $oldestDocDateRaw = '';
+}
+$oldestDocDate = $oldestDocDateRaw !== ''
+  ? DateTimeImmutable::createFromFormat('!Y-m-d', $oldestDocDateRaw, dt_work_timezone($workingCalendar))
+  : false;
+if (!$oldestDocDate) {
+  $oldestDocDate = $calendarToday;
+}
+$calendarWeekOneStart = $oldestDocDate->modify('monday this week')->setTime(0, 0, 0);
+$calendarCurrentWeekStart = $calendarToday->modify('monday this week')->setTime(0, 0, 0);
+$calendarLastRelevantDate = $calendarToday;
+foreach (array_keys((array)($workingCalendar['exceptions'] ?? [])) as $exceptionDate) {
+  if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$exceptionDate)) {
+    continue;
+  }
+  $exceptionDt = DateTimeImmutable::createFromFormat('!Y-m-d', (string)$exceptionDate, dt_work_timezone($workingCalendar));
+  if ($exceptionDt && $exceptionDt > $calendarLastRelevantDate) {
+    $calendarLastRelevantDate = $exceptionDt;
+  }
+}
+$calendarLastWeekStart = $calendarLastRelevantDate->modify('monday this week')->setTime(0, 0, 0);
+if ($calendarLastWeekStart < $calendarCurrentWeekStart) {
+  $calendarLastWeekStart = $calendarCurrentWeekStart;
+}
+
+$calendarWeeks = [];
+for ($weekStart = $calendarWeekOneStart; $weekStart <= $calendarLastWeekStart; $weekStart = $weekStart->modify('+7 days')) {
+  $weekNo = count($calendarWeeks) + 1;
+  $weekEnd = $weekStart->modify('+6 days');
+  $days = [];
+
+  for ($day = 0; $day < 7; $day++) {
+    $date = $weekStart->modify("+{$day} days");
+    $key = $date->format('Y-m-d');
+    $window = dt_day_window($date, $workingCalendar);
+    $exception = (array)($workingCalendar['exceptions'][$key] ?? []);
+    $exceptionTitle = trim((string)($exception['title'] ?? ''));
+    $exceptionType = trim((string)($exception['type'] ?? ''));
+
+    if ($window !== null) {
+      [$dayStart, $dayEnd] = $window;
+      $hours = $dayStart->format('H:i') . '-' . $dayEnd->format('H:i');
+      $status = $exceptionTitle !== ''
+        ? $exceptionTitle
+        : ($exceptionType === 'special_working' ? 'Special working day' : ($exceptionType === 'custom_hours' ? 'Custom hours' : 'Regular'));
+      $isWorking = true;
+    } else {
+      $hours = 'No work';
+      $status = $exceptionTitle !== ''
+        ? $exceptionTitle
+        : match ($exceptionType) {
+          'special_holiday' => 'Special holiday',
+          'regular_holiday' => 'Regular holiday',
+          'other_non_working' => 'Other non-working day',
+          default => 'Non-working day',
+        };
+      $isWorking = false;
+    }
+
+    $days[] = [
+      'date' => $date->format('M d'),
+      'day' => $calendarDayLabels[(int)$date->format('N')] ?? $date->format('D'),
+      'hours' => $hours,
+      'status' => $status,
+      'is_working' => $isWorking,
+      'is_today' => $key === $calendarTodayKey,
+    ];
+  }
+
+  $calendarWeeks[] = [
+    'week_no' => $weekNo,
+    'label' => 'Week ' . $weekNo,
+    'range' => $weekStart->format('M d') . '-' . $weekEnd->format('M d, Y'),
+    'days' => $days,
+  ];
+}
+$calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($calendarCurrentWeekStart->getTimestamp() - $calendarWeekOneStart->getTimestamp()) / 604800)));
 ?>
 
 <?php $hasActiveFilters = ($search !== "" || $statusGet !== "" || $date_from !== "" || $date_to !== "" || $quick !== "" || ($sort !== "" && $sort !== "workflow")); ?>
@@ -1450,11 +1635,113 @@ function documentsUrl(array $overrides = []): string {
         <span class="docsSummaryLabel">documents in this view</span>
       </div>
 
+      <div class="docsCalendarPeek" tabindex="0" aria-label="Working calendar summary">
+        <div class="docsCalendarPeekMain">
+          <span class="docsCalendarDot <?= $calendarTodayIsWorking ? '' : 'isOff' ?>" aria-hidden="true"></span>
+          <span class="docsCalendarLabel">Today</span>
+          <span class="docsCalendarValue"><?= htmlspecialchars($calendarTodayTimeText) ?></span>
+        </div>
+        <div class="docsCalendarPanel" role="tooltip">
+          <div class="docsCalendarPanelTitle">Working calendar</div>
+          <div class="docsCalendarLine">
+            <span>Today</span>
+            <strong><?= htmlspecialchars($calendarTodayTimeText) ?></strong>
+          </div>
+          <div class="docsCalendarLine">
+            <span>Status</span>
+            <strong><?= htmlspecialchars($calendarTodayDetailText) ?></strong>
+          </div>
+          <div class="docsCalendarLine">
+            <span>Timezone</span>
+            <strong><?= htmlspecialchars($calendarTimezoneText) ?></strong>
+          </div>
+          <div class="docsCalendarLine">
+            <span>Working days</span>
+            <strong><?= htmlspecialchars($calendarWorkdayText !== '' ? $calendarWorkdayText : 'Not set') ?></strong>
+          </div>
+          <div class="docsCalendarLine">
+            <span>Default hours</span>
+            <strong><?= htmlspecialchars($calendarStartText . '-' . $calendarEndText) ?></strong>
+          </div>
+          <div class="docsCalendarExceptions">
+            <div class="docsCalendarWeekHead">
+              <button type="button" class="docsCalendarWeekBtn" data-calendar-prev aria-label="Previous week">Prev</button>
+              <div>
+                <div class="docsCalendarPanelTitle small" data-calendar-week-label>Week</div>
+                <div class="docsCalendarWeekRange" data-calendar-week-range></div>
+              </div>
+              <button type="button" class="docsCalendarWeekBtn" data-calendar-next aria-label="Next week">Next</button>
+            </div>
+            <div class="docsCalendarWeekDays" data-calendar-week-days></div>
+          </div>
+        </div>
+      </div>
+
       <a href="<?= htmlspecialchars(PUBLIC_PATH . '/add_document.php' . ($assistantModeEnabled && (int)($activeAssistantPrincipal['id'] ?? 0) > 0 ? '?acting_principal_user_id=' . (int)($activeAssistantPrincipal['id'] ?? 0) : '')) ?>" class="btnComp docsAddBtn" style="text-decoration:none;">
         + Add Document
       </a>
     </div>
   </section>
+
+  <script>
+    (() => {
+      const root = document.currentScript?.previousElementSibling?.querySelector?.(".docsCalendarPeek") || document.querySelector(".docsCalendarPeek");
+      if (!root) return;
+
+      const weeks = <?= json_encode($calendarWeeks, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+      let index = <?= (int)$calendarInitialWeekIndex ?>;
+      const label = root.querySelector("[data-calendar-week-label]");
+      const range = root.querySelector("[data-calendar-week-range]");
+      const daysWrap = root.querySelector("[data-calendar-week-days]");
+      const prev = root.querySelector("[data-calendar-prev]");
+      const next = root.querySelector("[data-calendar-next]");
+
+      const escCalendar = (value) => (value ?? "").toString()
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+
+      function renderCalendarWeek() {
+        const week = weeks[index] || weeks[0];
+        if (!week) return;
+
+        if (label) label.textContent = week.label || `Week ${index + 1}`;
+        if (range) range.textContent = week.range || "";
+        if (prev) prev.disabled = index <= 0;
+        if (next) next.disabled = index >= weeks.length - 1;
+
+        if (daysWrap) {
+          daysWrap.innerHTML = (week.days || []).map((day) => `
+            <div class="docsCalendarDay ${day.is_working ? "isWorking" : "isOff"} ${day.is_today ? "isToday" : ""}">
+              <span>${escCalendar(day.day)}<small>${escCalendar(day.date)}</small></span>
+              <strong>${escCalendar(day.hours)}</strong>
+              <em>${escCalendar(day.status)}</em>
+            </div>
+          `).join("");
+        }
+      }
+
+      prev?.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (index > 0) {
+          index -= 1;
+          renderCalendarWeek();
+        }
+      });
+
+      next?.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (index < weeks.length - 1) {
+          index += 1;
+          renderCalendarWeek();
+        }
+      });
+
+      renderCalendarWeek();
+    })();
+  </script>
 
   <div class="stats docsStatsGrid" id="docsStats">
     <a class="statCard statCardLink docsStatCard toneIncoming <?= $quick === 'incoming' ? 'isActive' : '' ?>"
@@ -1627,6 +1914,9 @@ function documentsUrl(array $overrides = []): string {
         <?php foreach ($docs as $d): ?>
           <?php
             $days = (int)($d["days_stuck"] ?? 0);
+            $workingMinutesStuck = max(0, (int)($d["working_minutes_stuck"] ?? 0));
+            $workingHoursStuck = max(0, (int)($d["working_hours_stuck"] ?? intdiv($workingMinutesStuck, 60)));
+            $inactiveDays = max(0, (int)($d["lifecycle_inactive_days"] ?? 0));
 
             $docDeadlineRaw = trim((string)($d["deadline_at"] ?? ""));
             $myPersonalDeadlineRaw = trim((string)($d["my_personal_deadline_at"] ?? ""));
@@ -1642,39 +1932,89 @@ function documentsUrl(array $overrides = []): string {
             $deadlineMetaLines = [];
             $deadlineSortTs = $effectiveDeadlineTs ? (int)$effectiveDeadlineTs : 0;
 
-            if ($hasPersonalDeadline) {
-              $deadlineMetaLines[] = "Your deadline: " . $personalDeadlineText;
-            }
-            $deadlineMetaLines[] = "Document: " . $docDeadlineText;
-
-            if ($effectiveDeadlineTs !== false) {
-              $secondsLeft = $effectiveDeadlineTs - time();
-              $daysLeft = (int)floor($secondsLeft / 86400);
-              $hoursLeft = (int)floor(abs($secondsLeft) / 3600);
-
-              if ($secondsLeft < 0) {
-                $lateDays = max(1, (int)ceil(abs($secondsLeft) / 86400));
-                $deadlineBadgeText = $lateDays === 1 ? "OVERDUE 1 DAY" : "OVERDUE {$lateDays} DAYS";
-                $deadlineBadgeClass = "danger";
-                $deadlineToneClass = "rowDeadlineOverdue";
-              } elseif ($secondsLeft <= 86400) {
-                $deadlineBadgeText = "DUE TODAY";
-                $deadlineBadgeClass = "today";
-              } elseif ($secondsLeft <= 259200) {
-                $deadlineBadgeText = $daysLeft <= 1 ? "1 DAY LEFT" : $daysLeft . " DAYS LEFT";
-                $deadlineBadgeClass = "warn";
-              } else {
-                $deadlineBadgeText = $daysLeft . " DAYS LEFT";
-                $deadlineBadgeClass = "safe";
-              }
-            }
-
             $openCount = (int)($d["open_route_count"] ?? 0);
             $inTransit = ($openCount > 0);
             $currentStatus = strtoupper((string)($d["current_status"] ?? "ACTIVE"));
             $hasRealBranches = ((int)($d["has_real_branches"] ?? 0) === 1);
             $lastEndHereKind = (string)($d["last_end_here_kind"] ?? "");
             $isLifecycleEnded = in_array($lastEndHereKind, ["branch_ended_here", "document_ended_here"], true);
+            $isInactiveLifecycle = in_array($currentStatus, ["RELEASED", "ARCHIVED"], true) || $isLifecycleEnded;
+            $isDeadlineLifecycleClosed = in_array($currentStatus, ["RELEASED", "ARCHIVED"], true);
+            $inactiveDayText = $inactiveDays === 1 ? "1 day" : $inactiveDays . " days";
+            $stuckDayText = $days === 1 ? "1 working day" : $days . " working days";
+            if ($currentStatus === "ARCHIVED") {
+              $activityLabel = "Inactive";
+              $activityValue = $inactiveDays === 0 ? "Today" : "For " . $inactiveDayText;
+              $activityText = $inactiveDays === 0 ? "Inactive today" : "Inactive for " . $inactiveDayText;
+            } elseif ($isInactiveLifecycle) {
+              $activityLabel = "Completed";
+              $activityValue = $inactiveDays === 0 ? "Today" : $inactiveDayText . " ago";
+              $activityText = $inactiveDays === 0 ? "Completed today" : "Completed " . $inactiveDayText . " ago";
+            } else {
+              $activityLabel = "Days stuck";
+              $activityValue = $stuckDayText;
+              $activityText = "Days stuck: " . $stuckDayText;
+            }
+
+            if ($hasPersonalDeadline) {
+              $deadlineMetaLines[] = "Your deadline: " . $personalDeadlineText;
+            }
+            $deadlineMetaLines[] = "Document: " . $docDeadlineText;
+
+            if ($effectiveDeadlineTs !== false) {
+              if ($isDeadlineLifecycleClosed) {
+                $closedRaw = trim((string)($d["lifecycle_closed_at"] ?? ""));
+                $closedTs = $closedRaw !== "" ? strtotime($closedRaw) : false;
+                $deadlineDate = date_create(date("Y-m-d", $effectiveDeadlineTs));
+                $closedDate = $closedTs !== false ? date_create(date("Y-m-d", $closedTs)) : null;
+                $closedAction = trim((string)($d["lifecycle_closed_action"] ?? ""));
+                $outcomePrefix = $currentStatus === "ARCHIVED"
+                  ? "ARCHIVED"
+                  : (in_array($closedAction, ["branch_ended_here", "document_ended_here"], true) ? "DONE" : "RELEASED");
+
+                if ($deadlineDate && $closedDate) {
+                  $deltaDays = (int)$deadlineDate->diff($closedDate)->format("%r%a");
+                  if ($deltaDays < 0) {
+                    $earlyDays = abs($deltaDays);
+                    $deadlineBadgeText = $outcomePrefix . " · " . ($earlyDays === 1 ? "1D EARLY" : "{$earlyDays}D EARLY");
+                    $deadlineBadgeClass = "safe";
+                  } elseif ($deltaDays === 0) {
+                    $deadlineBadgeText = $outcomePrefix . " · ON TIME";
+                    $deadlineBadgeClass = "safe";
+                  } else {
+                    $deadlineBadgeText = $outcomePrefix . " · " . ($deltaDays === 1 ? "1D LATE" : "{$deltaDays}D LATE");
+                    $deadlineBadgeClass = "danger";
+                  }
+                } else {
+                  $deadlineBadgeText = $outcomePrefix;
+                  $deadlineBadgeClass = "neutral";
+                }
+              } else {
+                $secondsLeft = $effectiveDeadlineTs - time();
+                $daysLeft = (int)floor($secondsLeft / 86400);
+
+                if ($secondsLeft < 0) {
+                  $lateDays = max(1, (int)ceil(abs($secondsLeft) / 86400));
+                  $deadlineBadgeText = $lateDays === 1 ? "OVERDUE 1 DAY" : "OVERDUE {$lateDays} DAYS";
+                  $deadlineBadgeClass = "danger";
+                  $deadlineToneClass = "rowDeadlineOverdue";
+                } elseif ($secondsLeft <= 86400) {
+                  $deadlineBadgeText = "DUE TODAY";
+                  $deadlineBadgeClass = "today";
+                } elseif ($secondsLeft <= 259200) {
+                  $deadlineBadgeText = $daysLeft <= 1 ? "1 DAY LEFT" : $daysLeft . " DAYS LEFT";
+                  $deadlineBadgeClass = "warn";
+                } else {
+                  $deadlineBadgeText = $daysLeft . " DAYS LEFT";
+                  $deadlineBadgeClass = "safe";
+                }
+              }
+            } elseif ($isDeadlineLifecycleClosed) {
+              $deadlineBadgeText = $currentStatus === "ARCHIVED"
+                ? "ARCHIVED"
+                : (in_array(trim((string)($d["lifecycle_closed_action"] ?? "")), ["branch_ended_here", "document_ended_here"], true) ? "DONE" : "RELEASED");
+              $deadlineBadgeClass = "neutral";
+            }
 
             $myHasOpenInbound = ((int)($d["my_has_open_inbound"] ?? 0) === 1);
             $myHasActionableRole = ((int)($d["my_has_actionable_role"] ?? 0) === 1);
@@ -1864,6 +2204,7 @@ function documentsUrl(array $overrides = []): string {
                 "my_has_actionable_role" => $myHasActionableRole ? 1 : 0,
                 "my_can_change_lifecycle" => $myCanChangeLifecycle ? 1 : 0,
                 "my_has_open_inbound" => $myHasOpenInbound ? 1 : 0,
+                "is_initial_routing" => (int)($d["is_initial_routing"] ?? 0),
 
                 "in_transit" => !empty($d["open_to_section_id"]) ? 1 : 0,
                 "open_to_section_id" => (int)($d["open_to_section_id"] ?? 0),
@@ -1886,6 +2227,11 @@ function documentsUrl(array $overrides = []): string {
                 "current_status" => (string)($d["current_status"] ?? "ACTIVE"),
                 "last_end_here_kind" => (string)($d["last_end_here_kind"] ?? ""),
                 "days_stuck" => $days,
+                "working_minutes_stuck" => $workingMinutesStuck,
+                "working_hours_stuck" => $workingHoursStuck,
+                "activity_label" => $activityLabel,
+                "activity_value" => $activityValue,
+                "activity_text" => $activityText,
                 "acting_principal_user_id" => $assistantModeEnabled ? (int)($activeAssistantPrincipal['id'] ?? 0) : 0,
               ], JSON_UNESCAPED_UNICODE),
               ENT_QUOTES,
@@ -1976,7 +2322,7 @@ function documentsUrl(array $overrides = []): string {
             <td data-label="Requester">
               <div class="requesterCell">
                 <div class="requesterName"><?= htmlspecialchars((string)$d["requester"]) ?></div>
-                <div class="requesterMeta">Days stuck: <?= (int)$days ?></div>
+                <div class="requesterMeta"><?= htmlspecialchars($activityText) ?></div>
               </div>
             </td>
           </tr>
@@ -2109,7 +2455,7 @@ $end   = min($totalPages, $page + 2);
     <div class="kv"><div class="k">Urgency</div><div class="v" id="d_deadline_countdown">—</div></div>
     <div class="kv"><div class="k">Subject</div><div class="v" id="d_subject"></div></div>
     <div class="kv"><div class="k">Type</div><div class="v" id="d_type"></div></div>
-    <div class="kv"><div class="k">Days stuck</div><div class="v" id="d_days"></div></div>
+    <div class="kv"><div class="k" id="d_activity_label">Days stuck</div><div class="v" id="d_days"></div></div>
     <div class="kv" id="rowEditDocumentDetails" style="display:none;">
       <div class="k">Correction</div>
       <div class="v"><button type="button" class="btnSecondary" id="btnEditDocumentDetails">Edit details</button></div>
@@ -2243,10 +2589,18 @@ $end   = min($totalPages, $page + 2);
         </label>
       </div>
 
-      <div id="forwardPersonalDeadlineWrap" class="forwardDeadlineWrap" style="display:none; margin-top:12px;">
-        <label for="f_personal_deadline" style="font-size:12px; font-weight:900; display:block; margin-bottom:6px;">Personal deadline</label>
-        <input id="f_personal_deadline" type="date" class="search" style="width:100%;">
-        <div class="mini" style="margin-top:6px; opacity:.75;">Only section chiefs can set a personal deadline. Deadlines stay active until 11:59 PM of the selected date.</div>
+      <div class="forwardDeadlineGrid" id="forwardDeadlineGrid" style="display:none;">
+        <div id="forwardDocumentDeadlineWrap" class="forwardDeadlineWrap" style="display:none;">
+          <label for="f_document_deadline">Document deadline</label>
+          <input id="f_document_deadline" type="date" class="search">
+          <div class="mini">Overall document deadline.</div>
+        </div>
+
+        <div id="forwardPersonalDeadlineWrap" class="forwardDeadlineWrap" style="display:none;">
+          <label for="f_personal_deadline">Personal deadline</label>
+          <input id="f_personal_deadline" type="date" class="search">
+          <div class="mini">Recipient-specific deadline.</div>
+        </div>
       </div>
 
       <div class="drawerActionRemarks" style="margin-top:12px;">

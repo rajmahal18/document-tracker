@@ -49,6 +49,8 @@ $toUserId    = (int)($_POST["to_user_id"] ?? 0);
 $branchIdReq = (int)($_POST["branch_id"] ?? 0);
 $receiveOnly = ((int)($_POST["receive_only"] ?? 0) === 1);
 $remarks     = trim((string)($_POST["remarks"] ?? ""));
+$documentDeadlineRaw = trim((string)($_POST["document_deadline_at"] ?? ""));
+$documentDeadlineAt = normalize_deadline_input($documentDeadlineRaw);
 $personalDeadlineRaw = trim((string)($_POST["personal_deadline_at"] ?? ""));
 $personalDeadlineAt = normalize_deadline_input($personalDeadlineRaw);
 $routeRemarks = '';
@@ -85,6 +87,12 @@ if ($mySectionId <= 0 || $userId <= 0 || $actualUserId <= 0) {
 if ($personalDeadlineRaw !== '' && $personalDeadlineAt === null) {
   http_response_code(400);
   echo json_encode(["ok" => false, "error" => "Personal deadline must be a valid date."]);
+  exit;
+}
+
+if ($documentDeadlineRaw !== '' && $documentDeadlineAt === null) {
+  http_response_code(400);
+  echo json_encode(["ok" => false, "error" => "Document deadline must be a valid date."]);
   exit;
 }
 
@@ -236,7 +244,20 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
   $branchMode = workflow_branch_mode_enabled($conn);
   $docHasRealBranches = ($branchMode && workflow_document_has_real_branches($conn, $docId));
 
-  $stmt = $conn->prepare("SELECT id, current_status, current_holder_section_id FROM documents WHERE id = ? LIMIT 1");
+  $stmt = $conn->prepare("
+    SELECT
+      d.id,
+      d.current_status,
+      d.current_holder_section_id,
+      NOT EXISTS (
+        SELECT 1
+        FROM routes r_any
+        WHERE r_any.document_id = d.id
+      ) AS is_initial_routing
+    FROM documents d
+    WHERE d.id = ?
+    LIMIT 1
+  ");
   $stmt->bind_param("i", $docId);
   $stmt->execute();
   $doc = $stmt->get_result()->fetch_assoc();
@@ -249,6 +270,7 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
 
   $status = strtoupper((string)($doc["current_status"] ?? "ACTIVE"));
   $holderSectionId = (int)($doc["current_holder_section_id"] ?? 0);
+  $isInitialRouting = ((int)($doc["is_initial_routing"] ?? 0) === 1);
 
   if ($status !== "ACTIVE") {
     $conn->rollback();
@@ -285,8 +307,27 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
     }
   }
 
+  if ($documentDeadlineAt !== null && !$isInitialRouting) {
+    $conn->rollback();
+    http_response_code(409);
+    echo json_encode(["ok" => false, "error" => "Document deadline can only be set during initial routing."]);
+    exit;
+  }
+
   $routeIds = [];
   $newBranchIds = [];
+
+  if ($documentDeadlineAt !== null) {
+    $stmt = $conn->prepare("
+      UPDATE documents
+      SET deadline_at = ?,
+          updated_at = NOW()
+      WHERE id = ?
+      LIMIT 1
+    ");
+    $stmt->bind_param("si", $documentDeadlineAt, $docId);
+    $stmt->execute();
+  }
 
   if ($docHasRealBranches) {
     $sourceBranchId = (int)$sourceBranch["id"];
@@ -423,6 +464,7 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
 
     "source_branch_id" => $docHasRealBranches ? (int)($sourceBranch["id"] ?? 0) : null,
     "new_branch_ids" => array_values(array_unique(array_filter($newBranchIds))),
+    "document_deadline_at" => $documentDeadlineAt,
     "personal_deadline_at" => $personalDeadlineAt,
     "acting_principal_user_id" => ($userId > 0 && $userId !== $actualUserId) ? $userId : null,
     "acting_principal_name" => ($userId > 0 && $userId !== $actualUserId) ? (string)($identity['acting_principal_name'] ?? '') : '',
@@ -445,6 +487,7 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
     "send_batch_id" => $sendBatchId,
     "branch_mode" => $docHasRealBranches,
     "branch_ids" => array_values(array_unique(array_filter($newBranchIds))),
+    "document_deadline_at" => $documentDeadlineAt,
     "personal_deadline_at" => $personalDeadlineAt,
   ]);
   exit;

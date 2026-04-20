@@ -1469,3 +1469,240 @@
 .addDocumentPage .destBuilderV2.is-division-chief-quick-mode .destSelectionPane {
   margin-top: 0;
 }
+
+/* Dark mode contrast fixes for Add Document */
+body[data-theme="dark"] .addDocumentPage {
+  background: linear-gradient(180deg, rgba(19, 34, 51, 0.98), rgba(14, 27, 41, 0.98));
+  color: var(--app-text, #f5f9ff);
+}
+
+body[data-theme="dark"] .addDocumentPage .addDocHeader,
+body[data-theme="dark"] .addDocumentPage .addDocActions {
+  border-color: rgba(160, 181, 205, 0.22);
+}
+
+body[data-theme="dark"] .addDocumentPage .addDocEyebrow {
+  background: rgba(96, 165, 250, 0.16);
+  color: #dbeafe;
+  border: 1px solid rgba(147, 197, 253, 0.24);
+}
+
+body[data-theme="dark"] .addDocumentPage .addDocLead,
+body[data-theme="dark"] .addDocumentPage .addDocSectionHead p,
+body[data-theme="dark"] .addDocumentPage .authField .mini,
+body[data-theme="dark"] .addDocumentPage .destHintText,
+body[data-theme="dark"] .addDocumentPage .destSubline,
+body[data-theme="dark"] .addDocumentPage .destSummaryEmpty,
+body[data-theme="dark"] .addDocumentPage .destCompactSummary,
+body[data-theme="dark"] .addDocumentPage .destDeadlineNote,
+body[data-theme="dark"] .addDocumentPage .destPreviewLoading,
+body[data-theme="dark"] .addDocumentPage .destPreviewMeta,
+body[data-theme="dark"] .addDocumentPage .destCompactSubline,
+body[data-theme="dark"] .addDocumentPage .destDivisionMeta,
+body[data-theme="dark"] .addDocumentPage .destSectionMetaLine,
+body[data-theme="dark"] .addDocumentPage .destSelectionMeta,
+body[data-theme="dark"] .addDocumentPage .destSectionEmpty,
+body[data-theme="dark"] .addDocumentPage .destSummaryStat span,
+body[data-theme="dark"] .addDocumentPage .destDivisionChevron,
+body[data-theme="dark"] .addDocumentPage .destUserBadge {
+  color: #bfd1e3;
+}
+
+body[data-theme="dark"] .addDocumentPage .addDocRequiredNote,
+body[data-theme="dark"] .addDocumentPage .destModeBar {
+  background: rgba(96, 165, 250, 0.10);
+  border-color: rgba(147, 197, 253, 0.20);
+  color: #dbeafe;
+}
+
+body[data-theme="dark"] .addDocumentPage .addDocSection,
+body[data-theme="dark"] .addDocumentPage .destBuilder,
+body[data-theme="dark"] .addDocumentPage .destBuilderV2,
+body[data-theme="dark"] .addDocumentPage .destSummaryBox,
+body[data-theme="dark"] .addDocumentPage .destCard,
+body[data-theme="dark"] .addDocumentPage .destDivisionCard,
+body[data-theme="dark"] .addDocumentPage .destSectionBlock,
+body[data-theme="dark"] .addDocumentPage .destSelectionCard,
+body[data-theme="dark"] .addDocumentPage .destDirectoryPane,
+body[data-theme="dark"] .addDocumentPage .destSelectionPane,
+body[data-theme="dark"] .addDocumentPage .destSectionPreview,
+body[data-theme="dark"] .addDocumentPage .addDocConditionalField {
+  background: rgba(22, 41, 61, 0.96);
+  border-color: rgba(160, 181, 205, 0.24);
+  box-shadow: none;
+}
+
+body[data-theme="dark"] .addDocumentPage .addDocSectionHead h3,
+body[data-theme="dark"] .addDocumentPage .addDocInlineLabel,
+body[data-theme="dark"] .addDocumentPage .authField label,
+body[data-theme="dark"] .addDocumentPage .destHeadline,
+body[data-theme="dark"] .addDocumentPage .destCardTitle,
+body[data-theme="dark"] .addDocumentPage .destCompactSummary strong,
+body[data-theme="dark"] .addDocumentPage .destMetaValue,
+body[data-theme="dark"] .addDocumentPage .destSimpleName,
+body[data-theme="dark"] .addDocumentPage .destPreviewTitle,
+body[data-theme="dark"] .addDocumentPage .destUserName,
+body[data-theme="dark"] .addDocumentPage .destToolbarTitle,
+body[data-theme="dark"] .addDocumentPage .destDivisionName,
+body[data-theme="dark"] .addDocumentPage .destSectionTitle,
+body[data-theme="dark"] .addDocumentPage .destCheckboxName,
+body[data-theme="dark"] .addDocumentPage .destSelectionTitle {
+  color: #f5f9ff;
+}
+
+body[data-theme="dark"] .addDocumentPage .destMetaLabel,
+body[data-theme="dark"] .addDocumentPage .destDeadlineLabel,
+body[data-theme="dark"] .addDocumentPage .destSectionLabel,
+body[data-theme="dark"] .addDocumentPage .destDeadlineWrap.compact .destDeadlineLabel,
+body[data-theme="dark"] .addDocumentPage .destRecipientLabel,
+body[data-theme="dark"] .addDocumentPage .destPickerLabel,
+body[data-theme="dark"] .addDocumentPage .destDeadlineInline {
+  color: #d0dfef;
+}
+
+body[data-theme="dark"] .addDocumentPage input[type="date"],
+body[data-theme="dark"] .addDocumentPage input[type="text"],
+body[data-theme="dark"] .addDocumentPage textarea,
+body[data-theme="dark"] .addDocumentPage .select,
+body[data-theme="dark"] .addDocumentPage .fileInput {
+  background: #102132;
+  border-color: rgba(160, 181, 205, 0.30);
+  color: #f5f9ff;
+  color-scheme: dark;
+}
+
+body[data-theme="dark"] .addDocumentPage input::placeholder,
+body[data-theme="dark"] .addDocumentPage textarea::placeholder {
+  color: #8fa8c2;
+}
+
+body[data-theme="dark"] .addDocumentPage .destActionBtn,
+body[data-theme="dark"] .addDocumentPage .destInlineBtn,
+body[data-theme="dark"] .addDocumentPage .destSectionActionBtn {
+  background: rgba(18, 37, 56, 0.96);
+  border-color: rgba(154, 199, 255, 0.28);
+  color: #dbeafe;
+}
+
+body[data-theme="dark"] .addDocumentPage .destActionBtn:hover,
+body[data-theme="dark"] .addDocumentPage .destInlineBtn:hover,
+body[data-theme="dark"] .addDocumentPage .destSectionActionBtn:hover {
+  background: rgba(28, 55, 82, 0.98);
+  border-color: rgba(154, 199, 255, 0.48);
+  color: #ffffff;
+}
+
+body[data-theme="dark"] .addDocumentPage .destActionBtn.is-primary {
+  background: linear-gradient(180deg, #2f80ed, #1660b7);
+  border-color: rgba(185, 215, 255, 0.60);
+  color: #ffffff;
+}
+
+body[data-theme="dark"] .addDocumentPage .destActionBtn.is-disabled {
+  opacity: 0.62;
+}
+
+body[data-theme="dark"] .addDocumentPage .destViewToggle,
+body[data-theme="dark"] .addDocumentPage .destUsersBox,
+body[data-theme="dark"] .addDocumentPage .destMetaBlock,
+body[data-theme="dark"] .addDocumentPage .destSimpleRow,
+body[data-theme="dark"] .addDocumentPage .destPickerEmpty,
+body[data-theme="dark"] .addDocumentPage .destDivisionToggle,
+body[data-theme="dark"] .addDocumentPage .destCheckboxRow,
+body[data-theme="dark"] .addDocumentPage .destUserRow {
+  background: rgba(15, 29, 44, 0.98);
+  border-color: rgba(160, 181, 205, 0.22);
+}
+
+body[data-theme="dark"] .addDocumentPage .destDivisionToggle:hover,
+body[data-theme="dark"] .addDocumentPage .destDivisionToggle.is-open,
+body[data-theme="dark"] .addDocumentPage .destCheckboxRow:hover,
+body[data-theme="dark"] .addDocumentPage .destUserRow:hover {
+  background: rgba(28, 55, 82, 0.98);
+  border-color: rgba(154, 199, 255, 0.34);
+}
+
+body[data-theme="dark"] .addDocumentPage .destViewBtn {
+  color: #bfd1e3;
+}
+
+body[data-theme="dark"] .addDocumentPage .destViewBtn.is-active {
+  background: rgba(96, 165, 250, 0.18);
+  color: #ffffff;
+  box-shadow: 0 0 0 1px rgba(154, 199, 255, 0.22);
+}
+
+body[data-theme="dark"] .addDocumentPage .destHelperChip,
+body[data-theme="dark"] .addDocumentPage .destFactChip,
+body[data-theme="dark"] .addDocumentPage .destInlineChip,
+body[data-theme="dark"] .addDocumentPage .destSummaryChip,
+body[data-theme="dark"] .addDocumentPage .destSimpleMeta span,
+body[data-theme="dark"] .addDocumentPage .destNameChip {
+  background: rgba(96, 165, 250, 0.10);
+  border-color: rgba(147, 197, 253, 0.18);
+  color: #dbeafe;
+}
+
+body[data-theme="dark"] .addDocumentPage .destNameChip.is-chief,
+body[data-theme="dark"] .addDocumentPage .destSimpleSide .destInlineChip,
+body[data-theme="dark"] .addDocumentPage .destModeLock,
+body[data-theme="dark"] .addDocumentPage .destCheckboxBadge {
+  background: rgba(96, 165, 250, 0.18);
+  border-color: rgba(147, 197, 253, 0.30);
+  color: #ffffff;
+}
+
+body[data-theme="dark"] .addDocumentPage .destNameChip.is-muted {
+  color: #bfd1e3;
+}
+
+body[data-theme="dark"] .addDocumentPage .destCounter,
+body[data-theme="dark"] .addDocumentPage .destDivisionCount {
+  background: rgba(96, 165, 250, 0.18);
+  color: #ffffff;
+}
+
+body[data-theme="dark"] .addDocumentPage .destStatus.is-info {
+  background: rgba(96, 165, 250, 0.12);
+  color: #dbeafe;
+  border-color: rgba(147, 197, 253, 0.22);
+}
+
+body[data-theme="dark"] .addDocumentPage .destStatus.is-success {
+  background: rgba(34, 197, 94, 0.14);
+  color: #bbf7d0;
+  border-color: rgba(74, 222, 128, 0.28);
+}
+
+body[data-theme="dark"] .addDocumentPage .destStatus.is-warning {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fde68a;
+  border-color: rgba(251, 191, 36, 0.30);
+}
+
+body[data-theme="dark"] .addDocumentPage .destStatus.is-danger {
+  background: rgba(239, 68, 68, 0.14);
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.28);
+}
+
+body[data-theme="dark"] .addDocumentPage .req {
+  color: #fca5a5;
+}
+
+body[data-theme="dark"] .addDocumentPage .addDocSection > label[style],
+body[data-theme="dark"] .addDocumentPage label[style*="rgba(255,255,255"] {
+  background: rgba(15, 29, 44, 0.98) !important;
+  border-color: rgba(160, 181, 205, 0.24) !important;
+  color: #f5f9ff !important;
+}
+
+body[data-theme="dark"] .addDocumentPage .addDocAutoField label[style] {
+  color: #f5f9ff !important;
+}
+
+body[data-theme="dark"] .addDocumentPage #savedAttachmentCard {
+  background: rgba(34, 197, 94, 0.12) !important;
+  border-color: rgba(74, 222, 128, 0.28) !important;
+  color: #d1fae5 !important;
+}

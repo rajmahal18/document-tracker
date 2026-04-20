@@ -27,7 +27,20 @@ $officialTitle = normalize_whitespace((string)($_POST['official_title'] ?? ''));
 $authorityRole = trim((string)($_POST['authority_role'] ?? 'staff'));
 $permanent = isset($_POST['permanent']) && (string)($_POST['permanent']) === '1' ? 1 : 0;
 $hasChiefAssistant = db_column_exists($conn, 'users', 'chief_assistant_user_id');
-$chiefAssistantUserId = $hasChiefAssistant ? (int)($_POST['chief_assistant_user_id'] ?? 0) : 0;
+$hasAssistantAssignments = assistant_assignments_table_ready($conn);
+$rawAssistantIds = $_POST['chief_assistant_user_ids'] ?? ($_POST['chief_assistant_user_id'] ?? []);
+if (!is_array($rawAssistantIds)) {
+  $rawAssistantIds = [$rawAssistantIds];
+}
+$chiefAssistantUserIds = [];
+foreach ($rawAssistantIds as $rawAssistantId) {
+  $assistantId = (int)$rawAssistantId;
+  if ($assistantId > 0) {
+    $chiefAssistantUserIds[$assistantId] = $assistantId;
+  }
+}
+$chiefAssistantUserIds = array_values($chiefAssistantUserIds);
+$chiefAssistantUserId = $chiefAssistantUserIds[0] ?? 0;
 
 if ($targetUserId <= 0) {
   http_response_code(422);
@@ -63,7 +76,7 @@ if ($targetRole === '') {
 $target['authority_role'] = $targetRole;
 
 $canEditBasic = can_edit_org_target($editor, $target);
-$canAssignAssistant = $hasChiefAssistant && can_assign_assistant_for_target($editor, $target);
+$canAssignAssistant = ($hasChiefAssistant || $hasAssistantAssignments) && can_assign_assistant_for_target($editor, $target);
 if (!$canEditBasic && !$canAssignAssistant) {
   http_response_code(403);
   echo json_encode(['ok' => false, 'error' => 'You are not allowed to update this user.']);
@@ -113,17 +126,17 @@ if ($canEditBasic) {
 }
 
 if ($canAssignAssistant) {
-  if ($chiefAssistantUserId < 0) {
-    $chiefAssistantUserId = 0;
-  }
   $candidateIds = array_map(static fn(array $row): int => (int)($row['id'] ?? 0), org_fetch_assistant_candidates($conn, $target));
-  if ($chiefAssistantUserId > 0 && !in_array($chiefAssistantUserId, $candidateIds, true)) {
-    http_response_code(422);
-    echo json_encode(['ok' => false, 'error' => 'Selected assistant is outside your allowed domain or is not an eligible staff user.']);
-    exit;
+  foreach ($chiefAssistantUserIds as $assistantId) {
+    if (!in_array($assistantId, $candidateIds, true)) {
+      http_response_code(422);
+      echo json_encode(['ok' => false, 'error' => 'One or more selected assistants are outside your allowed domain or not eligible staff users.']);
+      exit;
+    }
   }
 } else {
   $chiefAssistantUserId = (int)($target['chief_assistant_user_id'] ?? 0);
+  $chiefAssistantUserIds = $chiefAssistantUserId > 0 ? [$chiefAssistantUserId] : [];
 }
 
 $hasUsername = username_column_exists($conn);
@@ -176,6 +189,37 @@ if (!$upd->execute()) {
   exit;
 }
 $upd->close();
+
+if ($canAssignAssistant && $hasAssistantAssignments) {
+  $del = $conn->prepare('DELETE FROM principal_assistants WHERE principal_user_id = ?');
+  if (!$del) {
+    http_response_code(500);
+    echo json_encode(['ok' => false, 'error' => 'Failed to update assistant assignments.']);
+    exit;
+  }
+  $del->bind_param('i', $targetUserId);
+  $del->execute();
+  $del->close();
+
+  if ($chiefAssistantUserIds !== []) {
+    $assignedBy = (int)($_SESSION['user_id'] ?? 0);
+    $ins = $conn->prepare('
+      INSERT IGNORE INTO principal_assistants
+        (principal_user_id, assistant_user_id, assigned_by_user_id)
+      VALUES (?, ?, ?)
+    ');
+    if (!$ins) {
+      http_response_code(500);
+      echo json_encode(['ok' => false, 'error' => 'Failed to update assistant assignments.']);
+      exit;
+    }
+    foreach ($chiefAssistantUserIds as $assistantId) {
+      $ins->bind_param('iii', $targetUserId, $assistantId, $assignedBy);
+      $ins->execute();
+    }
+    $ins->close();
+  }
+}
 
 if ($targetUserId === (int)($_SESSION['user_id'] ?? 0)) {
   refresh_session_identity($conn, $targetUserId);

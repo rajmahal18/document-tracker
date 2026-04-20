@@ -1318,3 +1318,12 @@
   cursor: not-allowed;
   background: rgba(148, 163, 184, 0.08);
 }
+
+#org_chief_assistant_user_id[multiple] {
+  min-height: 148px;
+  padding: 8px;
+}
+
+#org_chief_assistant_user_id[multiple] option {
+  padding: 7px 8px;
+}

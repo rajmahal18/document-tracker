@@ -41,36 +41,115 @@ if (!$doc) {
 }
 
 $docId = (int)$doc["id"];
+$qrNext = PUBLIC_PATH . "/qr.php?t=" . rawurlencode($token);
+$loginError = "";
 
-// 2) Check current open route (if any) for “pending recipient”
+if (!is_logged_in() && $_SERVER["REQUEST_METHOD"] === "POST" && (string)($_POST["qr_login"] ?? "") === "1") {
+  $login = login_with_credentials($conn, (string)($_POST["username"] ?? ""), (string)($_POST["password"] ?? ""));
+  if (empty($login["ok"])) {
+    $loginError = (string)($login["error"] ?? "Invalid login credentials.");
+  } else {
+    if ((int)($login["must_change_password"] ?? 0) === 1) {
+      redirect(PUBLIC_PATH . "/change_password.php");
+    }
+    redirect($qrNext);
+  }
+}
+
+// 2) Check current open routes (if any) for pending recipients.
 $stmt = $conn->prepare("
   SELECT
     r.id,
+    r.to_user_id,
     r.from_section_id, fs.name AS from_name,
     r.to_section_id,   ts.name AS to_name,
+    tu.full_name AS to_user_name,
     r.sent_at
   FROM routes r
   LEFT JOIN sections fs ON fs.id = r.from_section_id
   LEFT JOIN sections ts ON ts.id = r.to_section_id
+  LEFT JOIN users tu ON tu.id = r.to_user_id
   WHERE r.document_id = ?
-    AND r.received_at IS NULL AND r.cancelled_at IS NULL
+    AND r.received_at IS NULL
+    AND r.cancelled_at IS NULL
   ORDER BY r.id DESC
-  LIMIT 1
+  LIMIT 25
 ");
 $stmt->bind_param("i", $docId);
 $stmt->execute();
-$route = $stmt->get_result()->fetch_assoc();
+$routes = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$displayRoute = $routes[0] ?? null;
+$route = $displayRoute;
 
-$isLoggedIn  = is_logged_in();
-$role        = (string)($_SESSION["role"] ?? "user");
+$isLoggedIn = is_logged_in();
+$actualUserId = (int)($_SESSION["user_id"] ?? 0);
 $mySectionId = (int)($_SESSION["section_id"] ?? 0);
+$myIsChief = ((int)($_SESSION["is_chief"] ?? 0) === 1);
 
-$pendingToSectionId = $route ? (int)$route["to_section_id"] : 0;
-
-// Eligibility matches your api/ack_received.php rule:
 $canReceive = false;
-if ($isLoggedIn && $mySectionId > 0 && $route) {
-  $canReceive = ($pendingToSectionId === $mySectionId);
+$receiveActingPrincipalId = 0;
+$receiveAsLabel = "";
+$assistantPrincipals = $isLoggedIn ? assistant_fetch_assigned_principals($conn, $actualUserId) : [];
+$assistantPrincipalById = [];
+
+foreach ($assistantPrincipals as $principal) {
+  $assistantPrincipalById[(int)($principal["id"] ?? 0)] = $principal;
+}
+
+if ($isLoggedIn && $routes) {
+  foreach ($routes as $candidate) {
+    $toSectionId = (int)($candidate["to_section_id"] ?? 0);
+    $toUserId = isset($candidate["to_user_id"]) ? (int)$candidate["to_user_id"] : 0;
+
+    if ($toUserId > 0 && $toUserId === $actualUserId) {
+      $route = $candidate;
+      $canReceive = true;
+      $receiveAsLabel = trim((string)($_SESSION["full_name"] ?? "your account"));
+      break;
+    }
+
+    if ($toUserId > 0 && isset($assistantPrincipalById[$toUserId])) {
+      $principal = $assistantPrincipalById[$toUserId];
+      $route = $candidate;
+      $canReceive = true;
+      $receiveActingPrincipalId = $toUserId;
+      $receiveAsLabel = trim((string)($principal["full_name"] ?? "assigned principal"));
+      break;
+    }
+
+    if ($toUserId <= 0 && $mySectionId > 0 && $toSectionId === $mySectionId && $myIsChief) {
+      $route = $candidate;
+      $canReceive = true;
+      $receiveAsLabel = trim((string)($_SESSION["full_name"] ?? "your account"));
+      break;
+    }
+
+    if ($toUserId <= 0) {
+      foreach ($assistantPrincipals as $principal) {
+        if ((int)($principal["section_id"] ?? 0) !== $toSectionId) continue;
+        $authorityRole = trim((string)($principal["authority_role"] ?? ""));
+        $principalIsAuthority = in_array($authorityRole, ["director", "division_head", "section_head"], true)
+          || (int)($principal["is_chief"] ?? 0) === 1;
+        if (!$principalIsAuthority) continue;
+
+        $route = $candidate;
+        $canReceive = true;
+        $receiveActingPrincipalId = (int)($principal["id"] ?? 0);
+        $receiveAsLabel = trim((string)($principal["full_name"] ?? "assigned principal"));
+        break 2;
+      }
+    }
+  }
+}
+
+$pendingRecipient = "Unknown";
+if ($displayRoute) {
+  $pendingRecipient = trim((string)($displayRoute["to_user_name"] ?? ""));
+  if ($pendingRecipient === "") {
+    $pendingRecipient = (string)($displayRoute["to_name"] ?? "Unknown");
+  } else {
+    $pendingRecipient .= " - " . (string)($displayRoute["to_name"] ?? "Unknown");
+  }
 }
 
 require __DIR__ . "/../includes/layout.php";
@@ -107,9 +186,9 @@ require __DIR__ . "/../includes/layout.php";
       <div class="qrDocRow">
         <div class="qrDocLabel">In Transit</div>
         <div class="qrDocValue">
-          <?php if ($route): ?>
-            Yes — pending recipient: <strong><?= htmlspecialchars((string)($route["to_name"] ?? "Unknown")) ?></strong>
-            <div class="qrMuted" style="margin-top:4px;">Sent at: <?= htmlspecialchars((string)($route["sent_at"] ?? "")) ?></div>
+          <?php if ($displayRoute): ?>
+            Yes - pending recipient: <strong><?= htmlspecialchars($pendingRecipient) ?></strong>
+            <div class="qrMuted" style="margin-top:4px;">Sent at: <?= htmlspecialchars((string)($displayRoute["sent_at"] ?? "")) ?></div>
           <?php else: ?>
             No open route
           <?php endif; ?>
@@ -120,11 +199,48 @@ require __DIR__ . "/../includes/layout.php";
 
   <?php if (!$isLoggedIn): ?>
     <section class="qrInfoCard">
-      <div class="docsSectionTitle">Login required</div>
-      <p class="qrLead" style="margin:6px 0 0;">You are not logged in. To receive this document, login using your section account, then open the QR link again.</p>
-      <div class="qrActionRow">
-        <a class="btnPrimary" href="<?= PUBLIC_PATH ?>/login.php" style="text-decoration:none;">Login</a>
-      </div>
+      <div class="docsSectionTitle">Login to continue</div>
+      <p class="qrLead" style="margin:6px 0 12px;">Use your account here, then this same QR page will continue to receiving.</p>
+
+      <?php if ($loginError !== ""): ?>
+        <div class="notice qrLoginError">
+          <?= htmlspecialchars($loginError) ?>
+        </div>
+      <?php endif; ?>
+
+      <form class="authForm qrLoginForm" method="POST" action="<?= htmlspecialchars($qrNext, ENT_QUOTES, "UTF-8") ?>" novalidate>
+        <input type="hidden" name="qr_login" value="1">
+
+        <div class="authField">
+          <label for="qrUsername">Username / Email</label>
+          <input
+            id="qrUsername"
+            type="text"
+            name="username"
+            placeholder="Enter your username or email"
+            value="<?= htmlspecialchars((string)($_POST["username"] ?? "")) ?>"
+            autocomplete="username"
+            required
+          >
+        </div>
+
+        <div class="authField">
+          <label for="qrPassword">Password</label>
+          <input
+            id="qrPassword"
+            type="password"
+            name="password"
+            placeholder="Enter your password"
+            autocomplete="current-password"
+            required
+          >
+        </div>
+
+        <div class="qrActionRow">
+          <button class="btnPrimary" type="submit">Login and continue</button>
+          <a class="btnGhost qrFullLoginLink" href="<?= PUBLIC_PATH ?>/login.php?next=<?= rawurlencode($qrNext) ?>">Open full login page</a>
+        </div>
+      </form>
     </section>
 
   <?php elseif (!$route): ?>
@@ -133,7 +249,7 @@ require __DIR__ . "/../includes/layout.php";
       <p class="qrLead" style="margin:6px 0 0;">This document has no active route to receive right now.</p>
     </section>
 
-  <?php elseif ($mySectionId <= 0): ?>
+  <?php elseif ($mySectionId <= 0 && $receiveActingPrincipalId <= 0): ?>
     <section class="qrInfoCard">
       <div class="docsSectionTitle">Section missing</div>
       <p class="qrLead" style="margin:6px 0 0;">Your account has no section assignment, so receiving is blocked.</p>
@@ -142,16 +258,22 @@ require __DIR__ . "/../includes/layout.php";
   <?php elseif (!$canReceive): ?>
     <section class="qrInfoCard">
       <div class="docsSectionTitle">Not eligible to receive</div>
-      <p class="qrLead" style="margin:6px 0 0;">Pending recipient is <strong><?= htmlspecialchars((string)($route["to_name"] ?? "Unknown")) ?></strong>.</p>
+      <p class="qrLead" style="margin:6px 0 0;">Pending recipient is <strong><?= htmlspecialchars($pendingRecipient) ?></strong>.</p>
     </section>
 
   <?php else: ?>
     <section class="qrReceiveCard">
       <div class="docsSectionTitle">Receive document</div>
-      <p class="qrLead" style="margin:6px 0 12px;">Add an optional remark, then mark the document as received.</p>
+      <p class="qrLead" style="margin:6px 0 12px;">
+        <?php if ($receiveAsLabel !== ""): ?>
+          Receiving as <strong><?= htmlspecialchars($receiveAsLabel) ?></strong>. Add an optional remark, then mark the document as received.
+        <?php else: ?>
+          Add an optional remark, then mark the document as received.
+        <?php endif; ?>
+      </p>
 
       <div class="authField" style="margin-bottom:10px;">
-        <label>Remarks (optional)</label>
+        <label for="remarks">Remarks (optional)</label>
         <input id="remarks" type="text" placeholder="e.g., Received by records staff">
       </div>
 
@@ -170,7 +292,11 @@ require __DIR__ . "/../includes/layout.php";
           const fd = new FormData();
           fd.set("csrf_token", window.__CSRF__ || "");
           fd.set("document_id", "<?= (int)$docId ?>");
+          fd.set("route_id", "<?= (int)($route["id"] ?? 0) ?>");
           fd.set("remarks", document.getElementById("remarks")?.value || "");
+          <?php if ($receiveActingPrincipalId > 0): ?>
+          fd.set("acting_principal_user_id", "<?= (int)$receiveActingPrincipalId ?>");
+          <?php endif; ?>
 
           const res = await fetch("<?= API_PATH ?>/ack_received.php", { method: "POST", body: fd });
           const data = await res.json().catch(() => null);
@@ -180,7 +306,7 @@ require __DIR__ . "/../includes/layout.php";
             return;
           }
 
-          msg.textContent = "✅ Received. Refreshing...";
+          msg.textContent = "Received. Refreshing...";
           setTimeout(() => location.reload(), 600);
         }
       </script>
