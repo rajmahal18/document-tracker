@@ -1381,6 +1381,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             "division_name"        => $myDivisionName,
             "division_code"        => $myDivisionCode,
             "from_label"           => $fromLabel,
+            "document_type"        => $content_type,
             "document_date"        => $document_date,
             "subject"              => $subject,
             "mpw_tracking_no"      => $tracking_no,

@@ -90,10 +90,9 @@ function division_tracking_initials_label(string $name): string
   return $initials !== '' ? $initials : trim($name);
 }
 
-function get_division_permanent_staff(mysqli $conn, int $divisionId, int $excludeUserId = 0): array
+function get_division_slip_head_staff(mysqli $conn, int $divisionId, int $excludeUserId = 0): array
 {
   ensure_division_tracking_tables($conn);
-  ensure_users_permanent_column($conn);
   if ($divisionId <= 0) return [];
 
   $sql = "SELECT
@@ -108,7 +107,7 @@ function get_division_permanent_staff(mysqli $conn, int $divisionId, int $exclud
       AND u.is_active = 1
       AND s.is_active = 1
       AND d.is_active = 1
-      AND u.permanent = 1";
+      AND LOWER(TRIM(COALESCE(u.authority_role, ''))) IN ('division_assistant', 'section_head')";
   $types = 'i';
   $params = [$divisionId];
   if ($excludeUserId > 0) {
@@ -116,8 +115,7 @@ function get_division_permanent_staff(mysqli $conn, int $divisionId, int $exclud
     $types .= 'i';
     $params[] = $excludeUserId;
   }
-  $sql .= " AND LOWER(TRIM(COALESCE(u.authority_role, ''))) <> 'division_head'
-    ORDER BY
+  $sql .= " ORDER BY
     CASE LOWER(TRIM(COALESCE(u.authority_role, '')))
       WHEN 'division_assistant' THEN 0
       WHEN 'section_head' THEN 1
@@ -134,7 +132,9 @@ function get_division_permanent_staff(mysqli $conn, int $divisionId, int $exclud
 
 function build_division_name_initial_entries(mysqli $conn, int $divisionId, int $excludeUserId = 0, int $limit = 9): array
 {
-  $rows = get_division_permanent_staff($conn, $divisionId, $excludeUserId);
+  $generalEntries = ['All Permanent', 'All J.O. Staff', 'All Staff'];
+  $headLimit = max(0, $limit - count($generalEntries));
+  $rows = get_division_slip_head_staff($conn, $divisionId, $excludeUserId);
   $out = [];
   foreach ($rows as $row) {
     $name = strtoupper(trim((string)($row['full_name'] ?? '')));
@@ -142,8 +142,14 @@ function build_division_name_initial_entries(mysqli $conn, int $divisionId, int 
     $initials = user_initials_from_name($name);
     $label = $initials !== '' ? ($name . ' (' . $initials . ')') : $name;
     $out[] = normalize_pdf_text($label);
-    if (count($out) >= $limit) break;
+    if (count($out) >= $headLimit) break;
   }
+
+  foreach ($generalEntries as $entry) {
+    if (count($out) >= $limit) break;
+    $out[] = normalize_pdf_text($entry);
+  }
+
   return $out;
 }
 
