@@ -264,10 +264,22 @@ if ($assistantOwnPageIsolationSql !== "") {
  * Filters
  */
 if ($search !== "") {
-  $where[] = "(d.tracking_no LIKE ? OR d.requester LIKE ? OR d.subject LIKE ? OR d.content_type LIKE ? OR sh.name LIKE ?)";
+  $where[] = "(
+    d.tracking_no LIKE ?
+    OR EXISTS (
+      SELECT 1
+      FROM document_division_tracking ddt_search
+      WHERE ddt_search.document_id = d.id
+        AND ddt_search.tracking_no LIKE ?
+    )
+    OR d.requester LIKE ?
+    OR d.subject LIKE ?
+    OR d.content_type LIKE ?
+    OR sh.name LIKE ?
+  )";
   $like = "%" . $search . "%";
-  array_push($params, $like, $like, $like, $like, $like);
-  $types .= "sssss";
+  array_push($params, $like, $like, $like, $like, $like, $like);
+  $types .= "ssssss";
 }
 
 if ($statusGet !== "" && $quick === "") {
@@ -1826,7 +1838,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
         <div class="control docsSearchControl">
           <label>Search documents</label>
           <input class="search" type="text" name="q"
-                 placeholder="Tracking no, subject, requester, current holder..."
+                 placeholder="DOC no, division tracking no, subject, requester..."
                  value="<?= htmlspecialchars($search) ?>">
         </div>
 
