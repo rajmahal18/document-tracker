@@ -108,6 +108,87 @@ if (!$canRegenerate) {
   exit;
 }
 
+function division_slip_original_received_meta(mysqli $conn, int $documentId, string $divisionCode): array
+{
+  $divisionCode = strtoupper(trim($divisionCode));
+  $stmt = $conn->prepare("
+    SELECT payload_json
+    FROM document_events
+    WHERE document_id = ?
+      AND event_type = 'updated'
+      AND payload_json LIKE '%division_tracking_slip_generated%'
+    ORDER BY id ASC
+  ");
+  $stmt->bind_param('i', $documentId);
+  $stmt->execute();
+  $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC) ?: [];
+
+  foreach ($rows as $row) {
+    $payload = json_decode((string)($row['payload_json'] ?? ''), true);
+    if (!is_array($payload)) {
+      continue;
+    }
+    if (trim((string)($payload['kind'] ?? '')) !== 'division_tracking_slip_generated') {
+      continue;
+    }
+    $payloadDivision = strtoupper(trim((string)($payload['division_code'] ?? '')));
+    if ($divisionCode !== '' && $payloadDivision !== '' && $payloadDivision !== $divisionCode) {
+      continue;
+    }
+
+    return [
+      'received_by' => trim((string)($payload['received_by_name'] ?? '')),
+      'received_datetime' => trim((string)($payload['received_datetime'] ?? '')),
+      'assistant_user_id' => (int)($payload['assistant_actual_user_id'] ?? 0),
+    ];
+  }
+
+  return ['received_by' => '', 'received_datetime' => '', 'assistant_user_id' => 0];
+}
+
+function division_slip_assistant_name_for_principal(mysqli $conn, int $principalUserId): string
+{
+  if ($principalUserId <= 0) {
+    return '';
+  }
+
+  if (function_exists('assistant_assignments_table_ready') && assistant_assignments_table_ready($conn)) {
+    $stmt = $conn->prepare("
+      SELECT COALESCE(NULLIF(TRIM(u.full_name), ''), '') AS assistant_name
+      FROM principal_assistants pa
+      JOIN users u ON u.id = pa.assistant_user_id
+      WHERE pa.principal_user_id = ?
+        AND u.is_active = 1
+      ORDER BY u.full_name ASC, u.id ASC
+      LIMIT 1
+    ");
+    $stmt->bind_param('i', $principalUserId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $name = trim((string)($row['assistant_name'] ?? ''));
+    if ($name !== '') {
+      return $name;
+    }
+  }
+
+  if (db_column_exists($conn, 'users', 'chief_assistant_user_id')) {
+    $stmt = $conn->prepare("
+      SELECT COALESCE(NULLIF(TRIM(a.full_name), ''), '') AS assistant_name
+      FROM users p
+      JOIN users a ON a.id = p.chief_assistant_user_id
+      WHERE p.id = ?
+        AND a.is_active = 1
+      LIMIT 1
+    ");
+    $stmt->bind_param('i', $principalUserId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    return trim((string)($row['assistant_name'] ?? ''));
+  }
+
+  return '';
+}
+
 $trackingRow = get_document_division_tracking($conn, $docId, $divisionId);
 if (!$trackingRow) {
   $defaultNo = preview_next_division_tracking_number($conn, $divisionId, new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')));
@@ -155,10 +236,25 @@ if ($requester !== '') {
   }
 }
 
-$receivedBy = $actualUserFullName;
-$receivedDT = '';
+$originalSlipMeta = division_slip_original_received_meta($conn, $docId, $divisionCode);
+$receivedBy = trim((string)($originalSlipMeta['received_by'] ?? ''));
+$receivedDT = trim((string)($originalSlipMeta['received_datetime'] ?? ''));
+
+if ($receivedBy === '') {
+  $createdByUserId = (int)($doc['created_by_user_id'] ?? 0);
+  $receivedBy = division_slip_assistant_name_for_principal($conn, $createdByUserId);
+}
+
+if ($receivedBy === '') {
+  $receivedBy = trim((string)($doc['created_by_name'] ?? ''));
+}
+
+if ($receivedBy === '') {
+  $receivedBy = $actualUserFullName;
+}
+
 $head = resolve_division_head($conn, $divisionId);
-$flowRows = build_division_slip_flow_rows($conn, $docId, $divisionId, $actualUserFullName);
+$flowRows = build_division_slip_flow_rows($conn, $docId, $divisionId, $receivedBy);
 $nameEntries = build_division_name_initial_entries($conn, $divisionId, (int)($head['id'] ?? 0));
 $safeTracking = preg_replace('/[^A-Za-z0-9._-]+/', '_', (string)($doc['tracking_no'] ?? 'document')) ?: 'document';
 $safeDivision = preg_replace('/[^A-Za-z0-9._-]+/', '_', $divisionCode) ?: 'DIVISION';
@@ -255,6 +351,9 @@ $payload = json_encode([
   'attachment_id' => $attId,
   'file' => $orig,
   'division_code' => $divisionCode,
+  'received_by_name' => $receivedBy,
+  'received_datetime' => $receivedDT,
+  'assistant_actual_user_id' => (int)($originalSlipMeta['assistant_user_id'] ?? 0) ?: null,
   'acting_principal_user_id' => ($userId > 0 && $userId !== $actualUserId) ? $userId : null,
   'acting_principal_name' => ($userId > 0 && $userId !== $actualUserId) ? (string)($identity['acting_principal_name'] ?? '') : '',
   'acting_label' => ($userId > 0 && $userId !== $actualUserId) ? (string)($identity['acting_label'] ?? '') : '',

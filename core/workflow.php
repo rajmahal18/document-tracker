@@ -262,6 +262,11 @@ function workflow_user_can_act_legacy_document(mysqli $conn, int $documentId, in
             WHERE r_open.document_id = d.id
               AND r_open.received_at IS NULL
               AND r_open.cancelled_at IS NULL
+              AND NOT EXISTS (
+                SELECT 1
+                FROM attachment_forward_tasks aft_open
+                WHERE aft_open.route_id = r_open.id
+              )
           ) AS has_open_route,
           EXISTS (
             SELECT 1
@@ -269,6 +274,11 @@ function workflow_user_can_act_legacy_document(mysqli $conn, int $documentId, in
             WHERE r_any_received.document_id = d.id
               AND r_any_received.received_at IS NOT NULL
               AND r_any_received.cancelled_at IS NULL
+              AND NOT EXISTS (
+                SELECT 1
+                FROM attachment_forward_tasks aft_received
+                WHERE aft_received.route_id = r_any_received.id
+              )
           ) AS has_received_route
         FROM documents d
         WHERE d.id = ?
@@ -308,6 +318,11 @@ function workflow_user_can_act_legacy_document(mysqli $conn, int $documentId, in
         WHERE r.document_id = ?
           AND r.received_at IS NOT NULL
           AND r.cancelled_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM attachment_forward_tasks aft_latest
+            WHERE aft_latest.route_id = r.id
+          )
         ORDER BY r.received_at DESC, r.id DESC
         LIMIT 1
     ");
@@ -427,6 +442,15 @@ function workflow_get_branch_state(mysqli $conn, int $documentId, int $viewerUse
             && (int)$row['completed_by_user_id'] === $viewerUserId
             && (int)$row['open_action_route_count'] === 0
         ) ? 1 : 0;
+
+        $attachmentForwardMeta = workflow_get_branch_attachment_forward_task_meta($conn, $documentId, (int)$row['id'], $viewerUserId);
+        foreach ($attachmentForwardMeta as $metaKey => $metaValue) {
+            $row[$metaKey] = $metaValue;
+        }
+
+        if ((int)($row['attachment_forward_open_task_count'] ?? 0) > 0 && (int)($row['is_reference'] ?? 0) === 0) {
+            $row['can_forward'] = 0;
+        }
     }
     unset($row);
 
@@ -505,4 +529,319 @@ function workflow_get_branch_state(mysqli $conn, int $documentId, int $viewerUse
     // No branch-specific participation trail: keep the full list
     // for sender/admin/general viewers.
     return $rows;
+}
+
+
+function workflow_attachment_forwarding_enabled(mysqli $conn): bool
+{
+    return workflow_has_table($conn, 'attachment_forward_tasks');
+}
+
+function workflow_branch_has_open_attachment_forward_tasks(mysqli $conn, int $documentId, int $senderBranchId): bool
+{
+    if ($documentId <= 0 || $senderBranchId <= 0 || !workflow_attachment_forwarding_enabled($conn)) {
+        return false;
+    }
+
+    $stmt = $conn->prepare("
+        SELECT 1
+        FROM attachment_forward_tasks aft
+        WHERE aft.document_id = ?
+          AND aft.sender_branch_id = ?
+          AND aft.task_status IN ('PENDING_RECEIVE', 'IN_PROGRESS')
+        LIMIT 1
+    ");
+    $stmt->bind_param('ii', $documentId, $senderBranchId);
+    $stmt->execute();
+    return (bool)$stmt->get_result()->fetch_row();
+}
+
+function workflow_document_has_open_attachment_forward_tasks(mysqli $conn, int $documentId): bool
+{
+    if ($documentId <= 0 || !workflow_attachment_forwarding_enabled($conn)) {
+        return false;
+    }
+
+    $stmt = $conn->prepare("
+        SELECT 1
+        FROM attachment_forward_tasks aft
+        WHERE aft.document_id = ?
+          AND aft.task_status IN ('PENDING_RECEIVE', 'IN_PROGRESS')
+        LIMIT 1
+    ");
+    $stmt->bind_param('i', $documentId);
+    $stmt->execute();
+    return (bool)$stmt->get_result()->fetch_row();
+}
+
+
+function workflow_user_has_open_attachment_forward_tasks_as_sender(mysqli $conn, int $documentId, int $senderUserId): bool
+{
+    if ($documentId <= 0 || $senderUserId <= 0 || !workflow_attachment_forwarding_enabled($conn)) {
+        return false;
+    }
+
+    $stmt = $conn->prepare("
+        SELECT 1
+        FROM attachment_forward_tasks aft
+        WHERE aft.document_id = ?
+          AND aft.sender_user_id = ?
+          AND aft.task_status IN ('PENDING_RECEIVE', 'IN_PROGRESS')
+        LIMIT 1
+    ");
+    $stmt->bind_param('ii', $documentId, $senderUserId);
+    $stmt->execute();
+    return (bool)$stmt->get_result()->fetch_row();
+}
+
+function workflow_branch_open_attachment_forward_task_count(mysqli $conn, int $documentId, int $senderBranchId): int
+{
+    if ($documentId <= 0 || $senderBranchId <= 0 || !workflow_attachment_forwarding_enabled($conn)) {
+        return 0;
+    }
+
+    $stmt = $conn->prepare("
+        SELECT COUNT(*) AS c
+        FROM attachment_forward_tasks aft
+        WHERE aft.document_id = ?
+          AND aft.sender_branch_id = ?
+          AND aft.task_status IN ('PENDING_RECEIVE', 'IN_PROGRESS')
+    ");
+    $stmt->bind_param('ii', $documentId, $senderBranchId);
+    $stmt->execute();
+    return (int)($stmt->get_result()->fetch_assoc()['c'] ?? 0);
+}
+
+function workflow_get_branch_attachment_forward_task_meta(mysqli $conn, int $documentId, int $branchId, int $viewerUserId): array
+{
+    $meta = [
+        'attachment_forward_source_branch' => 0,
+        'attachment_forward_recipient_branch' => 0,
+        'attachment_forward_open_task_count' => 0,
+        'attachment_forward_can_attach' => 0,
+        'attachment_forward_can_mark_done' => 0,
+        'attachment_forward_task_status' => '',
+    ];
+
+    if ($documentId <= 0 || $branchId <= 0 || $viewerUserId <= 0 || !workflow_attachment_forwarding_enabled($conn)) {
+        return $meta;
+    }
+
+    $stmt = $conn->prepare("
+        SELECT
+          SUM(CASE WHEN aft.sender_branch_id = ? THEN 1 ELSE 0 END) AS source_any_count,
+          SUM(CASE WHEN aft.sender_branch_id = ? AND aft.task_status IN ('PENDING_RECEIVE', 'IN_PROGRESS') THEN 1 ELSE 0 END) AS source_open_count,
+          SUM(CASE WHEN aft.recipient_branch_id = ? THEN 1 ELSE 0 END) AS recipient_any_count,
+          SUM(CASE WHEN aft.recipient_branch_id = ? AND aft.task_status IN ('PENDING_RECEIVE', 'IN_PROGRESS') THEN 1 ELSE 0 END) AS recipient_open_count,
+          SUM(CASE WHEN aft.recipient_branch_id = ? AND aft.recipient_user_id = ? AND aft.task_status = 'IN_PROGRESS' THEN 1 ELSE 0 END) AS recipient_in_progress_count,
+          SUM(CASE WHEN aft.recipient_branch_id = ? AND aft.recipient_user_id = ? AND aft.task_status = 'PENDING_RECEIVE' THEN 1 ELSE 0 END) AS recipient_pending_receive_count
+        FROM attachment_forward_tasks aft
+        WHERE aft.document_id = ?
+          AND (
+            aft.sender_branch_id = ?
+            OR aft.recipient_branch_id = ?
+          )
+    ");
+    $stmt->bind_param(
+        'iiiiiiiiiii',
+        $branchId,
+        $branchId,
+        $branchId,
+        $branchId,
+        $branchId,
+        $viewerUserId,
+        $branchId,
+        $viewerUserId,
+        $documentId,
+        $branchId,
+        $branchId
+    );
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc() ?: [];
+
+    $sourceAny = (int)($row['source_any_count'] ?? 0);
+    $sourceOpen = (int)($row['source_open_count'] ?? 0);
+    $recipientAny = (int)($row['recipient_any_count'] ?? 0);
+    $recipientOpen = (int)($row['recipient_open_count'] ?? 0);
+    $recipientInProgress = (int)($row['recipient_in_progress_count'] ?? 0);
+    $recipientPendingReceive = (int)($row['recipient_pending_receive_count'] ?? 0);
+
+    $meta['attachment_forward_source_branch'] = $sourceAny > 0 ? 1 : 0;
+    $meta['attachment_forward_recipient_branch'] = $recipientAny > 0 ? 1 : 0;
+    $meta['attachment_forward_open_task_count'] = max($sourceOpen, $recipientOpen);
+
+    if ($recipientInProgress > 0) {
+        $meta['attachment_forward_can_attach'] = 1;
+        $meta['attachment_forward_can_mark_done'] = 1;
+        $meta['attachment_forward_task_status'] = 'IN_PROGRESS';
+    } elseif ($recipientPendingReceive > 0) {
+        $meta['attachment_forward_task_status'] = 'PENDING_RECEIVE';
+    } elseif ($recipientOpen > 0) {
+        $meta['attachment_forward_task_status'] = 'OPEN';
+    }
+
+    return $meta;
+}
+
+
+function workflow_get_document_attachment_forward_task_meta(mysqli $conn, int $documentId, int $viewerUserId): array
+{
+    $meta = [
+        'attachment_forward_source_branch' => 0,
+        'attachment_forward_recipient_branch' => 0,
+        'attachment_forward_open_task_count' => 0,
+        'attachment_forward_can_attach' => 0,
+        'attachment_forward_can_mark_done' => 0,
+        'attachment_forward_task_status' => '',
+    ];
+
+    if ($documentId <= 0 || $viewerUserId <= 0 || !workflow_attachment_forwarding_enabled($conn)) {
+        return $meta;
+    }
+
+    $stmt = $conn->prepare("
+        SELECT
+          SUM(CASE WHEN aft.sender_user_id = ? THEN 1 ELSE 0 END) AS source_any_count,
+          SUM(CASE WHEN aft.sender_user_id = ? AND aft.task_status IN ('PENDING_RECEIVE', 'IN_PROGRESS') THEN 1 ELSE 0 END) AS source_open_count,
+          SUM(CASE WHEN aft.recipient_user_id = ? THEN 1 ELSE 0 END) AS recipient_any_count,
+          SUM(CASE WHEN aft.recipient_user_id = ? AND aft.task_status IN ('PENDING_RECEIVE', 'IN_PROGRESS') THEN 1 ELSE 0 END) AS recipient_open_count,
+          SUM(CASE WHEN aft.recipient_user_id = ? AND aft.task_status = 'IN_PROGRESS' THEN 1 ELSE 0 END) AS recipient_in_progress_count,
+          SUM(CASE WHEN aft.recipient_user_id = ? AND aft.task_status = 'PENDING_RECEIVE' THEN 1 ELSE 0 END) AS recipient_pending_receive_count
+        FROM attachment_forward_tasks aft
+        WHERE aft.document_id = ?
+          AND COALESCE(aft.sender_branch_id, 0) = 0
+          AND COALESCE(aft.recipient_branch_id, 0) = 0
+    ");
+    $stmt->bind_param('iiiiiii', $viewerUserId, $viewerUserId, $viewerUserId, $viewerUserId, $viewerUserId, $viewerUserId, $documentId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc() ?: [];
+
+    $sourceAny = (int)($row['source_any_count'] ?? 0);
+    $sourceOpen = (int)($row['source_open_count'] ?? 0);
+    $recipientAny = (int)($row['recipient_any_count'] ?? 0);
+    $recipientOpen = (int)($row['recipient_open_count'] ?? 0);
+    $recipientInProgress = (int)($row['recipient_in_progress_count'] ?? 0);
+    $recipientPendingReceive = (int)($row['recipient_pending_receive_count'] ?? 0);
+
+    $meta['attachment_forward_source_branch'] = $sourceAny > 0 ? 1 : 0;
+    $meta['attachment_forward_recipient_branch'] = $recipientAny > 0 ? 1 : 0;
+    $meta['attachment_forward_open_task_count'] = max($sourceOpen, $recipientOpen);
+
+    if ($recipientInProgress > 0) {
+        $meta['attachment_forward_can_attach'] = 1;
+        $meta['attachment_forward_can_mark_done'] = 1;
+        $meta['attachment_forward_task_status'] = 'IN_PROGRESS';
+    } elseif ($recipientPendingReceive > 0) {
+        $meta['attachment_forward_task_status'] = 'PENDING_RECEIVE';
+    } elseif ($recipientOpen > 0) {
+        $meta['attachment_forward_task_status'] = 'OPEN';
+    }
+
+    return $meta;
+}
+
+
+function workflow_get_attachment_forward_task_summary(mysqli $conn, int $documentId, int $viewerUserId, ?int $senderBranchId = null, ?int $recipientBranchId = null): array
+{
+    if ($documentId <= 0 || $viewerUserId <= 0 || !workflow_attachment_forwarding_enabled($conn)) {
+        return [];
+    }
+
+    $scopeClauses = ["aft.document_id = ?", "(aft.sender_user_id = ? OR aft.recipient_user_id = ?)"];
+    $types = 'iii';
+    $params = [$documentId, $viewerUserId, $viewerUserId];
+
+    if ($senderBranchId !== null) {
+        $scopeClauses[] = 'COALESCE(aft.sender_branch_id, 0) = ?';
+        $types .= 'i';
+        $params[] = max(0, (int)$senderBranchId);
+    }
+    if ($recipientBranchId !== null) {
+        $scopeClauses[] = 'COALESCE(aft.recipient_branch_id, 0) = ?';
+        $types .= 'i';
+        $params[] = max(0, (int)$recipientBranchId);
+    }
+
+    $sql = "
+        SELECT
+          aft.id,
+          aft.task_status,
+          aft.sender_user_id,
+          aft.recipient_user_id,
+          aft.route_id,
+          aft.source_attachment_id,
+          aft.forwarded_attachment_id,
+          aft.done_remarks,
+          aft.created_at,
+          aft.received_at,
+          aft.done_at,
+          su.full_name AS sender_name,
+          ru.full_name AS recipient_name,
+          rs.name AS recipient_section_name,
+          da.original_name AS source_attachment_name,
+          fa.original_name AS forwarded_attachment_name
+        FROM attachment_forward_tasks aft
+        LEFT JOIN users su ON su.id = aft.sender_user_id
+        LEFT JOIN users ru ON ru.id = aft.recipient_user_id
+        LEFT JOIN sections rs ON rs.id = aft.recipient_section_id
+        LEFT JOIN document_attachments da ON da.id = aft.source_attachment_id
+        LEFT JOIN document_attachments fa ON fa.id = aft.forwarded_attachment_id
+        WHERE " . implode(' AND ', $scopeClauses) . "
+        ORDER BY
+          CASE aft.task_status
+            WHEN 'PENDING_RECEIVE' THEN 0
+            WHEN 'IN_PROGRESS' THEN 1
+            WHEN 'DONE' THEN 2
+            ELSE 3
+          END,
+          aft.created_at DESC,
+          aft.id DESC
+        LIMIT 50
+    ";
+
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+    $summary = [];
+    foreach ($rows as $row) {
+        $summary[] = [
+            'id' => (int)($row['id'] ?? 0),
+            'task_status' => (string)($row['task_status'] ?? ''),
+            'is_sender' => ((int)($row['sender_user_id'] ?? 0) === $viewerUserId) ? 1 : 0,
+            'is_recipient' => ((int)($row['recipient_user_id'] ?? 0) === $viewerUserId) ? 1 : 0,
+            'route_id' => (int)($row['route_id'] ?? 0),
+            'attachment_name' => trim((string)($row['source_attachment_name'] ?? '')) !== ''
+                ? (string)$row['source_attachment_name']
+                : (string)($row['forwarded_attachment_name'] ?? ''),
+            'recipient_name' => (string)($row['recipient_name'] ?? ''),
+            'recipient_section_name' => (string)($row['recipient_section_name'] ?? ''),
+            'sender_name' => (string)($row['sender_name'] ?? ''),
+            'done_remarks' => (string)($row['done_remarks'] ?? ''),
+            'created_at' => (string)($row['created_at'] ?? ''),
+            'received_at' => (string)($row['received_at'] ?? ''),
+            'done_at' => (string)($row['done_at'] ?? ''),
+        ];
+    }
+
+    return $summary;
+}
+
+function workflow_mark_attachment_forward_tasks_received_for_route(mysqli $conn, int $routeId): void
+{
+    if ($routeId <= 0 || !workflow_attachment_forwarding_enabled($conn)) {
+        return;
+    }
+
+    $stmt = $conn->prepare("
+        UPDATE attachment_forward_tasks
+        SET task_status = 'IN_PROGRESS',
+            received_at = COALESCE(received_at, NOW()),
+            updated_at = NOW()
+        WHERE route_id = ?
+          AND task_status = 'PENDING_RECEIVE'
+    ");
+    $stmt->bind_param('i', $routeId);
+    $stmt->execute();
 }

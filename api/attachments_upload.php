@@ -114,47 +114,66 @@ try {
     }
 
     if (!$isPrivileged) {
-      $actionableBranch = workflow_find_single_actionable_branch($conn, $docId, $userId, $attachmentBranchId > 0 ? $attachmentBranchId : null);
-      if (!$actionableBranch) {
-        $stmt = $conn->prepare("
-          SELECT COUNT(*) AS c
-          FROM document_branches
-          WHERE document_id = ?
-            AND branch_status = 'ACTIVE'
-            AND current_assignee_user_id = ?
-            AND is_reference = 0
-        ");
-        $stmt->bind_param("ii", $docId, $userId);
-        $stmt->execute();
-        $countAssigned = (int)($stmt->get_result()->fetch_assoc()["c"] ?? 0);
-
-        $conn->rollback();
-        http_response_code(409);
-        echo json_encode([
-          "ok" => false,
-          "error" => $countAssigned > 1
-            ? "Multiple active branches are assigned to you for this document. Select the correct branch before attaching a file."
-            : "You can only attach files in your active received branch.",
-        ]);
-        exit;
+      $attachmentForwardBranchMeta = null;
+      if ($attachmentBranchId > 0 && workflow_attachment_forwarding_enabled($conn)) {
+        $meta = workflow_get_branch_attachment_forward_task_meta($conn, $docId, $attachmentBranchId, $userId);
+        if ((int)($meta['attachment_forward_can_attach'] ?? 0) === 1) {
+          $attachmentForwardBranchMeta = $meta;
+        }
       }
 
-      $attachmentBranchId = (int)($actionableBranch["id"] ?? 0);
+      if ($attachmentForwardBranchMeta !== null) {
+        // Allowed: recipient already received the attachment-forward lane and may append files.
+      } else {
+        $actionableBranch = workflow_find_single_actionable_branch($conn, $docId, $userId, $attachmentBranchId > 0 ? $attachmentBranchId : null);
+        if (!$actionableBranch) {
+          $stmt = $conn->prepare("
+            SELECT COUNT(*) AS c
+            FROM document_branches
+            WHERE document_id = ?
+              AND branch_status = 'ACTIVE'
+              AND current_assignee_user_id = ?
+              AND is_reference = 0
+          ");
+          $stmt->bind_param("ii", $docId, $userId);
+          $stmt->execute();
+          $countAssigned = (int)($stmt->get_result()->fetch_assoc()["c"] ?? 0);
+
+          $conn->rollback();
+          http_response_code(409);
+          echo json_encode([
+            "ok" => false,
+            "error" => $countAssigned > 1
+              ? "Multiple active branches are assigned to you for this document. Select the correct branch before attaching a file."
+              : "You can only attach files in your active received branch.",
+          ]);
+          exit;
+        }
+
+        $attachmentBranchId = (int)($actionableBranch["id"] ?? 0);
+      }
     }
   } else {
     if (!$isPrivileged) {
-      if ($mySectionId <= 0 || $holderSectionId <= 0 || $holderSectionId !== $mySectionId) {
-        $conn->rollback();
-        http_response_code(403);
-        echo json_encode(["ok" => false, "error" => "Forbidden: your section does not hold this document."]);
-        exit;
-      }
-      // If somehow still in transit, holder should not be attaching (prevents weirdness)
-      if ($hasOpenRoute) {
-        $conn->rollback();
-        http_response_code(409);
-        echo json_encode(["ok" => false, "error" => "Cannot attach while document is in transit."]);
-        exit;
+      $flatAttachmentTaskMeta = workflow_attachment_forwarding_enabled($conn)
+        ? workflow_get_document_attachment_forward_task_meta($conn, $docId, $userId)
+        : null;
+      $canAttachViaAttachmentTask = ((int)($flatAttachmentTaskMeta['attachment_forward_can_attach'] ?? 0) === 1);
+
+      if (!$canAttachViaAttachmentTask) {
+        if ($mySectionId <= 0 || $holderSectionId <= 0 || $holderSectionId !== $mySectionId) {
+          $conn->rollback();
+          http_response_code(403);
+          echo json_encode(["ok" => false, "error" => "Forbidden: your section does not hold this document."]);
+          exit;
+        }
+        // If somehow still in transit, holder should not be attaching (prevents weirdness)
+        if ($hasOpenRoute) {
+          $conn->rollback();
+          http_response_code(409);
+          echo json_encode(["ok" => false, "error" => "Cannot attach while document is in transit."]);
+          exit;
+        }
       }
     }
   }

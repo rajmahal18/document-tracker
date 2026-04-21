@@ -58,6 +58,13 @@ try {
   $hasOpenRoute = ((int)($doc["has_open_route"] ?? 0) === 1);
   $hasActiveBranch = ((int)($doc["has_active_branch"] ?? 0) === 1);
 
+  if (workflow_document_has_open_attachment_forward_tasks($conn, $docId)) {
+    $conn->rollback();
+    http_response_code(409);
+    echo json_encode(["ok" => false, "error" => "Cannot change document lifecycle status while there are pending attachment-forward tasks."]);
+    exit;
+  }
+
   $canActOnLegacyDocument = workflow_user_can_act_legacy_document(
     $conn,
     $docId,

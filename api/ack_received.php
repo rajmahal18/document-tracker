@@ -143,17 +143,38 @@ try {
     exit;
   }
 
-  $stmt = $conn->prepare("\n    UPDATE documents\n    SET current_holder_section_id = ?,\n        updated_at = NOW()\n    WHERE id = ?\n  ");
-  $stmt->bind_param("ii", $toSectionId, $docId);
-  $stmt->execute();
+  $isAttachmentForwardRoute = false;
+  if (workflow_attachment_forwarding_enabled($conn)) {
+    $stmtTaskRoute = $conn->prepare("\n      SELECT 1\n      FROM attachment_forward_tasks\n      WHERE route_id = ?\n        AND task_status = 'PENDING_RECEIVE'\n      LIMIT 1\n    ");
+    $stmtTaskRoute->bind_param("i", $routeId);
+    $stmtTaskRoute->execute();
+    $isAttachmentForwardRoute = (bool)$stmtTaskRoute->get_result()->fetch_row();
+  }
+
+  if (!$isAttachmentForwardRoute) {
+    $stmt = $conn->prepare("
+      UPDATE documents
+      SET current_holder_section_id = ?,
+          updated_at = NOW()
+      WHERE id = ?
+    ");
+    $stmt->bind_param("ii", $toSectionId, $docId);
+    $stmt->execute();
+  }
 
   if ($docHasRealBranches && $branchId > 0) {
     workflow_grant_visibility($conn, $docId, $actualUserId, 'PARTICIPANT', $branchId, $actualUserId);
     if ($principalUserId > 0 && $principalUserId !== $actualUserId) {
       workflow_grant_visibility($conn, $docId, $principalUserId, 'PARTICIPANT', $branchId, $actualUserId);
     }
+    workflow_mark_attachment_forward_tasks_received_for_route($conn, $routeId);
   } else {
-    $stmt = $conn->prepare("\n      INSERT IGNORE INTO document_participants\n        (document_id, section_id, added_via, added_by_user_id)\n      VALUES (?, ?, 'movement', ?)\n    ");
+    workflow_mark_attachment_forward_tasks_received_for_route($conn, $routeId);
+    $stmt = $conn->prepare("
+      INSERT IGNORE INTO document_participants
+        (document_id, section_id, added_via, added_by_user_id)
+      VALUES (?, ?, 'movement', ?)
+    ");
     $stmt->bind_param("iii", $docId, $toSectionId, $actualUserId);
     $stmt->execute();
   }
@@ -197,7 +218,7 @@ try {
     "to_section_id" => $toSectionId,
     "receive_mode" => $docHasRealBranches ? 'user' : $receiveMode,
     "open_remaining" => $openRemaining,
-    "holder_updated" => true,
+    "holder_updated" => !$isAttachmentForwardRoute,
   ]);
   exit;
 

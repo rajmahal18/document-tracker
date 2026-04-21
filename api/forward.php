@@ -307,6 +307,20 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
     }
   }
 
+  if ($docHasRealBranches && $sourceBranch && workflow_branch_has_open_attachment_forward_tasks($conn, $docId, (int)($sourceBranch['id'] ?? 0))) {
+    $conn->rollback();
+    http_response_code(409);
+    echo json_encode(["ok" => false, "error" => "Normal forward is temporarily locked while there are pending attachment-forward tasks. You may forward more attachments until all recipients mark their tasks done."]);
+    exit;
+  }
+
+  if (!$docHasRealBranches && workflow_user_has_open_attachment_forward_tasks_as_sender($conn, $docId, $actualUserId)) {
+    $conn->rollback();
+    http_response_code(409);
+    echo json_encode(["ok" => false, "error" => "Normal forward is temporarily locked while there are pending attachment-forward tasks. You may forward more attachments until all recipients mark their tasks done."]);
+    exit;
+  }
+
   if ($documentDeadlineAt !== null && !$isInitialRouting) {
     $conn->rollback();
     http_response_code(409);

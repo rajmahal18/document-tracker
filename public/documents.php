@@ -1873,7 +1873,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
 
         <button type="submit" class="btnSecondary docsControlBtn">Apply</button>
       </form>
-    </div>
+    </section>
   </section>
 
   <div class="tableWrap docsTableWrap" id="docsList">
@@ -2025,6 +2025,28 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
             $myIsForReference = ((int)($d["my_is_for_reference"] ?? 0) === 1);
             $myIsReceiveOnly = ((int)($d["my_is_receive_only"] ?? 0) === 1);
 
+            if (!$hasRealBranches && workflow_attachment_forwarding_enabled($conn)) {
+              $senderStillWaitingOnAttachmentTasks = workflow_user_has_open_attachment_forward_tasks_as_sender(
+                $conn,
+                (int)($d["id"] ?? 0),
+                $myUserId
+              );
+              if (!$senderStillWaitingOnAttachmentTasks) {
+                $legacyCanActAfterAttachmentTasks = workflow_user_can_act_legacy_document(
+                  $conn,
+                  (int)($d["id"] ?? 0),
+                  $myUserId,
+                  $mySectionId,
+                  $isChief,
+                  true
+                );
+                if ($legacyCanActAfterAttachmentTasks) {
+                  $myHasActionableRole = ($currentStatus === "ACTIVE");
+                  $myCanChangeLifecycle = in_array($currentStatus, ["ACTIVE", "RELEASED"], true);
+                }
+              }
+            }
+
             if ($myHasOpenInbound) {
               $myStatusLabel = "INCOMING";
               $myStatusChipClass = "chip action";
@@ -2171,6 +2193,23 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
               ? (preg_replace('/\s+/', '', $divisionTrackingNo) ?? $divisionTrackingNo)
               : "";
             $trackingDisplay = $mpwTrackingNo . ($divisionTrackingDisplay !== "" ? " • " . $divisionTrackingDisplay : "");
+            $flatAttachmentForwardMeta = [
+              "attachment_forward_source_branch" => 0,
+              "attachment_forward_recipient_branch" => 0,
+              "attachment_forward_open_task_count" => 0,
+              "attachment_forward_can_attach" => 0,
+              "attachment_forward_can_mark_done" => 0,
+              "attachment_forward_task_status" => "",
+            ];
+            $attachmentForwardTaskSummary = [];
+            if (workflow_attachment_forwarding_enabled($conn) && $myUserId > 0) {
+              if ($hasRealBranches) {
+                $attachmentForwardTaskSummary = workflow_get_attachment_forward_task_summary($conn, (int)$d["id"], $myUserId);
+              } else {
+                $flatAttachmentForwardMeta = workflow_get_document_attachment_forward_task_meta($conn, (int)$d["id"], $myUserId);
+                $attachmentForwardTaskSummary = workflow_get_attachment_forward_task_summary($conn, (int)$d["id"], $myUserId, 0, 0);
+              }
+            }
           ?>
           <tr
             class="rowHover docsRow <?= htmlspecialchars(trim($rowToneClass . " " . $deadlineToneClass . ($isJustCreatedDoc ? " docsRowJustCreated" : ""))) ?>"
@@ -2205,6 +2244,13 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
                 "my_can_change_lifecycle" => $myCanChangeLifecycle ? 1 : 0,
                 "my_has_open_inbound" => $myHasOpenInbound ? 1 : 0,
                 "is_initial_routing" => (int)($d["is_initial_routing"] ?? 0),
+                "attachment_forward_open_task_count" => (int)($flatAttachmentForwardMeta["attachment_forward_open_task_count"] ?? 0),
+                "attachment_forward_can_attach" => (int)($flatAttachmentForwardMeta["attachment_forward_can_attach"] ?? 0),
+                "attachment_forward_can_mark_done" => (int)($flatAttachmentForwardMeta["attachment_forward_can_mark_done"] ?? 0),
+                "attachment_forward_recipient_branch" => (int)($flatAttachmentForwardMeta["attachment_forward_recipient_branch"] ?? 0),
+                "attachment_forward_source_branch" => (int)($flatAttachmentForwardMeta["attachment_forward_source_branch"] ?? 0),
+                "attachment_forward_task_status" => (string)($flatAttachmentForwardMeta["attachment_forward_task_status"] ?? ""),
+                "attachment_forward_task_summary" => $attachmentForwardTaskSummary,
 
                 "in_transit" => !empty($d["open_to_section_id"]) ? 1 : 0,
                 "open_to_section_id" => (int)($d["open_to_section_id"] ?? 0),
@@ -2419,8 +2465,29 @@ $end   = min($totalPages, $page + 2);
     <button id="drawerClose" class="drawerClose">✕</button>
   </div>
 
+  <nav class="drawerTabs" aria-label="Document detail sections">
+    <button type="button" class="drawerTab isActive" data-drawer-tab="overview" aria-selected="true">
+      <span class="drawerTabIcon drawerTabIconOverview" aria-hidden="true"></span>
+      <span>Overview</span>
+    </button>
+    <button type="button" class="drawerTab" data-drawer-tab="files" aria-selected="false">
+      <span class="drawerTabIcon drawerTabIconFiles" aria-hidden="true"></span>
+      <span>Files</span>
+    </button>
+    <button type="button" class="drawerTab" data-drawer-tab="timeline" aria-selected="false">
+      <span class="drawerTabIcon drawerTabIconTimeline" aria-hidden="true"></span>
+      <span>Timeline</span>
+    </button>
+  </nav>
+
   <div class="drawerBody">
     <input type="hidden" id="d_id" value="">
+
+    <section class="drawerPanel isActive" id="drawerPanelOverview" data-drawer-panel="overview">
+      <div class="drawerPanelIntro">
+        <div class="drawerPanelEyebrow">Document snapshot</div>
+        <div class="drawerPanelTitle">Key details</div>
+      </div>
 
     <div class="kv">
       <div class="k">Status</div>
@@ -2469,12 +2536,14 @@ $end   = min($totalPages, $page + 2);
         <button type="button" class="btnComp" id="btnPpdSlipPrint" disabled>Print</button>
       </div>
     </div>
+    </section>
 
     <!-- Attachments -->
-    <div style="margin-top:14px;">
-      <div class="k" style="margin-bottom:8px; display:flex; align-items:center; gap:8px; justify-content:space-between;">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span>Attachments</span>
+    <section class="drawerPanel" id="drawerPanelFiles" data-drawer-panel="files" hidden>
+      <div class="drawerPanelIntro">
+        <div>
+          <div class="drawerPanelEyebrow">Files and attachments</div>
+          <div class="drawerPanelTitle">Attachments</div>
         </div>
       </div>
 
@@ -2496,25 +2565,34 @@ $end   = min($totalPages, $page + 2);
         <button id="btnAttachUpload" type="button" class="btnPrimary" style="margin-top:10px;">Upload</button>
         <div id="attachMsg" class="mini" style="margin-top:6px;"></div>
       </form>
-    </div>
+    </section>
 
-    <div style="margin-top:14px;">
-      <div class="k" style="margin-bottom:8px; display:flex; align-items:center; gap:8px;">
-        <span>Timeline</span>
-        <span class="mini" style="opacity:.7;">(latest on top)</span>
+    <section class="drawerPanel" id="drawerPanelTimeline" data-drawer-panel="timeline" hidden>
+      <div class="drawerPanelIntro">
+        <div>
+          <div class="drawerPanelEyebrow">Audit trail</div>
+          <div class="drawerPanelTitle">Timeline</div>
+        </div>
+        <span class="drawerPanelPill">Latest first</span>
       </div>
       <div id="d_timeline" class="mini">Select a document…</div>
-    </div>
+    </section>
   </div>
 
   <div class="drawerActionsWrap">
-    <div class="drawerPendingRemarks" id="drawerPendingRemarks" style="display:none;">
+    <details class="drawerPendingRemarks" id="drawerPendingRemarks" style="display:none;">
+      <summary class="drawerPendingSummary">
+        <span>
+          <span class="drawerPendingRemarksEyebrow">Pending route only</span>
+          <span class="drawerPendingRemarksTitle" id="d_pending_route_title">Pending remarks</span>
+        </span>
+        <span class="drawerPendingRemarksBadge" id="d_pending_route_badge">Editable</span>
+      </summary>
       <div class="drawerPendingRemarksHead">
         <div>
           <div class="drawerPendingRemarksEyebrow">Pending route only</div>
-          <label for="d_pending_route_remarks" class="drawerPendingRemarksTitle" id="d_pending_route_title">Pending remarks</label>
+          <label for="d_pending_route_remarks" class="drawerPendingRemarksTitle">Pending remarks</label>
         </div>
-        <span class="drawerPendingRemarksBadge" id="d_pending_route_badge">Editable</span>
       </div>
 
       <div class="drawerPendingRemarksPreview" id="d_pending_route_preview">No pending remarks yet.</div>
@@ -2529,17 +2607,21 @@ $end   = min($totalPages, $page + 2);
         <button type="button" class="btnSecondary" id="btnCancelPendingRemarks" style="display:none;">Cancel</button>
         <button type="button" class="btnComp" id="btnSavePendingRemarks" style="display:none;">Save pending remarks</button>
       </div>
-    </div>
+    </details>
 
     <div class="drawerActions">
       <button type="button" class="btnSecondary" id="btnToggleForward">Forward</button>
+      <button type="button" class="btnSecondary" id="btnToggleAttachmentForward" style="display:none;">Forward by attachment</button>
 
       <button id="btnAckReceived" class="btnGreen" type="button" style="display:none;">Received</button>
+      <button id="btnAttachmentTaskDone" class="btnComp" type="button" style="display:none;">Task done</button>
       <button id="btnEndHere" class="btnComp" type="button" style="display:none;">End Now</button>
       <button id="btnUndoEndHere" class="btnSecondary" type="button" style="display:none;">Reopen Lifecycle</button>
       <button id="btnRelease" class="btnGreen" type="button" style="display:none;">Release</button>
       <button id="btnArchive" class="btnComp" type="button" style="display:none;">Archive</button>
     </div>
+    <div id="drawerAttachmentForwardHint" class="mini" style="display:none; margin-top:10px; padding:10px 12px; border-radius:12px; background:#eff6ff; border:1px solid rgba(37,99,235,.16); color:#1e3a8a;"></div>
+    <div id="drawerAttachmentForwardStatus" class="mini" style="display:none; margin-top:10px; padding:12px; border-radius:12px; background:#f8fafc; border:1px solid rgba(15,23,42,.08); color:#334155;"></div>
   </div>
 </aside>
 
@@ -2612,6 +2694,69 @@ $end   = min($totalPages, $page + 2);
     <div class="modalFooter">
       <button id="btnForwardCancel" type="button" class="btnSecondary">Cancel</button>
       <button id="btnForward" type="button" class="btnComp">Send forward</button>
+    </div>
+  </div>
+</div>
+
+<div id="attachmentForwardModal" class="modalWrap" aria-hidden="true">
+  <div id="attachmentForwardModalBackdrop" class="modalBackdrop"></div>
+  <div class="modalCard forwardModalCard" style="max-width:820px;">
+    <div class="modalHeader">
+      <div>
+        <h3>Forward attachments</h3>
+        <div class="attSub mini">Keep the document with you while selected attachments are sent out as task lanes.</div>
+      </div>
+      <button id="attachmentForwardModalClose" class="modalClose" type="button">✕</button>
+    </div>
+
+    <div class="modalBody forwardModalBody">
+      <div class="mini" style="margin-bottom:10px; opacity:.8;">
+        Recipients will still click <strong>Received</strong> first. After receiving, they can only add attachment(s) and mark the task done.
+      </div>
+
+      <div id="attachmentForwardRows" style="display:grid; gap:12px;">
+        <div class="mini" style="opacity:.7;">Loading attachments…</div>
+      </div>
+
+      <div style="margin-top:10px; display:flex; justify-content:flex-start;">
+        <button type="button" class="btnSecondary" id="btnAttachmentForwardAddRow">Add another attachment route</button>
+      </div>
+
+      <div class="drawerActionRemarks" style="margin-top:12px;">
+        <label for="d_attachment_forward_remarks" class="drawerActionRemarksLabel">Forward remarks (optional)</label>
+        <textarea id="d_attachment_forward_remarks" class="search drawerActionRemarksInput" rows="3" placeholder="Add one shared note for this attachment-forward batch if needed"></textarea>
+      </div>
+    </div>
+
+    <div class="modalFooter">
+      <button id="btnAttachmentForwardCancel" type="button" class="btnSecondary">Cancel</button>
+      <button id="btnAttachmentForwardSend" type="button" class="btnComp">Send attachment tasks</button>
+    </div>
+  </div>
+</div>
+
+<div id="attachmentTaskDoneModal" class="modalWrap" aria-hidden="true">
+  <div id="attachmentTaskDoneModalBackdrop" class="modalBackdrop"></div>
+  <div class="modalCard forwardModalCard">
+    <div class="modalHeader">
+      <div>
+        <h3>Mark attachment task done</h3>
+        <div class="attSub mini">Add a short completion remark before closing your attachment-forward lane.</div>
+      </div>
+      <button id="attachmentTaskDoneModalClose" class="modalClose" type="button">✕</button>
+    </div>
+
+    <div class="modalBody forwardModalBody">
+      <div class="drawerActionRemarks">
+        <label for="d_attachment_task_done_remarks" class="drawerActionRemarksLabel">Task done remarks (optional)</label>
+        <textarea id="d_attachment_task_done_remarks" class="search drawerActionRemarksInput" rows="3" placeholder="Add completion notes if needed"></textarea>
+      </div>
+      <div id="attachmentTaskDoneModalMsg" class="modalMsg" style="display:none;"></div>
+    </div>
+
+    <div class="modalFooter">
+      <button id="btnAttachmentTaskDoneCancel" type="button" class="btnSecondary">Cancel</button>
+      <button id="btnAttachmentTaskDoneConfirm" type="button" class="btnComp">Confirm task done</button>
     </div>
   </div>
 </div>

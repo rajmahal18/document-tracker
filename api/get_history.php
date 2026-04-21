@@ -58,6 +58,85 @@ try {
     return $s;
   };
 
+  $attachmentTaskSummaryCache = [];
+  $buildAttachmentTaskSummary = static function (int $summaryDocId) use ($conn, &$attachmentTaskSummaryCache): ?array {
+    if ($summaryDocId <= 0 || !workflow_attachment_forwarding_enabled($conn)) {
+      return null;
+    }
+    if (array_key_exists($summaryDocId, $attachmentTaskSummaryCache)) {
+      return $attachmentTaskSummaryCache[$summaryDocId];
+    }
+
+    $stmt = $conn->prepare("
+      SELECT
+        aft.recipient_user_id,
+        COALESCE(NULLIF(TRIM(u.full_name), ''), CONCAT('User #', aft.recipient_user_id)) AS recipient_name,
+        SUM(CASE WHEN aft.task_status = 'DONE' THEN 1 ELSE 0 END) AS done_count,
+        SUM(CASE WHEN aft.task_status = 'IN_PROGRESS' THEN 1 ELSE 0 END) AS in_progress_count,
+        SUM(CASE WHEN aft.task_status = 'PENDING_RECEIVE' THEN 1 ELSE 0 END) AS pending_receive_count,
+        SUM(CASE WHEN aft.task_status IN ('PENDING_RECEIVE', 'IN_PROGRESS') THEN 1 ELSE 0 END) AS open_count,
+        COUNT(*) AS task_count
+      FROM attachment_forward_tasks aft
+      LEFT JOIN users u ON u.id = aft.recipient_user_id
+      WHERE aft.document_id = ?
+      GROUP BY aft.recipient_user_id, recipient_name
+      ORDER BY recipient_name ASC
+    ");
+    $stmt->bind_param("i", $summaryDocId);
+    $stmt->execute();
+    $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC) ?: [];
+
+    $doneUsers = [];
+    $inProgressUsers = [];
+    $pendingUsers = [];
+    $cancelledUsers = [];
+    $totalTasks = 0;
+    $doneTasks = 0;
+    $openTasks = 0;
+
+    foreach ($rows as $row) {
+      $name = trim((string)($row['recipient_name'] ?? ''));
+      if ($name === '') continue;
+
+      $done = (int)($row['done_count'] ?? 0);
+      $inProgress = (int)($row['in_progress_count'] ?? 0);
+      $pendingReceive = (int)($row['pending_receive_count'] ?? 0);
+      $open = (int)($row['open_count'] ?? 0);
+      $tasks = (int)($row['task_count'] ?? 0);
+
+      $totalTasks += $tasks;
+      $doneTasks += $done;
+      $openTasks += $open;
+
+      if ($inProgress > 0) {
+        $inProgressUsers[] = $name;
+      } elseif ($pendingReceive > 0) {
+        $pendingUsers[] = $name;
+      } elseif ($open === 0 && $done > 0) {
+        $doneUsers[] = $name;
+      } else {
+        $cancelledUsers[] = $name;
+      }
+    }
+
+    $summary = [
+      'show_names' => true,
+      'done_users' => array_values(array_unique($doneUsers)),
+      'in_progress_users' => array_values(array_unique($inProgressUsers)),
+      'pending_users' => array_values(array_unique($pendingUsers)),
+      'cancelled_users' => array_values(array_unique($cancelledUsers)),
+      'done_recipient_count' => count(array_unique($doneUsers)),
+      'open_recipient_count' => count(array_unique(array_merge($inProgressUsers, $pendingUsers))),
+      'total_recipient_count' => count($rows),
+      'done_task_count' => $doneTasks,
+      'open_task_count' => $openTasks,
+      'total_task_count' => $totalTasks,
+    ];
+
+    $attachmentTaskSummaryCache[$summaryDocId] = $summary;
+    return $summary;
+  };
+
   if (!can_view_document($conn, $docId)) {
     http_response_code(403);
     echo json_encode(["ok" => false, "error" => "Forbidden"]);
@@ -526,6 +605,9 @@ try {
     ], true)) {
       $eventKey = (string)$payload["kind"];
     }
+    if (in_array(($payload["kind"] ?? ""), ["attachment_forwarded", "attachment_forward_task_done"], true)) {
+      $eventKey = (string)$payload["kind"];
+    }
 
     $actor = (string)($r["actor"] ?? "—");
     $actingPrincipalName = trim((string)($payload["acting_principal_name"] ?? ""));
@@ -623,6 +705,7 @@ try {
     $branchSplitCount = count($newBranchIds);
 
     $ackSummary = null;
+    $attachmentTaskSummary = null;
     $sendBatchId = trim((string)($payload['send_batch_id'] ?? ''));
 
     if (
@@ -660,6 +743,40 @@ try {
         if ($branchSplitCount > 1) {
           $title .= " to {$branchSplitCount} recipients";
         }
+        break;
+
+      case "attachment_forwarded":
+        $recipientRoutes = is_array($payload['recipient_routes'] ?? null) ? (array)$payload['recipient_routes'] : [];
+        $attachmentLabels = [];
+        $recipientLabels = [];
+        foreach ($recipientRoutes as $routeRow) {
+          if (!is_array($routeRow)) continue;
+          $routeUser = trim((string)($routeRow['to_user_name'] ?? ''));
+          $routeSection = trim((string)($routeRow['to_section_name'] ?? ''));
+          $recipientLabels[] = $routeUser !== '' ? $routeUser : $routeSection;
+          foreach ((array)($routeRow['attachments'] ?? []) as $attachmentName) {
+            $attachmentName = trim((string)$attachmentName);
+            if ($attachmentName !== '') $attachmentLabels[] = $attachmentName;
+          }
+        }
+        $attachmentLabels = array_values(array_unique($attachmentLabels));
+        $recipientLabels = array_values(array_unique(array_filter($recipientLabels, static fn($v) => trim((string)$v) !== '')));
+        $title = "{$actor} forwarded attachment" . (count($attachmentLabels) === 1 ? '' : 's');
+        if (count($recipientLabels) > 0) {
+          $title .= " to " . $summarizeList($recipientLabels);
+        }
+        if (count($attachmentLabels) > 0) {
+          $meta = 'Attachments: ' . $summarizeList($attachmentLabels);
+        }
+        break;
+
+      case "attachment_forward_task_done":
+        $doneCount = (int)($payload['done_count'] ?? 0);
+        $title = "{$actor} marked attachment task" . ($doneCount === 1 ? '' : 's') . " done";
+        if ($doneCount > 0) {
+          $title .= " ({$doneCount})";
+        }
+        $attachmentTaskSummary = $buildAttachmentTaskSummary($docId);
         break;
 
       case "received":
@@ -923,6 +1040,13 @@ try {
         $ackSummary["received_users"] = [];
         $ackSummary["pending_users"] = [];
       }
+      if (is_array($attachmentTaskSummary)) {
+        $attachmentTaskSummary["show_names"] = false;
+        $attachmentTaskSummary["done_users"] = [];
+        $attachmentTaskSummary["in_progress_users"] = [];
+        $attachmentTaskSummary["pending_users"] = [];
+        $attachmentTaskSummary["cancelled_users"] = [];
+      }
 
       switch ($eventKey) {
         case 'created':
@@ -934,6 +1058,12 @@ try {
         case 'sent':
         case 'forwarded':
           $title = "{$safeDivision} forwarded the document";
+          break;
+        case 'attachment_forwarded':
+          $title = "{$safeDivision} forwarded attachment(s)";
+          break;
+        case 'attachment_forward_task_done':
+          $title = "{$safeDivision} completed an attachment task";
           break;
         case 'attachment_added':
         case 'updated':
@@ -992,6 +1122,7 @@ try {
       "from_user_name" => $payloadFromUser,
       "to_user_name" => $payloadToUser,
       "ack_summary" => $ackSummary,
+      "attachment_task_summary" => $attachmentTaskSummary,
     ];
   }
 

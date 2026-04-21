@@ -508,6 +508,27 @@ function normalize_deadline_input(?string $raw): ?string
   return $dt->setTime(23, 59, 59)->format("Y-m-d H:i:s");
 }
 
+function format_optional_slip_received_datetime(?string $raw): ?string
+{
+  $raw = trim((string)$raw);
+  if ($raw === "") {
+    return "";
+  }
+
+  $tz = new DateTimeZone("Asia/Manila");
+  $dt = DateTime::createFromFormat("Y-m-d\TH:i", $raw, $tz);
+  if (!$dt) {
+    return null;
+  }
+
+  $errors = DateTime::getLastErrors();
+  if ($errors !== false && ((int)$errors["warning_count"] > 0 || (int)$errors["error_count"] > 0)) {
+    return null;
+  }
+
+  return $dt->format("m/d/y g:ia");
+}
+
 if ($editDocumentId > 0) {
   $stmt = $conn->prepare("
     SELECT
@@ -711,6 +732,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   $transmittalMode = (string)($_POST['transmittal_mode'] ?? 'attach');
   $divisionSlipMode = (string)($_POST['division_slip_mode'] ?? 'attach');
   $divisionTrackingInput = trim((string)($_POST['division_tracking_no'] ?? ''));
+  $divisionSlipReceivedRaw = trim((string)($_POST['division_slip_received_datetime'] ?? ''));
+  $divisionSlipReceivedDatetime = format_optional_slip_received_datetime($divisionSlipReceivedRaw);
   if ($divisionTrackingInput === '' && $hasOwnDivisionSlip) {
     $divisionTrackingInput = $ownDivisionTrackingPreview;
   }
@@ -727,6 +750,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
     $error = "Your account has no section assigned. Ask admin to set your section_id.";
   } elseif ($deadlineAtRaw !== "" && $deadlineAt === null) {
     $error = "Deadline must be a valid date.";
+  } elseif ($genChoice === "division_slip" && $divisionSlipReceivedDatetime === null) {
+    $error = "Division tracking slip received date and time is invalid.";
   } elseif (!$routeOnCreate && $genChoice === "transmittal") {
     $error = "Transmittal Memo needs a destination. Choose Save and route now, or generate a division tracking slip instead.";
   } else {
@@ -1386,7 +1411,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             "subject"              => $subject,
             "mpw_tracking_no"      => $tracking_no,
             "received_by"          => $actualUserFullName !== "" ? $actualUserFullName : trim((string)($_SESSION["full_name"] ?? "")),
-            "received_datetime"    => "",
+            "received_datetime"    => (string)$divisionSlipReceivedDatetime,
             "deadline_date"        => $deadlineAt ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("m/d/Y") : "",
             "deadline_time"        => $deadlineAt ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("g:i A") : "",
             "qr_url"               => $qrUrl,
@@ -1430,6 +1455,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             "attachment_id" => $divisionAttachId,
             "file" => $orig,
             "division_code" => $myDivisionCode,
+            "received_by_name" => $actualUserFullName !== "" ? $actualUserFullName : trim((string)($_SESSION["full_name"] ?? "")),
+            "received_datetime" => (string)$divisionSlipReceivedDatetime,
+            "assistant_actual_user_id" => $assistantModeEnabled ? $actualUserId : null,
+            "acting_principal_user_id" => ($assistantModeEnabled && $actingPrincipalUserId > 0) ? $actingPrincipalUserId : null,
+            "acting_principal_name" => ($assistantModeEnabled && $actingPrincipalName !== "") ? $actingPrincipalName : "",
           ], JSON_UNESCAPED_UNICODE);
 
           $stmt = $conn->prepare("
@@ -1557,7 +1587,7 @@ require __DIR__ . "/../includes/layout.php";
     <?php endif; ?>
     <input type="hidden" name="remove_saved_attachment" value="0" id="removeSavedAttachmentInput">
     <input type="hidden" name="destination_builder_contract" value="0" id="destinationBuilderContractInput">
-    <?php $postedCreationMode = $editMode ? "review" : (string)($_POST["creation_mode_choice"] ?? $_POST["creation_mode"] ?? "route_now"); ?>
+    <?php $postedCreationMode = $editMode ? "review" : (string)($_POST["creation_mode_choice"] ?? $_POST["creation_mode"] ?? "review"); ?>
     <input type="hidden" name="creation_mode" value="<?= htmlspecialchars($postedCreationMode) ?>" id="creationModeInput">
 
     <section class="addDocSection addDocSection-basic span2">
@@ -1785,6 +1815,16 @@ require __DIR__ . "/../includes/layout.php";
             <label style="font-weight:800;display:block;margin-bottom:6px;">Own Division Tracking Number</label>
             <input type="text" name="division_tracking_no" value="<?= htmlspecialchars($_POST["division_tracking_no"] ?? $ownDivisionTrackingPreview) ?>" placeholder="<?= htmlspecialchars($ownDivisionTrackingPreview) ?>">
             <div class="mini" style="margin-top:6px;">Format: <?= htmlspecialchars($myDivisionCode) ?> MMDDYYNN. Auto-filled but editable.</div>
+          </div>
+
+          <div id="divisionSlipReceivedWrap" style="margin-top:12px; display:none; gap:6px;">
+            <label style="font-weight:800;">Received date and time <span class="mini" style="font-weight:700;">(optional)</span></label>
+            <input
+              type="datetime-local"
+              name="division_slip_received_datetime"
+              value="<?= htmlspecialchars($_POST["division_slip_received_datetime"] ?? "") ?>"
+            >
+            <div class="mini">If filled, this is printed in the received date/time box of the generated division tracking slip. Leave blank if not needed.</div>
           </div>
         <?php endif; ?>
       </div>

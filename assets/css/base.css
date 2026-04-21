@@ -31,6 +31,29 @@ body {
   overflow-x: hidden;
 }
 
+body[data-theme="dark"] {
+  color-scheme: dark;
+  --app-bg: #07111d;
+  --app-surface: rgba(13, 28, 43, 0.96);
+  --app-surface-strong: #102235;
+  --app-border: rgba(142, 170, 202, 0.24);
+  --app-text: #edf5ff;
+  --app-text-soft: #a9bbcf;
+  --app-brand: #7db7ff;
+  --app-brand-2: #f2a85f;
+  --app-shadow: 0 22px 60px rgba(0, 0, 0, 0.34);
+  background:
+    radial-gradient(circle at top right, rgba(47, 128, 237, 0.16), transparent 28%),
+    radial-gradient(circle at top left, rgba(232, 119, 34, 0.12), transparent 24%),
+    linear-gradient(180deg, #081421 0%, #06101b 100%);
+  color: var(--app-text);
+}
+
+body[data-theme="dark"]::before {
+  opacity: 0.035;
+  filter: grayscale(30%) blur(5px) brightness(0.8);
+}
+
 
 
 img,

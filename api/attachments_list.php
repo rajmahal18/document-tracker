@@ -101,6 +101,7 @@ try {
       a.uploaded_at,
       {$branchFieldSql},
       {$branchLabelSql},
+      a.uploaded_by_user_id,
       u.full_name AS uploaded_by,
       s.name AS uploaded_by_section
     FROM document_attachments a
@@ -124,6 +125,47 @@ try {
   $stmt->bind_param($bindTypes, ...$bindValues);
   $stmt->execute();
   $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+  if (workflow_attachment_forwarding_enabled($conn) && !$docHasRealBranches && $viewerUserId > 0) {
+    $stmtTaskScope = $conn->prepare("
+      SELECT source_attachment_id, forwarded_attachment_id, sender_user_id, recipient_user_id, task_status
+      FROM attachment_forward_tasks
+      WHERE document_id = ?
+        AND COALESCE(sender_branch_id, 0) = 0
+        AND COALESCE(recipient_branch_id, 0) = 0
+        AND (sender_user_id = ? OR recipient_user_id = ?)
+    ");
+    $stmtTaskScope->bind_param("iii", $docId, $viewerUserId, $viewerUserId);
+    $stmtTaskScope->execute();
+    $taskRows = $stmtTaskScope->get_result()->fetch_all(MYSQLI_ASSOC);
+
+    if ($taskRows) {
+      $forwardedIds = [];
+      $viewerIsRecipientTaskUser = false;
+      $viewerIsSenderTaskUser = false;
+      foreach ($taskRows as $taskRow) {
+        $fid = (int)($taskRow['forwarded_attachment_id'] ?? 0);
+        if ($fid > 0) $forwardedIds[$fid] = true;
+        if ((int)($taskRow['recipient_user_id'] ?? 0) === $viewerUserId) $viewerIsRecipientTaskUser = true;
+        if ((int)($taskRow['sender_user_id'] ?? 0) === $viewerUserId) $viewerIsSenderTaskUser = true;
+      }
+
+      if ($viewerIsRecipientTaskUser && !$viewerIsDocumentOrigin) {
+        $rows = array_values(array_filter($rows, static function (array $row) use ($forwardedIds, $viewerUserId): bool {
+          $id = (int)($row['id'] ?? 0);
+          $uploadedByUserId = (int)($row['uploaded_by_user_id'] ?? 0);
+          if (isset($forwardedIds[$id])) return true;
+          if ($uploadedByUserId === $viewerUserId) return true;
+          return false;
+        }));
+      } elseif ($viewerIsSenderTaskUser) {
+        $rows = array_values(array_filter($rows, static function (array $row) use ($forwardedIds): bool {
+          $id = (int)($row['id'] ?? 0);
+          return !isset($forwardedIds[$id]);
+        }));
+      }
+    }
+  }
 
   if ($rows) {
     foreach ($rows as $__i => &$__row) {

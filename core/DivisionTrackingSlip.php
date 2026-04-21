@@ -235,7 +235,7 @@ final class DivisionTrackingSlip
     $wrap($xDocType + 2, $y + 7.4, $docTypeW - 4, $docType, 'B', 8.2, 3.8, 'L');
     $txt($xR + 2, $y + 7.4, $docDate, 'B', 9.0);
     $wrap($xR + $c1 + 2, $y + 10.6, $c2 - 4, $receivedBy, 'B', 8.0, 3.5, 'L');
-    $wrap($xR + $c1 + $c2 + 2, $y + 7.2, $c3 - 4, $receivedDT, 'B', 8.2, 3.8, 'L');
+    $wrap($xR + $c1 + $c2 + 2, $y + 9.8, $c3 - 4, $receivedDT, 'B', 8.2, 3.8, 'L');
 
     $y += $rowH2;
 

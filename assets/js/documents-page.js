@@ -2,6 +2,8 @@
   const backdrop = document.getElementById("drawerBackdrop");
   const drawer = document.getElementById("drawer");
   const closeBtn = document.getElementById("drawerClose");
+  const drawerTabs = Array.from(document.querySelectorAll("[data-drawer-tab]"));
+  const drawerPanels = Array.from(document.querySelectorAll("[data-drawer-panel]"));
 
   const elId = document.getElementById("d_id");
   const elTracking = document.getElementById("d_tracking");
@@ -53,6 +55,8 @@
   const btnToggleUpload = document.getElementById("btnToggleUpload");
   const btnRegenerateDivisionSlip = document.getElementById("btnRegenerateDivisionSlip");
   const btnToggleForward = document.getElementById("btnToggleForward");
+  const btnToggleAttachmentForward = document.getElementById("btnToggleAttachmentForward");
+  const btnAttachmentTaskDone = document.getElementById("btnAttachmentTaskDone");
 
   const forwardDeadlineGrid = document.getElementById("forwardDeadlineGrid");
   const forwardDocumentDeadlineWrap = document.getElementById("forwardDocumentDeadlineWrap");
@@ -105,6 +109,25 @@
   const cbReceiveOnly = document.getElementById("f_receive_only");
   const elReceiveOnlyHint = document.getElementById("f_receive_only_hint");
   const btnForward = document.getElementById("btnForward");
+  const drawerAttachmentForwardHint = document.getElementById("drawerAttachmentForwardHint");
+  const drawerAttachmentForwardStatus = document.getElementById("drawerAttachmentForwardStatus");
+
+  const attachmentForwardModal = document.getElementById("attachmentForwardModal");
+  const attachmentForwardModalBackdrop = document.getElementById("attachmentForwardModalBackdrop");
+  const attachmentForwardModalClose = document.getElementById("attachmentForwardModalClose");
+  const btnAttachmentForwardCancel = document.getElementById("btnAttachmentForwardCancel");
+  const btnAttachmentForwardSend = document.getElementById("btnAttachmentForwardSend");
+  const btnAttachmentForwardAddRow = document.getElementById("btnAttachmentForwardAddRow");
+  const attachmentForwardRows = document.getElementById("attachmentForwardRows");
+  const elAttachmentForwardRemarks = document.getElementById("d_attachment_forward_remarks");
+
+  const attachmentTaskDoneModal = document.getElementById("attachmentTaskDoneModal");
+  const attachmentTaskDoneModalBackdrop = document.getElementById("attachmentTaskDoneModalBackdrop");
+  const attachmentTaskDoneModalClose = document.getElementById("attachmentTaskDoneModalClose");
+  const btnAttachmentTaskDoneCancel = document.getElementById("btnAttachmentTaskDoneCancel");
+  const btnAttachmentTaskDoneConfirm = document.getElementById("btnAttachmentTaskDoneConfirm");
+  const elAttachmentTaskDoneRemarks = document.getElementById("d_attachment_task_done_remarks");
+  const attachmentTaskDoneModalMsg = document.getElementById("attachmentTaskDoneModalMsg");
 
   const recModal = document.getElementById("recModal");
   const recModalBackdrop = document.getElementById("recModalBackdrop");
@@ -128,6 +151,10 @@
   const PUBLIC = APP.public || (fallbackBase + '/public');
 
   let currentCanForward = false;
+  let currentCanAttachmentForward = false;
+  let currentAttachmentForwardRows = [];
+  let attachmentForwardAttachmentOptions = [];
+  let attachmentForwardRecipientCache = new Map();
   let currentPayload = null;
   let currentBranchMode = false;
   let currentBranches = [];
@@ -495,6 +522,8 @@
       sent: "Sent",
       received: "Received",
       forwarded: "Forwarded",
+      attachment_forwarded: "Attachment Forwarded",
+      attachment_forward_task_done: "Attachment Task Done",
       released: "Released",
       release_undone: "Undo Release",
       archived: "Archived",
@@ -517,10 +546,36 @@
 
   function actionIcon(k) {
     const key = (k || "updated").toString().trim().toLowerCase();
+    const cleanMap = {
+      created: "+",
+      sent: "S",
+      forwarded: "F",
+      attachment_forwarded: "A",
+      attachment_forward_task_done: "D",
+      received: "R",
+      attachment_added: "A",
+      pending_remarks_added: "N",
+      pending_remarks_updated: "N",
+      pending_remarks_cleared: "N",
+      branch_ended_here: "E",
+      branch_end_here_undone: "U",
+      document_ended_here: "E",
+      document_end_here_undone: "U",
+      released: "L",
+      release_undone: "U",
+      archived: "X",
+      archive_undone: "U",
+      cancelled: "!",
+      status_changed: "C",
+      updated: "U",
+    };
+    return cleanMap[key] || "U";
     const map = {
       created: "＋",
       sent: "↗",
       forwarded: "➜",
+      attachment_forwarded: "📎",
+      attachment_forward_task_done: "☑",
       received: "✓",
       attachment_added: "📎",
       pending_remarks_added: "✎",
@@ -577,8 +632,66 @@
     }
   }
 
+  function setDrawerTab(tabName = "overview") {
+    const target = drawerPanels.some((panel) => panel.dataset.drawerPanel === tabName)
+      ? tabName
+      : "overview";
+
+    drawerTabs.forEach((tab) => {
+      const active = tab.dataset.drawerTab === target;
+      tab.classList.toggle("isActive", active);
+      tab.setAttribute("aria-selected", active ? "true" : "false");
+    });
+
+    drawerPanels.forEach((panel) => {
+      const active = panel.dataset.drawerPanel === target;
+      panel.classList.toggle("isActive", active);
+      panel.hidden = !active;
+    });
+
+    if (target === "files") {
+      setCollapsed(elAttachments, false);
+      syncToggleLabels();
+    }
+  }
+
   function getSelectedBranch() {
     return currentBranches.find((b) => Number(b.id || 0) === Number(currentBranchId || 0)) || null;
+  }
+
+  function viewerIsAttachmentOnlyReceiver() {
+    const role = ((window.__CTX__?.myRole || "user").toString().toLowerCase());
+    if (role === "admin" || role === "records") return false;
+
+    if (currentBranchMode) {
+      const branch = getSelectedBranch();
+      if (!branch) return false;
+
+      return !!(
+        Number(branch.attachment_forward_recipient_branch || 0) === 1
+        && Number(branch.attachment_forward_source_branch || 0) === 0
+        && Number(branch.is_reference || 0) === 1
+        && Number(branch.can_forward || 0) !== 1
+      );
+    }
+
+    return !!(
+      Number(currentPayload?.attachment_forward_recipient_branch || 0) === 1
+      && Number(currentPayload?.attachment_forward_source_branch || 0) === 0
+      && Number(currentPayload?.my_has_actionable_role || 0) !== 1
+    );
+  }
+
+  function syncViewDocumentButton() {
+    if (!btnViewDocument) return;
+
+    const docId = Number(currentPayload?.id || 0);
+    const canViewFullDocument = docId > 0 && !viewerIsAttachmentOnlyReceiver();
+
+    btnViewDocument.dataset.docId = canViewFullDocument ? String(docId) : "";
+    btnViewDocument.style.display = canViewFullDocument ? "" : "none";
+    const row = btnViewDocument.closest(".kv");
+    if (row) row.style.display = canViewFullDocument ? "" : "none";
   }
 
   window.DTGetSelectedBranchId = function () {
@@ -688,9 +801,17 @@
     if (docStatus === "ACTIVE") {
       if (currentBranchMode) {
         const branch = getSelectedBranch();
-        canAttach = !!(isPrivileged || (branch && Number(branch.can_forward || 0) === 1));
+        canAttach = !!(
+          isPrivileged
+          || (branch && Number(branch.can_forward || 0) === 1)
+          || (branch && Number(branch.attachment_forward_can_attach || 0) === 1)
+        );
       } else {
-        canAttach = !!(isPrivileged || Number(currentPayload?.my_has_actionable_role || 0) === 1);
+        canAttach = !!(
+          isPrivileged
+          || Number(currentPayload?.my_has_actionable_role || 0) === 1
+          || Number(currentPayload?.attachment_forward_can_attach || 0) === 1
+        );
       }
     }
 
@@ -801,6 +922,8 @@
         delete elDestination.dataset.count;
       }
     }
+
+    renderAttachmentForwardStatusPanel();
   }
 
   function applyBranchSelection(branchId) {
@@ -837,6 +960,15 @@
     }
 
     currentCanForward = !!(branch && Number(branch.can_forward || 0) === 1);
+    currentCanAttachmentForward = !!(
+      branch
+      && ((branch.branch_status || "").toString().toUpperCase() === "ACTIVE")
+      && Number(branch.is_reference || 0) === 0
+      && Number(branch.current_assignee_user_id || 0) > 0
+      && Number(branch.current_assignee_user_id || 0) === Number((window.__CTX__ || {}).myUserId || 0)
+      && Number(branch.my_pending_route_id || 0) === 0
+    );
+    syncViewDocumentButton();
     refreshDrawerBranchContext();
     syncAttachmentButtonVisibility();
     updateForwardUI();
@@ -853,6 +985,14 @@
         (currentPayload?.current_status || "ACTIVE").toString().toUpperCase() === "ACTIVE"
       );
       btnAckReceived.style.display = canReceive ? "" : "none";
+    }
+    if (btnAttachmentTaskDone) {
+      const canTaskDone = !!(
+        branch
+        && Number(branch.attachment_forward_can_mark_done || 0) === 1
+        && (currentPayload?.current_status || "ACTIVE").toString().toUpperCase() === "ACTIVE"
+      );
+      btnAttachmentTaskDone.style.display = canTaskDone ? "" : "none";
     }
   }
 
@@ -925,6 +1065,7 @@
       if (elBranchWrap) elBranchWrap.style.display = "none";
       currentBranchId = 0;
       savePreferredBranchId(currentPayload?.id || 0, 0);
+      syncViewDocumentButton();
       return;
     }
 
@@ -963,6 +1104,98 @@
     applyBranchSelection(currentBranchId);
   }
 
+  function currentAttachmentForwardOpenTaskCount() {
+    if (currentBranchMode) {
+      const branch = getSelectedBranch();
+      return Number(branch?.attachment_forward_open_task_count || 0);
+    }
+    return Number(currentPayload?.attachment_forward_open_task_count || 0);
+  }
+
+  function attachmentTaskStatusLabel(status) {
+    const key = (status || '').toString().trim().toUpperCase();
+    if (key === 'PENDING_RECEIVE') return 'Pending receive';
+    if (key === 'IN_PROGRESS') return 'In progress';
+    if (key === 'DONE') return 'Done';
+    return key || 'Open';
+  }
+
+  function renderAttachmentForwardStatusPanel() {
+    if (!drawerAttachmentForwardStatus) return;
+    const summary = Array.isArray(currentPayload?.attachment_forward_task_summary)
+      ? currentPayload.attachment_forward_task_summary
+      : [];
+    const senderItems = summary.filter((item) => Number(item?.is_sender || 0) === 1);
+    const recipientItems = summary.filter((item) => Number(item?.is_recipient || 0) === 1);
+
+    if (!senderItems.length && !recipientItems.length) {
+      drawerAttachmentForwardStatus.style.display = 'none';
+      drawerAttachmentForwardStatus.innerHTML = '';
+      return;
+    }
+
+    const grouped = senderItems.map((item) => {
+      const recipientName = clean(item.recipient_name);
+      const recipientSection = clean(item.recipient_section_name);
+      const attachment = clean(item.attachment_name) || 'Attachment';
+      const status = attachmentTaskStatusLabel(item.task_status);
+      const who = recipientName && recipientSection ? `${recipientName} (${recipientSection})` : (recipientName || recipientSection || 'Recipient');
+      const statusClass = status === 'Done' ? 'isDone' : (status === 'In progress' ? 'isProgress' : 'isPending');
+      return `<div class="attachmentTaskRow"><div><strong>${esc(attachment)}</strong><div>To: ${esc(who)}</div></div><span class="attachmentTaskStatus ${statusClass}">${esc(status)}</span></div>`;
+    }).join('');
+
+    const openCount = senderItems.filter((item) => ['PENDING_RECEIVE','IN_PROGRESS'].includes((item.task_status || '').toString().toUpperCase())).length;
+    const recipientHtml = recipientItems.length ? `<div class="attachmentTaskNote">You have ${recipientItems.length} attachment task${recipientItems.length === 1 ? '' : 's'} on this document.</div>` : '';
+
+    drawerAttachmentForwardStatus.innerHTML = `
+      <details class="attachmentTaskProgress" ${openCount > 0 ? '' : ''}>
+        <summary>
+          <span>
+            <span class="attachmentTaskProgressEyebrow">Attachment task progress</span>
+            <span class="attachmentTaskProgressTitle">Waiting on ${openCount} open task${openCount === 1 ? '' : 's'}.</span>
+          </span>
+          <span class="attachmentTaskProgressBadge">${senderItems.length || recipientItems.length}</span>
+        </summary>
+        <div class="attachmentTaskProgressBody">
+          ${senderItems.length ? grouped : ''}
+          ${recipientHtml}
+        </div>
+      </details>
+    `;
+    drawerAttachmentForwardStatus.style.display = '';
+  }
+
+  function updateAttachmentForwardMessaging() {
+    const branch = currentBranchMode ? getSelectedBranch() : null;
+    const openTaskCount = currentAttachmentForwardOpenTaskCount();
+    const canAttachmentForward = !!currentCanAttachmentForward;
+    const normalForwardLockedByTasks = currentBranchMode
+      ? !!(
+          branch
+          && openTaskCount > 0
+          && Number(branch.is_reference || 0) === 0
+          && ((branch.branch_status || "").toString().toUpperCase() === "ACTIVE")
+        )
+      : !!(openTaskCount > 0 && Number(currentPayload?.my_has_actionable_role || 0) === 1);
+
+    if (btnToggleAttachmentForward) {
+      btnToggleAttachmentForward.textContent = openTaskCount > 0 ? "Forward another attachment" : "Forward by attachment";
+    }
+
+    if (drawerAttachmentForwardHint) {
+      if (normalForwardLockedByTasks && canAttachmentForward) {
+        drawerAttachmentForwardHint.style.display = "";
+        drawerAttachmentForwardHint.textContent = "Normal forward is locked until all attachment-forward tasks are marked done. You may still forward another attachment from this lane.";
+      } else if (canAttachmentForward) {
+        drawerAttachmentForwardHint.style.display = "";
+        drawerAttachmentForwardHint.textContent = "Need selective routing? Use Forward by attachment so the document stays with you while specific files are sent out as task lanes.";
+      } else {
+        drawerAttachmentForwardHint.style.display = "none";
+        drawerAttachmentForwardHint.textContent = "";
+      }
+    }
+  }
+
   function updateForwardUI() {
     const chiefCanSetDeadline = !!(window.__CTX__?.isChief);
     const isInitialRouting = Number(currentPayload?.is_initial_routing || 0) === 1;
@@ -970,6 +1203,7 @@
     const showPersonalDeadline = currentCanForward && chiefCanSetDeadline;
 
     if (btnToggleForward) btnToggleForward.style.display = currentCanForward ? "" : "none";
+    if (btnToggleAttachmentForward) btnToggleAttachmentForward.style.display = currentCanAttachmentForward ? "" : "none";
     if (btnForward) btnForward.style.display = currentCanForward ? "" : "none";
     if (elForwardModeWrap) elForwardModeWrap.style.display = currentCanForward ? "" : "none";
     if (forwardDeadlineGrid) forwardDeadlineGrid.style.display = (showDocumentDeadline || showPersonalDeadline) ? "" : "none";
@@ -985,7 +1219,19 @@
       if (elForwardRemarks) elForwardRemarks.value = "";
       closeForwardModal();
     }
+    if (!currentCanAttachmentForward) {
+      if (elAttachmentForwardRemarks) elAttachmentForwardRemarks.value = "";
+      closeAttachmentForwardModal();
+    }
 
+    if (btnAttachmentTaskDone) {
+      const canTaskDone = currentBranchMode
+        ? !!(getSelectedBranch() && Number(getSelectedBranch().attachment_forward_can_mark_done || 0) === 1 && (currentPayload?.current_status || "ACTIVE").toString().toUpperCase() === "ACTIVE")
+        : !!(Number(currentPayload?.attachment_forward_can_mark_done || 0) === 1 && (currentPayload?.current_status || "ACTIVE").toString().toUpperCase() === "ACTIVE");
+      btnAttachmentTaskDone.style.display = canTaskDone ? "" : "none";
+    }
+
+    updateAttachmentForwardMessaging();
     updateForwardModeUI();
   }
 
@@ -1014,7 +1260,9 @@
     let showUndo = false;
 
     if (currentBranchMode) {
-      showEnd = docStatus === "ACTIVE" && branchState.canEnd;
+      const branch = branchState.branch;
+      const attachmentForwardRecipient = !!(branch && Number(branch.attachment_forward_recipient_branch || 0) === 1);
+      showEnd = docStatus === "ACTIVE" && branchState.canEnd && !attachmentForwardRecipient;
       showUndo = branchState.canUndo;
     } else {
       showEnd = docStatus === "ACTIVE" && flatActionable;
@@ -1543,6 +1791,72 @@
     `;
   }
 
+  function attachmentTaskNamesHtml(names, emptyLabel, compact) {
+    const rows = Array.isArray(names) ? names.map(clean).filter(Boolean) : [];
+    if (!rows.length) {
+      return `<div class="ackSummaryEmpty">${esc(emptyLabel)}</div>`;
+    }
+
+    return `
+      <div class="ackSummaryChipList">
+        ${rows.map((name) => `<span class="ackSummaryChip">${esc(name)}</span>`).join("")}
+      </div>
+    `;
+  }
+
+  function renderAttachmentTaskSummary(i, opts = {}) {
+    const summary = i?.attachment_task_summary;
+    if (!summary || typeof summary !== "object") return "";
+
+    const compact = !!opts.compact;
+    const totalRecipients = Number(summary.total_recipient_count || 0);
+    const doneRecipients = Number(summary.done_recipient_count || 0);
+    const openRecipients = Number(summary.open_recipient_count || 0);
+    const totalTasks = Number(summary.total_task_count || 0);
+    const doneTasks = Number(summary.done_task_count || 0);
+    const showNames = summary.show_names === true;
+
+    if (totalRecipients <= 0 && totalTasks <= 0) return "";
+
+    const doneUsers = Array.isArray(summary.done_users) ? summary.done_users : [];
+    const inProgressUsers = Array.isArray(summary.in_progress_users) ? summary.in_progress_users : [];
+    const pendingUsers = Array.isArray(summary.pending_users) ? summary.pending_users : [];
+
+    return `
+      <div class="ackSummary attachmentTaskSummary ${compact ? "ackSummary--compact" : ""}">
+        <div class="ackSummaryHead">
+          <div class="ackSummaryTitle">${compact ? "Tasks" : "Attachment task status"}</div>
+          <div class="ackSummaryCounts">${doneRecipients}/${totalRecipients} done</div>
+        </div>
+
+        ${totalTasks > 0 ? `
+          <div class="ackSummaryEmpty">Files completed: ${doneTasks}/${totalTasks}</div>
+        ` : ``}
+
+        <div class="ackSummaryPanels attachmentTaskSummaryPanels">
+          <div class="ackSummaryPanel isInline">
+            <div class="attachmentTaskSummaryLabel">Done (${doneRecipients})</div>
+            ${showNames
+              ? attachmentTaskNamesHtml(doneUsers, "No completed recipients yet.", compact)
+              : `<div class="ackSummaryEmpty">Done recipients: ${doneRecipients}</div>`
+            }
+          </div>
+
+          <div class="ackSummaryPanel isInline">
+            <div class="attachmentTaskSummaryLabel">Still open (${openRecipients})</div>
+            ${showNames
+              ? `
+                ${attachmentTaskNamesHtml(inProgressUsers, "No one is currently in progress.", compact)}
+                ${pendingUsers.length ? `<div class="attachmentTaskSummarySubLabel">Not yet received</div>${attachmentTaskNamesHtml(pendingUsers, "", compact)}` : ``}
+              `
+              : `<div class="ackSummaryEmpty">Open recipients: ${openRecipients}</div>`
+            }
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   function bindAckSummaryToggles(root) {
     if (!root) return;
 
@@ -1666,6 +1980,7 @@
           const recipientSummary = clean(i.recipient_summary);
           const branchLabelText = clean(i.branch_label);
           const ackSummaryHtml = renderAckSummary(i);
+          const attachmentTaskSummaryHtml = renderAttachmentTaskSummary(i);
 
           if (
             currentBranchMode &&
@@ -1715,6 +2030,7 @@
                 ` : ""}
 
                 ${ackSummaryHtml}
+                ${attachmentTaskSummaryHtml}
 
                 ${i.personal_deadline_at ? `<div class="tNote"><strong>Personal deadline:</strong> ${esc(fmtDate(i.personal_deadline_at))}</div>` : ``}
                 ${i.released_to ? `<div class="tNote"><strong>Released to:</strong> ${esc(i.released_to)}</div>` : ``}
@@ -1832,6 +2148,7 @@
                   const recipientSummary = clean(i.recipient_summary);
                   const branchLabelText = clean(i.branch_label);
                   const ackSummaryHtml = renderAckSummary(i, { compact: true });
+                  const attachmentTaskSummaryHtml = renderAttachmentTaskSummary(i, { compact: true });
 
                   if (
                     currentBranchMode &&
@@ -1868,6 +2185,7 @@
                         ${movement ? `<div class="tLineMove">${movement}</div>` : ``}
                         ${details.length ? `<div class="tLineMove">${details.join(" • ")}</div>` : ``}
                         ${ackSummaryHtml}
+                        ${attachmentTaskSummaryHtml}
                         ${i.personal_deadline_at ? `<div class="tLineNote">Personal deadline: ${esc(fmtDate(i.personal_deadline_at))}</div>` : ``}
                         ${i.released_to ? `<div class="tLineNote">Released to: ${esc(i.released_to)}</div>` : ``}
                         ${i.remarks ? `<div class="tLineNote">Remarks: ${esc(i.remarks)}</div>` : ``}
@@ -1930,14 +2248,14 @@
         return;
       }
 
-      const LS_KEY = currentBranchMode ? "dt_timeline_view_branch" : "dt_timeline_view";
-      const saved = (localStorage.getItem(LS_KEY) || "events").toLowerCase();
-      let view = saved === "grouped" ? "grouped" : "events";
+      const LS_KEY = currentBranchMode ? "dt_timeline_view_branch_v2" : "dt_timeline_view_v2";
+      const saved = (localStorage.getItem(LS_KEY) || "grouped").toLowerCase();
+      let view = saved === "events" ? "events" : "grouped";
 
       elTimeline.innerHTML = `
         <div class="tToolbar">
-          <button type="button" class="tToggle ${view === "events" ? "isOn" : ""}" data-view="events">Events</button>
           <button type="button" class="tToggle ${view === "grouped" ? "isOn" : ""}" data-view="grouped">By Section</button>
+          <button type="button" class="tToggle ${view === "events" ? "isOn" : ""}" data-view="events">Events</button>
         </div>
         <div id="timelineBody"></div>`;
 
@@ -2048,18 +2366,12 @@
     setCollapsed(elAttachments, true);
     setCollapsed(attachForm, true);
     closeForwardModal();
+    closeAttachmentForwardModal();
+    closeAttachmentTaskDoneModal();
     syncToggleLabels();
+    setDrawerTab("overview");
 
-    if (btnViewDocument) {
-      const docId = payload.id || "";
-      if (docId) {
-        btnViewDocument.dataset.docId = String(docId);
-        btnViewDocument.style.display = "";
-      } else {
-        btnViewDocument.dataset.docId = "";
-        btnViewDocument.style.display = "none";
-      }
-    }
+    syncViewDocumentButton();
 
     if (rowEditDocumentDetails && btnEditDocumentDetails) {
       const canEditDetails = Number(payload.can_edit_details || 0) === 1;
@@ -2146,6 +2458,7 @@
     currentBranchMode = false;
     currentBranches = [];
     currentBranchId = 0;
+    syncViewDocumentButton();
 
     if (elAttachments) elAttachments.textContent = "Loading attachments…";
     if (payload.id) loadAttachments(payload.id);
@@ -2180,11 +2493,23 @@
       canAttach = docStatus === "ACTIVE" && isPrivileged;
       canForward = false;
     } else {
-      canAttach = docStatus === "ACTIVE" && (isPrivileged || flatActionableByMe);
+      canAttach = docStatus === "ACTIVE" && (isPrivileged || flatActionableByMe || Number(payload.attachment_forward_can_attach || 0) === 1);
       canForward = docStatus === "ACTIVE" && flatActionableByMe;
     }
 
-    currentCanForward = canForward;
+    const flatAttachmentTaskLock = !!(
+      !currentBranchMode
+      && Number(payload.attachment_forward_open_task_count || 0) > 0
+      && Number(payload.my_has_actionable_role || 0) === 1
+    );
+    currentCanForward = canForward && !flatAttachmentTaskLock;
+    currentCanAttachmentForward = !!(
+      !currentBranchMode
+      && docStatus === "ACTIVE"
+      && flatActionableByMe
+      && !inTransit
+      && Number(payload.my_has_open_inbound || 0) === 0
+    );
 
     if (btnToggleUpload) btnToggleUpload.style.display = canAttach ? "" : "none";
     if (btnRegenerateDivisionSlip) {
@@ -2222,6 +2547,10 @@
 
     if (!currentBranchMode && btnAckReceived) {
       btnAckReceived.style.display = canAckReceived ? "" : "none";
+    }
+    if (!currentBranchMode && btnAttachmentTaskDone) {
+      const canTaskDoneFlat = !!(Number(payload.attachment_forward_can_mark_done || 0) === 1 && docStatus === "ACTIVE");
+      btnAttachmentTaskDone.style.display = canTaskDoneFlat ? "" : "none";
     }
 
     if (docStatus === "ARCHIVED") {
@@ -2730,10 +3059,307 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
     forwardModal.setAttribute("aria-hidden", "true");
   }
 
+
+  function attachmentForwardRowTemplate(row = {}) {
+    const attachmentOptions = attachmentForwardAttachmentOptions.length > 0
+      ? attachmentForwardAttachmentOptions.map((att) => {
+          const selected = Number(row.attachment_id || 0) === Number(att.id || 0) ? " selected" : "";
+          return `<option value="${Number(att.id || 0)}"${selected}>${esc(att.label || att.original_name || ("Attachment #" + Number(att.id || 0)))}</option>`;
+        }).join("")
+      : `<option value="">No attachments available</option>`;
+
+    return `
+      <div class="attachmentForwardRow" data-row-id="${esc(row.row_id || "")}" style="border:1px solid rgba(0,0,0,.10); border-radius:12px; padding:12px; display:grid; gap:10px;">
+        <div style="display:grid; gap:6px;">
+          <label class="mini" style="font-weight:900;">Attachment</label>
+          <select class="select attachmentForwardAttachment">
+            <option value="">-- Select attachment --</option>
+            ${attachmentOptions}
+          </select>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr auto; gap:10px; align-items:end;">
+          <div style="display:grid; gap:6px;">
+            <label class="mini" style="font-weight:900;">Section</label>
+            <select class="select attachmentForwardSection">
+              <option value="">-- Select section --</option>
+            </select>
+          </div>
+
+          <div style="display:grid; gap:6px;">
+            <label class="mini" style="font-weight:900;">Recipient</label>
+            <select class="select attachmentForwardUser">
+              <option value="">-- Select recipient --</option>
+            </select>
+          </div>
+
+          <button type="button" class="btnSecondary attachmentForwardRemove">Remove</button>
+        </div>
+      </div>
+    `;
+  }
+
+  async function fetchAttachmentForwardRecipients(sectionId) {
+    const sid = Number(sectionId || 0);
+    if (sid <= 0) return [];
+    if (attachmentForwardRecipientCache.has(sid)) return attachmentForwardRecipientCache.get(sid);
+
+    const qs = appendActingPrincipal(new URLSearchParams({ section_id: String(sid) }), currentPayload);
+    const res = await fetch(`${API}/users_by_section.php?${qs.toString()}`, {
+      cache: "no-store",
+      headers: { Accept: "application/json" }
+    });
+    const data = await res.json().catch(() => null);
+    const users = Array.isArray(data) ? data : (Array.isArray(data?.users) ? data.users : []);
+    attachmentForwardRecipientCache.set(sid, users);
+    return users;
+  }
+
+  async function syncAttachmentForwardRowElement(rowEl, row) {
+    const sectionSelect = rowEl.querySelector(".attachmentForwardSection");
+    const userSelect = rowEl.querySelector(".attachmentForwardUser");
+    const attachmentSelect = rowEl.querySelector(".attachmentForwardAttachment");
+
+    if (attachmentSelect) attachmentSelect.value = row.attachment_id ? String(row.attachment_id) : "";
+
+    if (sectionSelect && sectionSelect.options.length <= 1) {
+      const sections = Array.from(selForwardTo?.options || []).filter((opt) => String(opt.value || "").trim() !== "");
+      sectionSelect.innerHTML = `<option value="">-- Select section --</option>` + sections.map((opt) => {
+        const value = String(opt.value || "");
+        const selected = Number(row.to_section_id || 0) === Number(value || 0) ? " selected" : "";
+        return `<option value="${esc(value)}"${selected}>${esc(opt.textContent || "")}</option>`;
+      }).join("");
+    } else if (sectionSelect) {
+      sectionSelect.value = row.to_section_id ? String(row.to_section_id) : "";
+    }
+
+    if (userSelect) {
+      userSelect.innerHTML = `<option value="">Loading recipients…</option>`;
+      const users = row.to_section_id ? await fetchAttachmentForwardRecipients(row.to_section_id) : [];
+      userSelect.innerHTML = `<option value="">-- Select recipient --</option>` + users.map((user) => {
+        const selected = Number(row.to_user_id || 0) === Number(user.id || 0) ? " selected" : "";
+        return `<option value="${Number(user.id || 0)}"${selected}>${esc(user.full_name || user.name || ("User #" + Number(user.id || 0)))}</option>`;
+      }).join("");
+      if (row.to_user_id) userSelect.value = String(row.to_user_id);
+    }
+  }
+
+  async function renderAttachmentForwardRows() {
+    if (!attachmentForwardRows) return;
+
+    if (attachmentForwardAttachmentOptions.length === 0) {
+      attachmentForwardRows.innerHTML = `<div class="mini" style="opacity:.75;">No visible attachments are available in this lane yet. Add or select attachments first, then try again.</div>`;
+      return;
+    }
+
+    if (currentAttachmentForwardRows.length === 0) {
+      currentAttachmentForwardRows = [{
+        row_id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+        attachment_id: 0,
+        to_section_id: 0,
+        to_user_id: 0,
+      }];
+    }
+
+    attachmentForwardRows.innerHTML = currentAttachmentForwardRows.map((row) => attachmentForwardRowTemplate(row)).join("");
+
+    const rowEls = Array.from(attachmentForwardRows.querySelectorAll(".attachmentForwardRow"));
+    for (const rowEl of rowEls) {
+      const rowId = (rowEl.getAttribute("data-row-id") || "").toString();
+      const row = currentAttachmentForwardRows.find((item) => item.row_id === rowId);
+      if (!row) continue;
+
+      await syncAttachmentForwardRowElement(rowEl, row);
+
+      rowEl.querySelector(".attachmentForwardAttachment")?.addEventListener("change", (e) => {
+        row.attachment_id = Number(e.target.value || 0);
+      });
+
+      rowEl.querySelector(".attachmentForwardSection")?.addEventListener("change", async (e) => {
+        row.to_section_id = Number(e.target.value || 0);
+        row.to_user_id = 0;
+        await syncAttachmentForwardRowElement(rowEl, row);
+      });
+
+      rowEl.querySelector(".attachmentForwardUser")?.addEventListener("change", (e) => {
+        row.to_user_id = Number(e.target.value || 0);
+      });
+
+      rowEl.querySelector(".attachmentForwardRemove")?.addEventListener("click", () => {
+        currentAttachmentForwardRows = currentAttachmentForwardRows.filter((item) => item.row_id !== rowId);
+        renderAttachmentForwardRows();
+      });
+    }
+  }
+
+  function openAttachmentForwardModal() {
+    if (!currentCanAttachmentForward || !attachmentForwardModal) return;
+    currentAttachmentForwardRows = [];
+    attachmentForwardAttachmentOptions = [];
+    attachmentForwardRecipientCache = new Map();
+    if (elAttachmentForwardRemarks) elAttachmentForwardRemarks.value = "";
+
+    fetch(`${API}/attachments_list.php?${appendActingPrincipal(new URLSearchParams({
+      document_id: String(Number(currentPayload?.id || 0)),
+      branch_id: String(currentBranchMode ? Number(getSelectedBranch()?.id || 0) : 0),
+    }), currentPayload).toString()}`, {
+      cache: "no-store",
+      headers: { Accept: "application/json" }
+    }).then((res) => res.json().catch(() => null))
+      .then(async (data) => {
+        attachmentForwardAttachmentOptions = (Array.isArray(data?.attachments) ? data.attachments : []).map((att) => ({
+          id: Number(att.id || 0),
+          original_name: att.original_name || "",
+          label: `${att.original_name || ("Attachment #" + Number(att.id || 0))}${Number(att.branch_id || 0) > 0 ? " • lane" : ""}`,
+        }));
+        await renderAttachmentForwardRows();
+      })
+      .catch(() => {
+        attachmentForwardRows.innerHTML = `<div class="mini" style="color:#b91c1c;">Failed to load attachments.</div>`;
+      });
+
+    attachmentForwardModal.classList.add("open");
+    attachmentForwardModal.setAttribute("aria-hidden", "false");
+  }
+
+  function closeAttachmentForwardModal() {
+    if (!attachmentForwardModal) return;
+    attachmentForwardModal.classList.remove("open");
+    attachmentForwardModal.setAttribute("aria-hidden", "true");
+  }
+
+  function openAttachmentTaskDoneModal() {
+    if (!attachmentTaskDoneModal) return;
+    if (elAttachmentTaskDoneRemarks) elAttachmentTaskDoneRemarks.value = "";
+    if (attachmentTaskDoneModalMsg) {
+      attachmentTaskDoneModalMsg.textContent = "";
+      attachmentTaskDoneModalMsg.className = "modalMsg";
+      attachmentTaskDoneModalMsg.style.display = "none";
+    }
+    attachmentTaskDoneModal.classList.add("open");
+    attachmentTaskDoneModal.setAttribute("aria-hidden", "false");
+    elAttachmentTaskDoneRemarks?.focus();
+  }
+
+  function closeAttachmentTaskDoneModal() {
+    if (!attachmentTaskDoneModal) return;
+    attachmentTaskDoneModal.classList.remove("open");
+    attachmentTaskDoneModal.setAttribute("aria-hidden", "true");
+  }
+
+  async function submitAttachmentForward() {
+    const docId = Number(currentPayload?.id || elId?.value || 0);
+    const branch = currentBranchMode ? getSelectedBranch() : null;
+    if (!docId) return;
+    if (currentBranchMode && !branch) return;
+
+    const rows = currentAttachmentForwardRows
+      .map((row) => ({
+        attachment_id: Number(row.attachment_id || 0),
+        to_section_id: Number(row.to_section_id || 0),
+        to_user_id: Number(row.to_user_id || 0),
+      }))
+      .filter((row) => row.attachment_id > 0 && row.to_section_id > 0 && row.to_user_id > 0);
+
+    if (rows.length === 0) {
+      window.DTToast?.warning("Please complete at least one attachment routing row.") || console.warn("Please complete at least one attachment routing row.");
+      return;
+    }
+
+    const form = appendActingPrincipal(new FormData(), currentPayload);
+    form.append("document_id", String(docId));
+    form.append("branch_id", String(currentBranchMode ? Number(branch?.id || 0) : 0));
+    rows.forEach((row, idx) => {
+      form.append(`routing_rows[${idx}][attachment_id]`, String(row.attachment_id));
+      form.append(`routing_rows[${idx}][to_section_id]`, String(row.to_section_id));
+      form.append(`routing_rows[${idx}][to_user_id]`, String(row.to_user_id));
+    });
+    form.append("remarks", (elAttachmentForwardRemarks?.value || "").toString().trim());
+    form.append("csrf_token", window.__CSRF__ || "");
+
+    if (btnAttachmentForwardSend) btnAttachmentForwardSend.disabled = true;
+    try {
+      const res = await fetch(`${API}/attachment_forward.php`, {
+        method: "POST",
+        body: form,
+        headers: { Accept: "application/json" }
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        window.DTToast?.error(data?.error || `Failed to forward attachments. (${res.status})`) || console.warn(data?.error || `Failed to forward attachments. (${res.status})`);
+        return;
+      }
+      const branchId = currentBranchMode ? Number(branch?.id || 0) : 0;
+      savePreferredBranchId(docId, branchId);
+      saveDrawerRestoreState(docId, branchId);
+      location.reload();
+    } catch {
+      window.DTToast?.error("Failed to forward attachments (network error).") || console.warn("Failed to forward attachments (network error).");
+    } finally {
+      if (btnAttachmentForwardSend) btnAttachmentForwardSend.disabled = false;
+    }
+  }
+
+  async function submitAttachmentTaskDone() {
+    const docId = Number(currentPayload?.id || elId?.value || 0);
+    const branch = currentBranchMode ? getSelectedBranch() : null;
+    if (!docId) return;
+    if (currentBranchMode && !branch) return;
+
+    const form = appendActingPrincipal(new FormData(), currentPayload);
+    form.append("document_id", String(docId));
+    form.append("branch_id", String(currentBranchMode ? Number(branch?.id || 0) : 0));
+    form.append("remarks", (elAttachmentTaskDoneRemarks?.value || "").toString().trim());
+    form.append("csrf_token", window.__CSRF__ || "");
+
+    if (btnAttachmentTaskDoneConfirm) btnAttachmentTaskDoneConfirm.disabled = true;
+    try {
+      const res = await fetch(`${API}/attachment_task_done.php`, {
+        method: "POST",
+        body: form,
+        headers: { Accept: "application/json" }
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        if (attachmentTaskDoneModalMsg) {
+          attachmentTaskDoneModalMsg.textContent = data?.error || `Failed to mark task done. (${res.status})`;
+          attachmentTaskDoneModalMsg.className = "modalMsg error";
+          attachmentTaskDoneModalMsg.style.display = "";
+        } else {
+          window.DTToast?.error(data?.error || `Failed to mark task done. (${res.status})`) || console.warn(data?.error || `Failed to mark task done. (${res.status})`);
+        }
+        return;
+      }
+      saveDrawerRestoreState(docId, currentBranchMode ? Number(branch?.id || 0) : 0);
+      location.reload();
+    } catch {
+      window.DTToast?.error("Failed to mark task done (network error).") || console.warn("Failed to mark task done (network error).");
+    } finally {
+      if (btnAttachmentTaskDoneConfirm) btnAttachmentTaskDoneConfirm.disabled = false;
+    }
+  }
+
   btnToggleForward?.addEventListener("click", openForwardModal);
+  drawerTabs.forEach((tab) => {
+    tab.addEventListener("click", () => setDrawerTab(tab.dataset.drawerTab || "overview"));
+  });
+  btnToggleAttachmentForward?.addEventListener("click", openAttachmentForwardModal);
   forwardModalClose?.addEventListener("click", closeForwardModal);
   btnForwardCancel?.addEventListener("click", closeForwardModal);
   forwardModalBackdrop?.addEventListener("click", closeForwardModal);
+  attachmentForwardModalClose?.addEventListener("click", closeAttachmentForwardModal);
+  btnAttachmentForwardCancel?.addEventListener("click", closeAttachmentForwardModal);
+  attachmentForwardModalBackdrop?.addEventListener("click", closeAttachmentForwardModal);
+  btnAttachmentForwardAddRow?.addEventListener("click", async () => {
+    currentAttachmentForwardRows.push({
+      row_id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()),
+      attachment_id: 0,
+      to_section_id: 0,
+      to_user_id: 0,
+    });
+    await renderAttachmentForwardRows();
+  });
+  btnAttachmentForwardSend?.addEventListener("click", submitAttachmentForward);
   releaseModalClose?.addEventListener("click", closeReleaseModal);
   btnReleaseCancel?.addEventListener("click", closeReleaseModal);
   releaseModalBackdrop?.addEventListener("click", closeReleaseModal);
@@ -2746,6 +3372,11 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
   btnEndHereConfirm?.addEventListener("click", submitEndHere);
 
   btnAckReceived?.addEventListener("click", ackReceived);
+  btnAttachmentTaskDone?.addEventListener("click", openAttachmentTaskDoneModal);
+  attachmentTaskDoneModalClose?.addEventListener("click", closeAttachmentTaskDoneModal);
+  btnAttachmentTaskDoneCancel?.addEventListener("click", closeAttachmentTaskDoneModal);
+  attachmentTaskDoneModalBackdrop?.addEventListener("click", closeAttachmentTaskDoneModal);
+  btnAttachmentTaskDoneConfirm?.addEventListener("click", submitAttachmentTaskDone);
   btnEditPendingRemarks?.addEventListener("click", () => setPendingRemarksEditing(true));
   btnCancelPendingRemarks?.addEventListener("click", () => {
     if (elPendingRemarksInput) {

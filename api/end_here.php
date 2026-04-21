@@ -67,6 +67,13 @@ try {
   $branchMode = workflow_branch_mode_enabled($conn);
   $docHasRealBranches = ($branchMode && workflow_document_has_real_branches($conn, $docId));
 
+  if (workflow_document_has_open_attachment_forward_tasks($conn, $docId)) {
+    $conn->rollback();
+    http_response_code(409);
+    echo json_encode(["ok" => false, "error" => "Cannot end this workflow while there are pending attachment-forward tasks."]);
+    exit;
+  }
+
   if ($docHasRealBranches) {
     if ($branchIdReq <= 0) {
       $conn->rollback();

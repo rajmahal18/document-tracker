@@ -113,6 +113,7 @@
   {
     const transOpts = document.getElementById("transmittalOpts");
     const slipOpts = document.getElementById("divisionSlipOpts");
+    const slipReceivedWrap = document.getElementById("divisionSlipReceivedWrap");
     const radios = document.querySelectorAll('input[name="gen_choice"]');
 
     function syncGen() {
@@ -120,6 +121,9 @@
       radios.forEach((r) => { if (r.checked) choice = r.value; });
       show(transOpts, choice === "transmittal");
       show(slipOpts, hasOwnDivisionSlip && choice === "division_slip");
+      if (slipReceivedWrap) {
+        slipReceivedWrap.style.display = hasOwnDivisionSlip && choice === "division_slip" ? "grid" : "none";
+      }
 
       if (choice === "transmittal" && transOpts) {
         const any = transOpts.querySelector('input[type="radio"]:checked');
