@@ -1400,6 +1400,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           $divisionHead = resolve_division_head($conn, $myDivisionId);
           $flowRows = build_division_slip_flow_rows($conn, $docId, $myDivisionId, $actualUserFullName);
           $nameEntries = build_division_name_initial_entries($conn, $myDivisionId, (int)($divisionHead['id'] ?? 0));
+          $assignedTo = build_division_slip_assigned_to_label($conn, $docId);
 
           DivisionTrackingSlip::generateA4([
             "division_tracking_no" => $divisionSlipNo,
@@ -1412,6 +1413,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             "mpw_tracking_no"      => $tracking_no,
             "received_by"          => $actualUserFullName !== "" ? $actualUserFullName : trim((string)($_SESSION["full_name"] ?? "")),
             "received_datetime"    => (string)$divisionSlipReceivedDatetime,
+            "assigned_to"          => $assignedTo,
             "deadline_date"        => $deadlineAt ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("m/d/Y") : "",
             "deadline_time"        => $deadlineAt ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("g:i A") : "",
             "qr_url"               => $qrUrl,

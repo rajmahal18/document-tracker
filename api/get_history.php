@@ -609,6 +609,13 @@ try {
       $eventKey = (string)$payload["kind"];
     }
 
+    $routeKind = strtoupper(trim((string)($payload["route_kind"] ?? "")));
+    $isReferenceEvent = (
+      $routeKind === 'REFERENCE'
+      || (int)($payload['receive_only'] ?? 0) === 1
+      || (int)($payload['reference_only_without_branching'] ?? 0) === 1
+    );
+
     $actor = (string)($r["actor"] ?? "—");
     $actingPrincipalName = trim((string)($payload["acting_principal_name"] ?? ""));
     $actingLabel = trim((string)($payload["acting_label"] ?? ""));
@@ -733,6 +740,9 @@ try {
 
       case "sent":
         $title = "{$actor} sent the document";
+        if ($isReferenceEvent) {
+          $title = "{$actor} sent the document for reference";
+        }
         if ($branchSplitCount > 1) {
           $title .= " to {$branchSplitCount} recipients";
         }
@@ -740,6 +750,9 @@ try {
 
       case "forwarded":
         $title = "{$actor} forwarded the document";
+        if ($isReferenceEvent) {
+          $title = "{$actor} forwarded the document for reference";
+        }
         if ($branchSplitCount > 1) {
           $title .= " to {$branchSplitCount} recipients";
         }
@@ -781,6 +794,9 @@ try {
 
       case "received":
         $title = "{$actor} received the document";
+        if ($isReferenceEvent) {
+          $title = "{$actor} acknowledged a reference copy";
+        }
         break;
 
       case "branch_ended_here":
@@ -1054,10 +1070,16 @@ try {
           break;
         case 'received':
           $title = "{$safeDivision} received the document";
+          if ($isReferenceEvent) {
+            $title = "{$safeDivision} acknowledged a reference copy";
+          }
           break;
         case 'sent':
         case 'forwarded':
           $title = "{$safeDivision} forwarded the document";
+          if ($isReferenceEvent) {
+            $title = "{$safeDivision} forwarded the document for reference";
+          }
           break;
         case 'attachment_forwarded':
           $title = "{$safeDivision} forwarded attachment(s)";
@@ -1099,6 +1121,8 @@ try {
       "action" => $eventKey,
       "event_type" => $eventType,
       "title" => $title,
+      "is_reference_event" => $isReferenceEvent ? 1 : 0,
+      "route_kind" => $routeKind,
       "meta" => $meta,
       "branch_id" => $resolvedBranchId,
       "source_branch_id" => $sourceBranchId > 0 ? $sourceBranchId : null,

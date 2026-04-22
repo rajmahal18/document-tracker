@@ -505,7 +505,7 @@ $activeDocs = count(array_filter($documents, static fn(array $row): bool => strt
   <?php elseif ($activeTab === 'slip-order'): ?>
     <?php
       $previewHeads = array_slice(array_map(static fn(array $row): string => (string)($row['full_name'] ?? ''), $slipOrderUsers), 0, 4);
-      $previewCells = array_pad(array_merge($previewHeads, ['All Permanent', 'All J.O. Staff', 'All Staff']), 8, '');
+      $previewCells = array_pad(array_merge($previewHeads, ['All Permanent', 'All J.O. Staff', 'All Staff', 'Others: __________']), 8, '');
       $selectedSlipDivisionName = '';
       foreach ($adminDivisions as $division) {
         if ((int)($division['id'] ?? 0) === $selectedSlipDivisionId) {

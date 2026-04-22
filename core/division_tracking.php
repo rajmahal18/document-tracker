@@ -131,6 +131,76 @@ function division_tracking_slip_name_label(string $name): string
   return $initials !== '' ? ($compact . ' (' . $initials . ')') : $compact;
 }
 
+function build_division_slip_assigned_to_label(mysqli $conn, int $documentId): string
+{
+  if ($documentId <= 0) {
+    return '';
+  }
+
+  $labels = [];
+
+  if (workflow_branch_mode_enabled($conn)) {
+    $stmt = $conn->prepare("
+      SELECT
+        COALESCE(NULLIF(TRIM(u.full_name), ''), '') AS assignee_name,
+        COALESCE(NULLIF(TRIM(s.name), ''), '') AS section_name
+      FROM document_branches b
+      LEFT JOIN users u ON u.id = b.current_assignee_user_id
+      LEFT JOIN sections s ON s.id = b.current_assignee_section_id
+      WHERE b.document_id = ?
+        AND b.branch_status = 'ACTIVE'
+        AND b.is_reference = 0
+      ORDER BY b.id ASC
+      LIMIT 8
+    ");
+    $stmt->bind_param('i', $documentId);
+    $stmt->execute();
+    foreach ($stmt->get_result()->fetch_all(MYSQLI_ASSOC) ?: [] as $row) {
+      $name = trim((string)($row['assignee_name'] ?? ''));
+      $section = trim((string)($row['section_name'] ?? ''));
+      $label = $name !== '' ? $name : $section;
+      if ($name !== '' && $section !== '') {
+        $label = $name . ' (' . $section . ')';
+      }
+      if ($label !== '') {
+        $labels[] = $label;
+      }
+    }
+  }
+
+  if ($labels === []) {
+    $stmt = $conn->prepare("
+      SELECT
+        COALESCE(NULLIF(TRIM(u.full_name), ''), '') AS to_user_name,
+        COALESCE(NULLIF(TRIM(s.name), ''), '') AS to_section_name
+      FROM routes r
+      LEFT JOIN users u ON u.id = r.to_user_id
+      LEFT JOIN sections s ON s.id = r.to_section_id
+      WHERE r.document_id = ?
+        AND r.received_at IS NULL
+        AND r.cancelled_at IS NULL
+      ORDER BY r.sent_at ASC, r.id ASC
+      LIMIT 8
+    ");
+    $stmt->bind_param('i', $documentId);
+    $stmt->execute();
+    foreach ($stmt->get_result()->fetch_all(MYSQLI_ASSOC) ?: [] as $row) {
+      $name = trim((string)($row['to_user_name'] ?? ''));
+      $section = trim((string)($row['to_section_name'] ?? ''));
+      $label = $name !== '' ? $name : $section;
+      if ($name !== '' && $section !== '') {
+        $label = $name . ' (' . $section . ')';
+      }
+      if ($label !== '') {
+        $labels[] = $label;
+      }
+    }
+  }
+
+  $labels = array_values(array_unique($labels));
+  return normalize_pdf_text(implode(', ', $labels));
+}
+
 function get_division_slip_head_staff(mysqli $conn, int $divisionId, int $excludeUserId = 0): array
 {
   ensure_division_tracking_tables($conn);
@@ -178,7 +248,7 @@ function get_division_slip_head_staff(mysqli $conn, int $divisionId, int $exclud
 
 function build_division_name_initial_entries(mysqli $conn, int $divisionId, int $excludeUserId = 0, int $limit = 8): array
 {
-  $generalEntries = ['All Permanent Staff', 'All J.O. Staff', 'All Staff'];
+  $generalEntries = ['All Permanent Staff', 'All J.O. Staff', 'All Staff', 'Others: _____________________'];
   $headLimit = min(4, max(0, $limit - count($generalEntries)));
   $rows = get_division_slip_head_staff($conn, $divisionId, $excludeUserId);
   $out = [];

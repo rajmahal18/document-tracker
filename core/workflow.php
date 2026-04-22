@@ -233,6 +233,140 @@ function workflow_find_single_actionable_branch(mysqli $conn, int $documentId, i
     return $rows[0];
 }
 
+function workflow_repair_reference_only_source_lanes(mysqli $conn): void
+{
+    if (!workflow_has_table($conn, 'document_branches') || !workflow_has_table($conn, 'document_events')) {
+        return;
+    }
+
+    try {
+        $sql = "
+          SELECT DISTINCT
+            b.id AS branch_id,
+            COALESCE(
+              NULLIF(CAST(JSON_UNQUOTE(JSON_EXTRACT(e.payload_json, '$.acting_principal_user_id')) AS UNSIGNED), 0),
+              e.actor_user_id
+            ) AS assignee_user_id,
+            COALESCE(
+              NULLIF(CAST(JSON_UNQUOTE(JSON_EXTRACT(e.payload_json, '$.from_section_id')) AS UNSIGNED), 0),
+              e.actor_section_id
+            ) AS assignee_section_id
+          FROM document_branches b
+          JOIN document_events e
+            ON e.document_id = b.document_id
+           AND e.event_type = 'forwarded'
+          WHERE b.branch_status = 'COMPLETED'
+            AND b.is_reference = 0
+            AND CAST(JSON_UNQUOTE(JSON_EXTRACT(e.payload_json, '$.source_branch_id')) AS UNSIGNED) = b.id
+            AND JSON_UNQUOTE(JSON_EXTRACT(e.payload_json, '$.receive_only')) IN ('true', '1')
+            AND NOT EXISTS (
+              SELECT 1
+              FROM document_events e_later
+              WHERE e_later.document_id = b.document_id
+                AND e_later.id > e.id
+                AND e_later.event_type = 'updated'
+                AND JSON_UNQUOTE(JSON_EXTRACT(e_later.payload_json, '$.kind')) IN ('branch_ended_here', 'document_ended_here')
+            )
+          LIMIT 200
+        ";
+        $rows = $conn->query($sql)->fetch_all(MYSQLI_ASSOC) ?: [];
+        if ($rows === []) {
+            return;
+        }
+
+        $stmt = $conn->prepare("
+          UPDATE document_branches
+          SET branch_status = 'ACTIVE',
+              current_assignee_user_id = ?,
+              current_assignee_section_id = ?,
+              updated_at = NOW()
+          WHERE id = ?
+            AND branch_status = 'COMPLETED'
+            AND is_reference = 0
+        ");
+
+        foreach ($rows as $row) {
+            $assigneeUserId = (int)($row['assignee_user_id'] ?? 0);
+            $assigneeSectionId = (int)($row['assignee_section_id'] ?? 0);
+            $branchId = (int)($row['branch_id'] ?? 0);
+            if ($assigneeUserId <= 0 || $assigneeSectionId <= 0 || $branchId <= 0) {
+                continue;
+            }
+            $stmt->bind_param('iii', $assigneeUserId, $assigneeSectionId, $branchId);
+            $stmt->execute();
+        }
+    } catch (Throwable $e) {
+        // Best-effort compatibility repair; normal page rendering should continue.
+    }
+}
+
+function workflow_repair_reference_only_routes(mysqli $conn): void
+{
+    if (!workflow_has_table($conn, 'routes') || !workflow_has_table($conn, 'document_events')) {
+        return;
+    }
+
+    try {
+        $conn->query("
+          UPDATE routes r
+          JOIN document_events e
+            ON e.document_id = r.document_id
+           AND e.event_type = 'forwarded'
+           AND JSON_UNQUOTE(JSON_EXTRACT(e.payload_json, '$.send_batch_id')) = r.send_batch_id
+          SET r.route_kind = 'REFERENCE',
+              r.received_at = CASE
+                WHEN EXISTS (
+                  SELECT 1
+                  FROM document_events e_recv
+                  WHERE e_recv.document_id = r.document_id
+                    AND e_recv.event_type = 'received'
+                    AND JSON_UNQUOTE(JSON_EXTRACT(e_recv.payload_json, '$.send_batch_id')) = r.send_batch_id
+                    AND CAST(JSON_UNQUOTE(JSON_EXTRACT(e_recv.payload_json, '$.to_user_id')) AS UNSIGNED) = r.to_user_id
+                ) THEN r.received_at
+                ELSE NULL
+              END,
+              r.received_by_user_id = CASE
+                WHEN EXISTS (
+                  SELECT 1
+                  FROM document_events e_recv
+                  WHERE e_recv.document_id = r.document_id
+                    AND e_recv.event_type = 'received'
+                    AND JSON_UNQUOTE(JSON_EXTRACT(e_recv.payload_json, '$.send_batch_id')) = r.send_batch_id
+                    AND CAST(JSON_UNQUOTE(JSON_EXTRACT(e_recv.payload_json, '$.to_user_id')) AS UNSIGNED) = r.to_user_id
+                ) THEN r.received_by_user_id
+                ELSE NULL
+              END
+          WHERE r.route_kind = 'ACTION'
+            AND JSON_UNQUOTE(JSON_EXTRACT(e.payload_json, '$.receive_only')) IN ('true', '1')
+            AND r.cancelled_at IS NULL
+        ");
+
+        $conn->query("
+          UPDATE routes r
+          JOIN document_events e
+            ON e.document_id = r.document_id
+           AND e.event_type = 'forwarded'
+           AND JSON_UNQUOTE(JSON_EXTRACT(e.payload_json, '$.send_batch_id')) = r.send_batch_id
+          SET r.received_at = NULL,
+              r.received_by_user_id = NULL
+          WHERE r.route_kind = 'REFERENCE'
+            AND r.received_at IS NOT NULL
+            AND JSON_UNQUOTE(JSON_EXTRACT(e.payload_json, '$.receive_only')) IN ('true', '1')
+            AND r.cancelled_at IS NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM document_events e_recv
+              WHERE e_recv.document_id = r.document_id
+                AND e_recv.event_type = 'received'
+                AND JSON_UNQUOTE(JSON_EXTRACT(e_recv.payload_json, '$.send_batch_id')) = r.send_batch_id
+                AND CAST(JSON_UNQUOTE(JSON_EXTRACT(e_recv.payload_json, '$.to_user_id')) AS UNSIGNED) = r.to_user_id
+            )
+        ");
+    } catch (Throwable $e) {
+        // Best-effort compatibility repair; normal page rendering should continue.
+    }
+}
+
 function workflow_user_can_act_legacy_document(mysqli $conn, int $documentId, int $userId, int $sectionId, bool $isChief, bool $allowReleased = false): bool
 {
     if ($documentId <= 0 || $userId <= 0 || $sectionId <= 0) {
@@ -260,6 +394,7 @@ function workflow_user_can_act_legacy_document(mysqli $conn, int $documentId, in
             SELECT 1
             FROM routes r_open
             WHERE r_open.document_id = d.id
+              AND r_open.route_kind = 'ACTION'
               AND r_open.received_at IS NULL
               AND r_open.cancelled_at IS NULL
               AND NOT EXISTS (
@@ -272,6 +407,7 @@ function workflow_user_can_act_legacy_document(mysqli $conn, int $documentId, in
             SELECT 1
             FROM routes r_any_received
             WHERE r_any_received.document_id = d.id
+              AND r_any_received.route_kind = 'ACTION'
               AND r_any_received.received_at IS NOT NULL
               AND r_any_received.cancelled_at IS NULL
               AND NOT EXISTS (
@@ -316,6 +452,7 @@ function workflow_user_can_act_legacy_document(mysqli $conn, int $documentId, in
         SELECT r.to_user_id, r.to_section_id
         FROM routes r
         WHERE r.document_id = ?
+          AND r.route_kind = 'ACTION'
           AND r.received_at IS NOT NULL
           AND r.cancelled_at IS NULL
           AND NOT EXISTS (
@@ -433,7 +570,6 @@ function workflow_get_branch_state(mysqli $conn, int $documentId, int $viewerUse
             && (int)$row['is_reference'] === 0
             && (int)$row['current_assignee_user_id'] === $viewerUserId
             && (int)$row['my_pending_route_id'] === 0
-            && (int)$row['open_action_route_count'] === 0
         ) ? 1 : 0;
 
         $row['can_undo_end_here'] = (

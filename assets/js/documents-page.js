@@ -1070,25 +1070,31 @@
     }
 
     const savedBranchId = loadPreferredBranchId(currentPayload?.id || 0);
-    const savedBranchStillVisible =
-      savedBranchId > 0 &&
-      visibleBranches.some((b) => Number(b.id || 0) === savedBranchId);
+    const savedBranch = visibleBranches.find((b) => Number(b.id || 0) === savedBranchId) || null;
+    const currentBranch = visibleBranches.find((b) => Number(b.id || 0) === Number(currentBranchId || 0)) || null;
 
-    const currentBranchStillVisible =
-      Number(currentBranchId || 0) > 0 &&
-      visibleBranches.some((b) => Number(b.id || 0) === Number(currentBranchId || 0));
+    const myPending = visibleBranches.find((b) => Number(b.my_pending_route_id || 0) > 0) || null;
+    const myActionable = visibleBranches.find((b) => Number(b.can_forward || 0) === 1) || null;
 
-    const myPending = visibleBranches.find((b) => Number(b.my_pending_route_id || 0) > 0);
-    const myActionable = visibleBranches.find((b) => Number(b.can_forward || 0) === 1);
+    const isActionableBranch = (branch) => !!(
+      branch && (
+        Number(branch.my_pending_route_id || 0) > 0
+        || Number(branch.can_forward || 0) === 1
+      )
+    );
 
-    if (preserveSelection && currentBranchStillVisible) {
+    const hasMyWorkingLane = !!(myPending || myActionable);
+
+    if (preserveSelection && currentBranch && (!hasMyWorkingLane || isActionableBranch(currentBranch))) {
       // keep current selection stable while refreshing the drawer
-    } else if (savedBranchStillVisible) {
-      currentBranchId = savedBranchId;
     } else if (myPending) {
       currentBranchId = Number(myPending.id || 0);
     } else if (myActionable) {
       currentBranchId = Number(myActionable.id || 0);
+    } else if (savedBranch) {
+      currentBranchId = Number(savedBranch.id || 0);
+    } else if (currentBranch) {
+      currentBranchId = Number(currentBranch.id || 0);
     } else {
       currentBranchId = preferredBranchId(visibleBranches);
     }
@@ -1696,6 +1702,11 @@
     return "";
   }
 
+  function isReferenceTimelineEvent(i) {
+    return Number(i?.is_reference_event || 0) === 1
+      || (i?.route_kind || "").toString().toUpperCase() === "REFERENCE";
+  }
+
   function ackSummaryListHtml(items, emptyLabel, opts = {}) {
     const rows = Array.isArray(items) ? items : [];
     const compact = !!opts.compact;
@@ -1981,7 +1992,11 @@
           const branchLabelText = clean(i.branch_label);
           const ackSummaryHtml = renderAckSummary(i);
           const attachmentTaskSummaryHtml = renderAttachmentTaskSummary(i);
+          const isReferenceEvent = isReferenceTimelineEvent(i);
 
+          if (isReferenceEvent) {
+            details.push(`<span class="tChip">FOR REFERENCE</span>`);
+          }
           if (
             currentBranchMode &&
             branchLabelText &&
@@ -2015,6 +2030,7 @@
 
                   <div class="tRight">
                     ${isCurrent ? `<span class="tBadge">LATEST</span>` : ``}
+                    ${isReferenceEvent ? `<span class="tBadge">FOR REFERENCE</span>` : ``}
                     <div class="tAction">${esc(prettyAction(actionKey).toUpperCase())}</div>
                   </div>
                 </div>
@@ -2149,7 +2165,11 @@
                   const branchLabelText = clean(i.branch_label);
                   const ackSummaryHtml = renderAckSummary(i, { compact: true });
                   const attachmentTaskSummaryHtml = renderAttachmentTaskSummary(i, { compact: true });
+                  const isReferenceEvent = isReferenceTimelineEvent(i);
 
+                  if (isReferenceEvent) {
+                    details.push("FOR REFERENCE");
+                  }
                   if (
                     currentBranchMode &&
                     branchLabelText &&
@@ -2178,6 +2198,7 @@
                       <div class="tLineLeft">
                         <span class="tLineTime">${esc(fmt(i.acted_at))}</span>
                         <span class="tLineTag">${esc(prettyAction(actionKey).toUpperCase())}</span>
+                        ${isReferenceEvent ? `<span class="tLineTag">FOR REFERENCE</span>` : ``}
                       </div>
 
                       <div class="tLineRight">
@@ -2478,10 +2499,12 @@
 
     const myOpenRouteId = Number.parseInt(payload.my_open_route_id || "0", 10) || 0;
 
-    const canAckReceived = (!currentBranchMode && inTransit && (
+    const canAckReceived = (!currentBranchMode && (
       myOpenRouteId > 0 ||
+      (inTransit && (
       (openToUserId > 0 && myUserId > 0 && openToUserId === myUserId) ||
       (openToUserId === 0 && isChief && openToSectionId > 0 && mySectionId > 0 && openToSectionId === mySectionId)
+      ))
     ));
 
     const canAckReceivedPrivileged = (!currentBranchMode && inTransit && openToSectionId > 0 && mySectionId > 0 && openToSectionId === mySectionId);

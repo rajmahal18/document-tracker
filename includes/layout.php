@@ -101,6 +101,16 @@ $pageTitle = $pageTitle ?? "Document Tracker";
       <span class="navText">Home</span>
     </a>
 
+    <a href="https://mpwbarmm.com/ppd/admin/indexdocs_cside_funded1.php">
+      <span class="navIcon">$</span>
+      <span class="navText">Funded</span>
+    </a>
+
+    <a href="https://mpwbarmm.com/ppd/admin/viewdocs.php">
+      <span class="navIcon">#</span>
+      <span class="navText">Legacy Documents</span>
+    </a>
+
     <a href="#" class="navPlaceholder" onclick="event.preventDefault()">
       <span class="navIcon">◎</span>
       <span class="navText">Issuances</span>

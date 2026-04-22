@@ -349,8 +349,7 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
     $stmtRoute = $conn->prepare("\n      INSERT INTO routes\n        (document_id, branch_id, from_section_id, to_section_id, from_user_id, to_user_id, route_kind, send_batch_id, received_at, sent_by_user_id, remarks, personal_deadline_at)\n      VALUES\n        (?, ?, ?, ?, ?, ?, 'ACTION', ?, NULL, ?, ?, ?)\n    ");
 
     $forceReceiveOnly = $receiveOnly || count($recipients) > 1;
-    $sourceBranchParentId = (int)($sourceBranch['parent_branch_id'] ?? 0);
-    $referenceOnlyWithoutBranching = ($forceReceiveOnly && $sourceBranchParentId > 0);
+    $referenceOnlyWithoutBranching = $forceReceiveOnly;
 
     if (!$forceReceiveOnly && count($recipients) === 1) {
       // Normal single forward keeps the same actionable lane.
@@ -376,12 +375,12 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
 
     } elseif ($referenceOnlyWithoutBranching) {
       // Second-level branching stays on the same lane: no new child branches,
-      // but every recipient must still explicitly acknowledge receipt.
+      // and reference recipients do not lock the sender's actionable lane.
       $stmtReceiveOnlyRoute = $conn->prepare("
         INSERT INTO routes
           (document_id, branch_id, from_section_id, to_section_id, from_user_id, to_user_id, route_kind, send_batch_id, received_at, sent_by_user_id, remarks, personal_deadline_at)
         VALUES
-          (?, ?, ?, ?, ?, ?, 'ACTION', ?, NULL, ?, ?, ?)
+          (?, ?, ?, ?, ?, ?, 'REFERENCE', ?, NULL, ?, ?, ?)
       ");
 
       foreach ($recipients as $rid) {
@@ -440,7 +439,21 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
       }
     }
   } else {
-    $stmt = $conn->prepare("\n      INSERT INTO routes\n        (document_id, from_section_id, to_section_id, to_user_id, send_batch_id, received_at, sent_by_user_id, remarks, personal_deadline_at)\n      VALUES\n        (?, ?, ?, ?, ?, NULL, ?, ?, ?)\n    ");
+    if ($receiveOnly) {
+      $stmt = $conn->prepare("
+        INSERT INTO routes
+          (document_id, from_section_id, to_section_id, to_user_id, route_kind, send_batch_id, received_at, sent_by_user_id, remarks, personal_deadline_at)
+        VALUES
+          (?, ?, ?, ?, 'REFERENCE', ?, NULL, ?, ?, ?)
+      ");
+    } else {
+      $stmt = $conn->prepare("
+        INSERT INTO routes
+          (document_id, from_section_id, to_section_id, to_user_id, route_kind, send_batch_id, received_at, sent_by_user_id, remarks, personal_deadline_at)
+        VALUES
+          (?, ?, ?, ?, 'ACTION', ?, NULL, ?, ?, ?)
+      ");
+    }
 
     foreach ($recipients as $rid) {
       $rid = (int)$rid;
@@ -461,8 +474,8 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
     "remarks" => $routeRemarks,
     "send_batch_id" => $sendBatchId,
     "branch_mode" => $docHasRealBranches,
-    "receive_only" => $docHasRealBranches ? ($receiveOnly || count($recipients) > 1) : false,
-    "reference_only_without_branching" => $docHasRealBranches ? $referenceOnlyWithoutBranching : false,
+    "receive_only" => $docHasRealBranches ? ($receiveOnly || count($recipients) > 1) : $receiveOnly,
+    "reference_only_without_branching" => $docHasRealBranches ? $referenceOnlyWithoutBranching : $receiveOnly,
 
     "from_section_id" => $mySectionId,
     "to_section_id" => $toSectionId,

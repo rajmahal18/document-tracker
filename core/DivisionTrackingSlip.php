@@ -34,6 +34,7 @@ final class DivisionTrackingSlip
    *   document_date?:string,
    *   received_by?:string,
    *   received_datetime?:string,
+   *   assigned_to?:string,
    *   subject:string,
    *   deadline_date?:string,
    *   deadline_time?:string,
@@ -106,6 +107,17 @@ final class DivisionTrackingSlip
       return (float)$pdf->GetY();
     };
 
+    $fitFontSize = function(string $text, float $w, string $style = 'B', float $max = 8.4, float $min = 6.2) use ($pdf, $setFont): float {
+      $size = $max;
+      do {
+        $setFont($style, $size);
+        if ($pdf->GetStringWidth($text) <= $w || $size <= $min) {
+          return $size;
+        }
+        $size -= 0.2;
+      } while (true);
+    };
+
     // ---------- Page frame ----------
     $pageW = 210.0;
     $pageH = 297.0;
@@ -117,12 +129,12 @@ final class DivisionTrackingSlip
     $h0 = $pageH - ($y0 + 10.0);
 
     $pdf->SetDrawColor(0, 0, 0);
-    $pdf->SetLineWidth(0.7);
+    $pdf->SetLineWidth(0.35);
     $rect($x0, $y0, $w0, $h0);
 
     // ---------- Header with logos + QR ----------
-    $headerH = 30.0; // more space (less sikip)
-    $pdf->SetLineWidth(0.5);
+    $headerH = 23.8;
+    $pdf->SetLineWidth(0.35);
     $rect($x0, $y0, $w0, $headerH);
 
     $pad = 3.0;
@@ -170,16 +182,16 @@ final class DivisionTrackingSlip
 
     $pdf->SetTextColor(20, 24, 40);
     $setFont('B', 9.4);
-    $pdf->SetXY($centerX, $y0 + 5.0);
-    $pdf->Cell($centerW, 4.8, 'MINISTRY OF PUBLIC WORKS', 0, 1, 'C');
+    $pdf->SetXY($centerX, $y0 + 4.6);
+    $pdf->Cell($centerW, 4.3, 'MINISTRY OF PUBLIC WORKS', 0, 1, 'C');
 
-    $setFont('B', 8.7);
+    $setFont('B', 9.4);
     $pdf->SetX($centerX);
-    $pdf->Cell($centerW, 4.8, $divisionName !== '' ? strtoupper($divisionName) : 'DIVISION', 0, 1, 'C');
+    $pdf->Cell($centerW, 4.3, $divisionName !== '' ? strtoupper($divisionName) : 'DIVISION', 0, 1, 'C');
 
-    $setFont('B', 10.4);
+    $setFont('B', 9.4);
     $pdf->SetX($centerX);
-    $pdf->Cell($centerW, 6.2, 'DOCUMENT TRACKING SLIP', 0, 1, 'C');
+    $pdf->Cell($centerW, 5.1, 'DOCUMENT TRACKING SLIP', 0, 1, 'C');
 
     // ---------- Tracking No row ----------
     $y = $y0 + $headerH;
@@ -190,12 +202,13 @@ final class DivisionTrackingSlip
     $rightW = $w0 - $leftW;
     $line($x0 + $leftW, $y, $x0 + $leftW, $y + $rowH);
 
-    $txt($x0 + 2, $y + 2.2, 'MPW Tracking No.:', '', 8.0);
+    $txt($x0 + 2, $y + 2.2, 'MPW-TS Tracking No.:', '', 8.0);
     $txt($x0 + $leftW + 2, $y + 2.2, ($divisionCode !== '' ? $divisionCode : 'Division') . ' Tracking No.:', '', 8.0);
 
+    $fieldValueSize = 9.0;
     $mpwNo = trim((string)($data['mpw_tracking_no'] ?? ''));
-    $txt($x0 + 2, $y + 6.8, $mpwNo, 'B', 10.2);
-    $txt($x0 + $leftW + 2, $y + 6.8, $divisionNo, 'B', 10.2);
+    $txt($x0 + 2, $y + 6.8, $mpwNo, 'B', $fieldValueSize);
+    $txt($x0 + $leftW + 2, $y + 6.8, $divisionNo, 'B', $fieldValueSize);
 
     $y += $rowH;
 
@@ -211,7 +224,7 @@ final class DivisionTrackingSlip
     $c3 = $rightW - $c1 - $c2;
 
     $xR = $x0 + $leftW;
-    $docTypeW = $c1;
+    $docTypeW = $leftW * 0.32;
     $fromW = $leftW - $docTypeW;
     $xDocType = $x0 + $fromW;
 
@@ -219,11 +232,18 @@ final class DivisionTrackingSlip
     $line($xR + $c1, $y, $xR + $c1, $y + $rowH2);
     $line($xR + $c1 + $c2, $y, $xR + $c1 + $c2, $y + $rowH2);
 
-    $txt($x0 + 2, $y + 2.0, 'From (If Applicable):', '', 8.0);
-    $txt($xDocType + 2, $y + 2.0, 'Document Type:', '', 7.2);
-    $txt($xR + 2, $y + 2.0, 'Document Date:', '', 8.0);
-    $txt($xR + $c1 + 2, $y + 2.0, 'Received by:', '', 8.0);
-    $wrap($xR + $c1 + $c2 + 2, $y + 1.6, $c3 - 4, "Received Date\nand Time:", '', 7.0, 3.4, 'L');
+    $metaLabelY = $y + 2.0;
+    $metaValueY = $y + 10.2;
+    $metaLabelSize = 7.8;
+    $metaValueSize = $fieldValueSize;
+    $metaValueLineHeight = 3.8;
+    $receivedByValueY = $metaValueY + 0.8;
+
+    $txt($x0 + 2, $metaLabelY, 'From (if applicable):', '', $metaLabelSize);
+    $txt($xDocType + 2, $metaLabelY, 'Document Type:', '', $metaLabelSize);
+    $txt($xR + 2, $metaLabelY, 'Document Date:', '', $metaLabelSize);
+    $txt($xR + $c1 + 2, $metaLabelY, 'Received by:', '', $metaLabelSize);
+    $wrap($xR + $c1 + $c2 + 2, $metaLabelY, $c3 - 4, "Received Date\nand Time:", '', $metaLabelSize, 3.1, 'L');
 
     $from = trim((string)($data['from_label'] ?? ''));
     $docType = trim((string)($data['document_type'] ?? ($data['content_type'] ?? '')));
@@ -231,22 +251,53 @@ final class DivisionTrackingSlip
     $receivedBy = strtoupper(trim((string)($data['received_by'] ?? '')));
     $receivedDT = trim((string)($data['received_datetime'] ?? ''));
 
-    $wrap($x0 + 2, $y + 6.4, $fromW - 4, $from, 'B', 9.1, 4.2, 'L');
-    $wrap($xDocType + 2, $y + 7.4, $docTypeW - 4, $docType, 'B', 8.2, 3.8, 'L');
-    $txt($xR + 2, $y + 7.4, $docDate, 'B', 9.0);
-    $wrap($xR + $c1 + 2, $y + 10.6, $c2 - 4, $receivedBy, 'B', 8.0, 3.5, 'L');
-    $wrap($xR + $c1 + $c2 + 2, $y + 9.8, $c3 - 4, $receivedDT, 'B', 8.2, 3.8, 'L');
+    $wrap($x0 + 2, $metaValueY, $fromW - 4, $from, 'B', $metaValueSize, $metaValueLineHeight, 'L');
+    $docTypeMaxW = $docTypeW - 4;
+    $docTypeFontSize = $fitFontSize($docType, $docTypeMaxW, 'B', $metaValueSize, 6.4);
+    $setFont('B', $docTypeFontSize);
+    if ($docType === '' || $pdf->GetStringWidth($docType) <= $docTypeMaxW) {
+      $pdf->SetXY($xDocType + 2, $metaValueY);
+      $pdf->Cell($docTypeMaxW, 5.0, $docType, 0, 0, 'L');
+    } else {
+      $wrap($xDocType + 2, $y + 8.3, $docTypeMaxW, $docType, 'B', $docTypeFontSize, 3.2, 'L');
+    }
+    $txt($xR + 2, $metaValueY, $docDate, 'B', $metaValueSize);
+    $wrap($xR + $c1 + 2, $receivedByValueY, $c2 - 4, $receivedBy, 'B', $metaValueSize, $metaValueLineHeight, 'L');
+    $wrap($xR + $c1 + $c2 + 2, $metaValueY, $c3 - 4, $receivedDT, 'B', $metaValueSize, $metaValueLineHeight, 'L');
 
     $y += $rowH2;
 
     // ---------- Subject ----------
-    $rowH3 = 22.8; // use the space freed by the shorter names block
+    $rowH3 = 29.0;
     $rect($x0, $y, $w0, $rowH3);
 
-    $txt($x0 + 2, $y + 2.2, 'SUBJECT:', '', 8.0);
+    $txt($x0 + 2, $y + 2.2, 'Subject:', '', 8.0);
     $wrap($x0 + 18, $y + 2.2, $w0 - 20, $subject, 'B', 9.2, 4.4, 'L');
 
     $y += $rowH3;
+
+    // ---------- Assigned To ----------
+    $assignedRowH = 7.2;
+    $assignedSectionY = $y;
+    $txt($x0 + 2, $y + 1.1, 'Assigned to:', '', 7.8);
+    $assignedTo = trim((string)($data['assigned_to'] ?? ''));
+    $assignedX = $x0 + 21.0;
+    $assignedW = $w0 - 23.0;
+    $assignedFontSize = 8.6;
+    do {
+      $setFont('B', $assignedFontSize);
+      if ($pdf->GetStringWidth($assignedTo) <= $assignedW || $assignedFontSize <= 6.4) {
+        break;
+      }
+      $assignedFontSize -= 0.2;
+    } while (true);
+    while ($assignedTo !== '' && $pdf->GetStringWidth($assignedTo) > $assignedW) {
+      $assignedTo = rtrim(substr($assignedTo, 0, -4)) . '...';
+    }
+    $pdf->SetXY($assignedX, $y + 1.1);
+    $pdf->Cell($assignedW, 5.0, $assignedTo, 0, 0, 'L');
+
+    $y += $assignedRowH;
 
     // ---------- Names block ----------
     $pdf->SetTextColor(20, 24, 40);
@@ -263,18 +314,9 @@ final class DivisionTrackingSlip
     $namesH = $rows * $rH;
     $colW = $w0 / $cols;
 
-    $rect($x0, $y, $w0, $namesH);
+    $rect($x0, $assignedSectionY, $w0, $assignedRowH + $namesH);
 
-    for ($col = 1; $col < $cols; $col++) {
-      $lineX = $x0 + ($col * $colW);
-      $line($lineX, $y, $lineX, $y + $namesH);
-    }
-    for ($rowLine = 1; $rowLine < $rows; $rowLine++) {
-      $lineY = $y + ($rowLine * $rH);
-      $line($x0, $lineY, $x0 + $w0, $lineY);
-    }
-
-    $setFont('B', 6.6);
+    $setFont('B', 8.0);
     for ($idx = 0; $idx < 8; $idx++) {
       $col = $idx % $cols;
       $row = intdiv($idx, $cols);
@@ -285,8 +327,8 @@ final class DivisionTrackingSlip
 
       $label = self::pdfText((string)($entries[$idx] ?? ''));
       if ($label !== '') {
-        $pdf->SetXY($cellX + 8.4, $cellY + 1.4);
-        $pdf->MultiCell($colW - 10.8, 3.2, $label, 0, 'L');
+        $pdf->SetXY($cellX + 8.4, $cellY + 1.2);
+        $pdf->MultiCell($colW - 10.8, 3.6, $label, 0, 'L');
       }
     }
 
@@ -296,7 +338,7 @@ final class DivisionTrackingSlip
     $actionsH = 71.0;
     $rect($x0, $y, $w0, $actionsH);
 
-    $actionsW = 54.0;
+    $actionsW = $w0 * 0.28;
     $remarksX = $x0 + $actionsW;
     $remarksW = $w0 - $actionsW;
     $deadlineY = $y + $actionsH - 7.0;
@@ -304,22 +346,23 @@ final class DivisionTrackingSlip
 
     $line($remarksX, $y, $remarksX, $y + $actionsH);
 
-    $txt($x0 + 2, $y + 1.0, 'ACTIONS TO BE UNDERTAKEN', 'B', 7.6);
-    $txt($remarksX + 2, $y + 1.0, 'REMARKS/INSTRUCTIONS:', 'B', 7.8);
+    $txt($x0 + 2, $y + 1.0, 'Actions to be undertaken', 'B', 7.6);
+    $txt($remarksX + 2, $y + 1.0, 'Remarks/Instructions:', 'B', 7.8);
 
     $actionItems = [
-      'For Information/Reference',
-      'For Review/Evaluation',
-      'For Dissemination',
-      'For Appropriate Action',
-      'For Endorsement',
-      'For Compliance',
-      'For Comments/Recommendations',
-      'For Coordination',
-      'Prepare Response',
-      'For Validation/Verification',
-      'For Filing',
-      'See Me',
+      'URGENT!!! PLEASE RUSH!',
+      'See me/Let\'s discuss',
+      'For information/reference',
+      'For comments/recommendations',
+      'For survey/validation',
+      'For appropriate action',
+      'For review/evaluation',
+      'Prepare response',
+      'For coordination',
+      'For compliance',
+      'For endorsement/signature',
+      'For dissemination',
+      'For filing',
     ];
 
     $setFont('', 8.0);
@@ -348,12 +391,12 @@ final class DivisionTrackingSlip
 
     $deadDate = trim((string)($data['deadline_date'] ?? ''));
 
-    $txt($x0 + 2, $deadlineY + 1.0, 'DEADLINE:', 'B', 7.0);
+    $txt($x0 + 2, $deadlineY + 1.0, 'Deadline:', 'B', 7.0);
     $line($x0 + 18.5, $deadlineY + 5.0, $x0 + 42.0, $deadlineY + 5.0);
-    $txt($remarksX + 2, $deadlineY + 1.0, 'DATE:', 'B', 7.0);
+    $txt($remarksX + 2, $deadlineY + 1.0, 'Date:', 'B', 7.0);
     $txt($remarksX + 18.0, $deadlineY + 1.0, $deadDate, 'B', 8.0);
     $line($remarksX + 13.0, $deadlineY + 5.0, $remarksX + 52.0, $deadlineY + 5.0);
-    $pdf->SetLineWidth(0.5);
+    $pdf->SetLineWidth(0.35);
 
     $y += $actionsH;
     // ---------- Movement log table ----------
@@ -398,13 +441,18 @@ final class DivisionTrackingSlip
     }
 
     $setFont('B', 6.8);
-    $headY = $tableY + 1.2;
-    $pdf->SetXY($xC1 + 0.8, $headY); $pdf->MultiCell($c1 - 1.6, 2.7, 'Receive Date/Time', 0, 'C');
-    $pdf->SetXY($xC2 + 0.8, $headY); $pdf->MultiCell($c2 - 1.6, 2.7, 'From', 0, 'C');
-    $pdf->SetXY($xC3 + 0.8, $headY); $pdf->MultiCell($c3 - 1.6, 2.7, 'Forward Date/Time', 0, 'C');
-    $pdf->SetXY($xC4 + 0.8, $headY); $pdf->MultiCell($c4 - 1.6, 2.7, 'To', 0, 'C');
-    $pdf->SetXY($xC5 + 0.8, $headY); $pdf->MultiCell($c5 - 1.6, 2.7, 'Actions/Other Instructions/Remarks', 0, 'C');
-    $pdf->SetXY($xC6 + 0.8, $headY); $pdf->MultiCell($c6 - 1.6, 2.7, 'Signature', 0, 'C');
+    $headerCell = function(float $x, float $w, string $text, int $lines = 1) use ($pdf, $tableY, $hdrH): void {
+      $lh = 2.7;
+      $textH = $lines * $lh;
+      $pdf->SetXY($x + 0.8, $tableY + (($hdrH - $textH) / 2.0) - 0.8);
+      $pdf->MultiCell($w - 1.6, $lh, $text, 0, 'C');
+    };
+    $headerCell($xC1, $c1, "Received\nDate & Time", 2);
+    $headerCell($xC2, $c2, 'From');
+    $headerCell($xC3, $c3, "Forwarded\nDate & Time", 2);
+    $headerCell($xC4, $c4, 'To');
+    $headerCell($xC5, $c5, 'Actions/Other Instructions/Remarks');
+    $headerCell($xC6, $c6, 'Signature');
 
     $flowRows = $data['flow_rows'] ?? [];
     if (is_array($flowRows) && $flowRows !== []) {

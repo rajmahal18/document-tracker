@@ -49,12 +49,12 @@ try {
 
   if ($docHasRealBranches) {
     if ($routeId > 0) {
-      $stmt = $conn->prepare("\n        SELECT\n          r.id AS route_id,\n          r.branch_id,\n          r.from_section_id,\n          r.to_section_id,\n          r.to_user_id,\n          r.send_batch_id,\n          d.current_status\n        FROM routes r\n        JOIN documents d ON d.id = r.document_id\n        WHERE r.id = ?\n          AND r.document_id = ?\n          AND r.received_at IS NULL\n          AND r.cancelled_at IS NULL\n          AND r.route_kind = 'ACTION'\n          AND r.to_user_id = ?\n        LIMIT 1\n      ");
+      $stmt = $conn->prepare("\n        SELECT\n          r.id AS route_id,\n          r.branch_id,\n          r.from_section_id,\n          r.to_section_id,\n          r.to_user_id,\n          r.route_kind,\n          r.send_batch_id,\n          d.current_status\n        FROM routes r\n        JOIN documents d ON d.id = r.document_id\n        WHERE r.id = ?\n          AND r.document_id = ?\n          AND r.received_at IS NULL\n          AND r.cancelled_at IS NULL\n          AND r.route_kind IN ('ACTION', 'REFERENCE')\n          AND r.to_user_id = ?\n        LIMIT 1\n      ");
       $stmt->bind_param("iii", $routeId, $docId, $principalUserId);
       $stmt->execute();
       $row = $stmt->get_result()->fetch_assoc();
     } else {
-      $stmt = $conn->prepare("\n        SELECT\n          r.id AS route_id,\n          r.branch_id,\n          r.from_section_id,\n          r.to_section_id,\n          r.to_user_id,\n          r.send_batch_id,\n          d.current_status\n        FROM routes r\n        JOIN documents d ON d.id = r.document_id\n        WHERE r.document_id = ?\n          AND r.received_at IS NULL\n          AND r.cancelled_at IS NULL\n          AND r.route_kind = 'ACTION'\n          AND r.to_user_id = ?\n        ORDER BY r.id DESC\n        LIMIT 2\n      ");
+      $stmt = $conn->prepare("\n        SELECT\n          r.id AS route_id,\n          r.branch_id,\n          r.from_section_id,\n          r.to_section_id,\n          r.to_user_id,\n          r.route_kind,\n          r.send_batch_id,\n          d.current_status\n        FROM routes r\n        JOIN documents d ON d.id = r.document_id\n        WHERE r.document_id = ?\n          AND r.received_at IS NULL\n          AND r.cancelled_at IS NULL\n          AND r.route_kind IN ('ACTION', 'REFERENCE')\n          AND r.to_user_id = ?\n        ORDER BY r.id DESC\n        LIMIT 2\n      ");
       $stmt->bind_param("ii", $docId, $principalUserId);
       $stmt->execute();
       $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -74,7 +74,7 @@ try {
       exit;
     }
   } else {
-    $stmt = $conn->prepare("\n      SELECT\n        r.id AS route_id,\n        r.from_section_id,\n        r.to_section_id,\n        r.to_user_id,\n        r.send_batch_id,\n        d.current_holder_section_id,\n        d.current_status\n      FROM routes r\n      JOIN documents d ON d.id = r.document_id\n      WHERE r.document_id = ?\n        AND r.received_at IS NULL\n        AND r.cancelled_at IS NULL\n        AND r.to_user_id = ?\n        AND (? <= 0 OR r.id = ?)\n      ORDER BY r.id DESC\n      LIMIT 1\n    ");
+    $stmt = $conn->prepare("\n      SELECT\n        r.id AS route_id,\n        r.from_section_id,\n        r.to_section_id,\n        r.to_user_id,\n        r.route_kind,\n        r.send_batch_id,\n        d.current_holder_section_id,\n        d.current_status\n      FROM routes r\n      JOIN documents d ON d.id = r.document_id\n      WHERE r.document_id = ?\n        AND r.received_at IS NULL\n        AND r.cancelled_at IS NULL\n        AND r.route_kind IN ('ACTION', 'REFERENCE')\n        AND r.to_user_id = ?\n        AND (? <= 0 OR r.id = ?)\n      ORDER BY r.id DESC\n      LIMIT 1\n    ");
     $stmt->bind_param("iiii", $docId, $userId, $routeId, $routeId);
     $stmt->execute();
     $row = $stmt->get_result()->fetch_assoc();
@@ -87,7 +87,7 @@ try {
         exit;
       }
 
-      $stmt = $conn->prepare("\n        SELECT\n          r.id AS route_id,\n          r.from_section_id,\n          r.to_section_id,\n          r.to_user_id,\n          r.send_batch_id,\n          d.current_holder_section_id,\n          d.current_status\n        FROM routes r\n        JOIN documents d ON d.id = r.document_id\n        WHERE r.document_id = ?\n          AND r.received_at IS NULL\n          AND r.cancelled_at IS NULL\n          AND r.to_section_id = ?\n          AND r.to_user_id IS NULL\n          AND (? <= 0 OR r.id = ?)\n        ORDER BY r.id DESC\n        LIMIT 1\n      ");
+      $stmt = $conn->prepare("\n        SELECT\n          r.id AS route_id,\n          r.from_section_id,\n          r.to_section_id,\n          r.to_user_id,\n          r.route_kind,\n          r.send_batch_id,\n          d.current_holder_section_id,\n          d.current_status\n        FROM routes r\n        JOIN documents d ON d.id = r.document_id\n        WHERE r.document_id = ?\n          AND r.received_at IS NULL\n          AND r.cancelled_at IS NULL\n          AND r.route_kind IN ('ACTION', 'REFERENCE')\n          AND r.to_section_id = ?\n          AND r.to_user_id IS NULL\n          AND (? <= 0 OR r.id = ?)\n        ORDER BY r.id DESC\n        LIMIT 1\n      ");
       $stmt->bind_param("iiii", $docId, $mySectionId, $routeId, $routeId);
       $stmt->execute();
       $row = $stmt->get_result()->fetch_assoc();
@@ -109,6 +109,7 @@ try {
   $fromSectionId = (int)$row["from_section_id"];
   $toSectionId   = (int)$row["to_section_id"];
   $toUserId      = ($row["to_user_id"] !== null ? (int)$row["to_user_id"] : null);
+  $routeKind     = strtoupper((string)($row["route_kind"] ?? "ACTION"));
   $docStatus     = strtoupper((string)($row["current_status"] ?? "ACTIVE"));
 
   if ($toSectionId !== $mySectionId) {
@@ -151,7 +152,7 @@ try {
     $isAttachmentForwardRoute = (bool)$stmtTaskRoute->get_result()->fetch_row();
   }
 
-  if (!$isAttachmentForwardRoute) {
+  if (!$isAttachmentForwardRoute && $routeKind === 'ACTION') {
     $stmt = $conn->prepare("
       UPDATE documents
       SET current_holder_section_id = ?,
@@ -192,6 +193,7 @@ try {
   $payload = json_encode([
     "remarks" => $eventRemarks,
     "receive_mode" => $docHasRealBranches ? 'user' : $receiveMode,
+    "route_kind" => $routeKind,
     "from_section_id" => $fromSectionId,
     "to_section_id" => $toSectionId,
     "to_user_id" => $toUserId,
@@ -218,7 +220,7 @@ try {
     "to_section_id" => $toSectionId,
     "receive_mode" => $docHasRealBranches ? 'user' : $receiveMode,
     "open_remaining" => $openRemaining,
-    "holder_updated" => !$isAttachmentForwardRoute,
+    "holder_updated" => (!$isAttachmentForwardRoute && $routeKind === 'ACTION'),
   ]);
   exit;
 

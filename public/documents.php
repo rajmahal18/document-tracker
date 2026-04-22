@@ -54,6 +54,12 @@ $sections = $conn->query("
 ")->fetch_all(MYSQLI_ASSOC);
 
 $branchMode = workflow_branch_mode_enabled($conn);
+if (function_exists('workflow_repair_reference_only_routes')) {
+  workflow_repair_reference_only_routes($conn);
+}
+if ($branchMode && function_exists('workflow_repair_reference_only_source_lanes')) {
+  workflow_repair_reference_only_source_lanes($conn);
+}
 $routePersonalDeadlineEnabled = workflow_has_column($conn, 'routes', 'personal_deadline_at');
 $documentContextSectionId = $assistantModeEnabled
   ? (int)($activeAssistantPrincipal['section_id'] ?? 0)
@@ -327,6 +333,12 @@ $myHasOpenInboundPredicate = "EXISTS (
         {$hasRealBranchesPredicate}
         AND r_in.route_kind = 'ACTION'
         AND r_in.to_user_id = {$myUid}
+        AND EXISTS (
+          SELECT 1
+          FROM document_branches b_in
+          WHERE b_in.id = r_in.branch_id
+            AND b_in.current_assignee_user_id = r_in.to_user_id
+        )
       )
       OR
       (
@@ -353,14 +365,6 @@ $myHasActionableRolePredicate = "(
         AND b_act2.branch_status = 'ACTIVE'
         AND b_act2.current_assignee_user_id = {$myUid}
         AND b_act2.is_reference = 0
-        AND NOT EXISTS (
-          SELECT 1
-          FROM routes r_act
-          WHERE r_act.branch_id = b_act2.id
-            AND r_act.route_kind = 'ACTION'
-            AND r_act.received_at IS NULL
-            AND r_act.cancelled_at IS NULL
-        )
     )
   )
   OR
@@ -376,6 +380,7 @@ $myHasActionableRolePredicate = "(
       SELECT 1
       FROM routes r_act_legacy
       WHERE r_act_legacy.document_id = d.id
+        AND r_act_legacy.route_kind = 'ACTION'
         AND r_act_legacy.received_at IS NULL
         AND r_act_legacy.cancelled_at IS NULL
     )
@@ -386,6 +391,7 @@ $myHasActionableRolePredicate = "(
           SELECT 1
           FROM routes r_received_any
           WHERE r_received_any.document_id = d.id
+            AND r_received_any.route_kind = 'ACTION'
             AND r_received_any.received_at IS NOT NULL
             AND r_received_any.cancelled_at IS NULL
         )
@@ -397,6 +403,7 @@ $myHasActionableRolePredicate = "(
           SELECT r_last_pick.id
           FROM routes r_last_pick
           WHERE r_last_pick.document_id = d.id
+            AND r_last_pick.route_kind = 'ACTION'
             AND r_last_pick.received_at IS NOT NULL
             AND r_last_pick.cancelled_at IS NULL
           ORDER BY r_last_pick.received_at DESC, r_last_pick.id DESC
@@ -877,6 +884,12 @@ $sql = "
               )
               AND r_in.route_kind = 'ACTION'
               AND r_in.to_user_id = {$myUid}
+              AND EXISTS (
+                SELECT 1
+                FROM document_branches b_in
+                WHERE b_in.id = r_in.branch_id
+                  AND b_in.current_assignee_user_id = r_in.to_user_id
+              )
             )
             OR
             (
@@ -907,14 +920,6 @@ $sql = "
           AND b_act2.branch_status = 'ACTIVE'
           AND b_act2.current_assignee_user_id = {$myUid}
           AND b_act2.is_reference = 0
-          AND NOT EXISTS (
-            SELECT 1
-            FROM routes r_act
-            WHERE r_act.branch_id = b_act2.id
-              AND r_act.route_kind = 'ACTION'
-              AND r_act.received_at IS NULL
-              AND r_act.cancelled_at IS NULL
-          )
       ) THEN 1
 
       WHEN NOT EXISTS (
@@ -928,6 +933,7 @@ $sql = "
         SELECT 1
         FROM routes r_act_legacy
         WHERE r_act_legacy.document_id = d.id
+          AND r_act_legacy.route_kind = 'ACTION'
           AND r_act_legacy.received_at IS NULL
           AND r_act_legacy.cancelled_at IS NULL
       )
@@ -938,6 +944,7 @@ $sql = "
             SELECT 1
             FROM routes r_received_any
             WHERE r_received_any.document_id = d.id
+              AND r_received_any.route_kind = 'ACTION'
               AND r_received_any.received_at IS NOT NULL
               AND r_received_any.cancelled_at IS NULL
           )
@@ -949,6 +956,7 @@ $sql = "
             SELECT r_last_pick.id
             FROM routes r_last_pick
             WHERE r_last_pick.document_id = d.id
+              AND r_last_pick.route_kind = 'ACTION'
               AND r_last_pick.received_at IS NOT NULL
               AND r_last_pick.cancelled_at IS NULL
             ORDER BY r_last_pick.received_at DESC, r_last_pick.id DESC
@@ -980,6 +988,7 @@ $sql = "
         SELECT 1
         FROM routes r_lifecycle_open
         WHERE r_lifecycle_open.document_id = d.id
+          AND r_lifecycle_open.route_kind = 'ACTION'
           AND r_lifecycle_open.received_at IS NULL
           AND r_lifecycle_open.cancelled_at IS NULL
       )
@@ -990,6 +999,7 @@ $sql = "
             SELECT 1
             FROM routes r_lifecycle_received_any
             WHERE r_lifecycle_received_any.document_id = d.id
+              AND r_lifecycle_received_any.route_kind = 'ACTION'
               AND r_lifecycle_received_any.received_at IS NOT NULL
               AND r_lifecycle_received_any.cancelled_at IS NULL
           )
@@ -1001,6 +1011,7 @@ $sql = "
             SELECT r_lifecycle_last_pick.id
             FROM routes r_lifecycle_last_pick
             WHERE r_lifecycle_last_pick.document_id = d.id
+              AND r_lifecycle_last_pick.route_kind = 'ACTION'
               AND r_lifecycle_last_pick.received_at IS NOT NULL
               AND r_lifecycle_last_pick.cancelled_at IS NULL
             ORDER BY r_lifecycle_last_pick.received_at DESC, r_lifecycle_last_pick.id DESC
@@ -1119,7 +1130,14 @@ $sql = "
       MIN(r.id) AS any_open_route_id,
       COUNT(*) AS open_count
     FROM routes r
-    WHERE r.received_at IS NULL AND r.cancelled_at IS NULL
+    LEFT JOIN document_branches b_open ON b_open.id = r.branch_id
+    WHERE r.received_at IS NULL
+      AND r.cancelled_at IS NULL
+      AND r.route_kind = 'ACTION'
+      AND (
+        r.branch_id IS NULL
+        OR b_open.current_assignee_user_id = r.to_user_id
+      )
     GROUP BY r.document_id
   ) ro ON ro.document_id = d.id
 

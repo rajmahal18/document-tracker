@@ -256,6 +256,7 @@ if ($receivedBy === '') {
 $head = resolve_division_head($conn, $divisionId);
 $flowRows = build_division_slip_flow_rows($conn, $docId, $divisionId, $receivedBy);
 $nameEntries = build_division_name_initial_entries($conn, $divisionId, (int)($head['id'] ?? 0));
+$assignedTo = build_division_slip_assigned_to_label($conn, $docId);
 $safeTracking = preg_replace('/[^A-Za-z0-9._-]+/', '_', (string)($doc['tracking_no'] ?? 'document')) ?: 'document';
 $safeDivision = preg_replace('/[^A-Za-z0-9._-]+/', '_', $divisionCode) ?: 'DIVISION';
 
@@ -312,6 +313,7 @@ DivisionTrackingSlip::generateA4([
   'document_date' => (string)($doc['document_date'] ?? ''),
   'received_by' => $receivedBy,
   'received_datetime' => $receivedDT,
+  'assigned_to' => $assignedTo,
   'subject' => (string)($doc['subject'] ?? ''),
   'deadline_date' => trim((string)($doc['deadline_at'] ?? '')) !== '' ? (new DateTime((string)$doc['deadline_at'], new DateTimeZone('Asia/Manila')))->format('m/d/Y') : '',
   'deadline_time' => trim((string)($doc['deadline_at'] ?? '')) !== '' ? (new DateTime((string)$doc['deadline_at'], new DateTimeZone('Asia/Manila')))->format('g:i A') : '',
