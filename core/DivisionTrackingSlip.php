@@ -152,28 +152,11 @@ final class DivisionTrackingSlip
       @$pdf->Image($logoRight, $x0 + $w0 - $pad - $logoSize, $logoY, $logoSize, $logoSize);
     }
 
-    // QR beside the right logo (move LEFT so it won't overlap)
     $tmpQrPath = null;
-    $qrSizeMm  = 16.0; // slightly smaller, cleaner
-    $gap = 2.0;
+    $qrSizeMm  = 16.0;
 
     if ($qrUrl !== '') {
       $tmpQrPath = self::makeQrPngEndroid($qrUrl);
-      if (!empty($tmpQrPath)) {
-
-        // OCM logo is at: x0 + w0 - pad - logoSize
-        // Put QR immediately LEFT of OCM logo with small gap
-        $qrX = $x0 + $w0 - $pad - $logoSize - $gap - $qrSizeMm;
-        $qrY = $logoY; // same top row as logos
-
-        // safety clamp inside header
-        if ($qrX < ($x0 + $pad)) $qrX = $x0 + $pad;
-        if (($qrY + $qrSizeMm) > ($y0 + $headerH - 1.5)) {
-          $qrY = ($y0 + $headerH - 1.5) - $qrSizeMm;
-        }
-
-        @$pdf->Image($tmpQrPath, $qrX, $qrY, $qrSizeMm, $qrSizeMm);
-      }
     }
 
     // center header text (leave space for logos)
@@ -181,17 +164,25 @@ final class DivisionTrackingSlip
     $centerW = $w0 - (2 * ($pad + $logoSize + 4.0));
 
     $pdf->SetTextColor(20, 24, 40);
+    $headerLineH = 4.3;
+    $headerTextH = ($headerLineH * 3) + 5.1;
+    $headerTextY = $y0 + (($headerH - $headerTextH) / 2.0);
+
     $setFont('B', 9.4);
-    $pdf->SetXY($centerX, $y0 + 4.6);
-    $pdf->Cell($centerW, 4.3, 'MINISTRY OF PUBLIC WORKS', 0, 1, 'C');
+    $pdf->SetXY($centerX, $headerTextY);
+    $pdf->Cell($centerW, $headerLineH, 'Bangsamoro Autonomous Region in Muslim Mindanao', 0, 1, 'C');
 
     $setFont('B', 9.4);
     $pdf->SetX($centerX);
-    $pdf->Cell($centerW, 4.3, $divisionName !== '' ? strtoupper($divisionName) : 'DIVISION', 0, 1, 'C');
+    $pdf->Cell($centerW, $headerLineH, 'Ministry of Public Works', 0, 1, 'C');
 
     $setFont('B', 9.4);
     $pdf->SetX($centerX);
-    $pdf->Cell($centerW, 5.1, 'DOCUMENT TRACKING SLIP', 0, 1, 'C');
+    $pdf->Cell($centerW, $headerLineH, $divisionName !== '' ? strtoupper($divisionName) : 'DIVISION', 0, 1, 'C');
+
+    $setFont('B', 9.4);
+    $pdf->SetX($centerX);
+    $pdf->Cell($centerW, 5.1, 'Document Tracking Slip', 0, 1, 'C');
 
     // ---------- Tracking No row ----------
     $y = $y0 + $headerH;
@@ -272,7 +263,15 @@ final class DivisionTrackingSlip
     $rect($x0, $y, $w0, $rowH3);
 
     $txt($x0 + 2, $y + 2.2, 'Subject:', '', 8.0);
-    $wrap($x0 + 18, $y + 2.2, $w0 - 20, $subject, 'B', 9.2, 4.4, 'L');
+    $subjectQrGap = 3.0;
+    $subjectTextW = $w0 - 20;
+    if (!empty($tmpQrPath) && is_file($tmpQrPath)) {
+      $subjectQrX = $x0 + $w0 - 2.0 - $qrSizeMm;
+      $subjectQrY = $y + (($rowH3 - $qrSizeMm) / 2.0);
+      @$pdf->Image($tmpQrPath, $subjectQrX, $subjectQrY, $qrSizeMm, $qrSizeMm);
+      $subjectTextW = ($subjectQrX - $subjectQrGap) - ($x0 + 18);
+    }
+    $wrap($x0 + 18, $y + 2.2, $subjectTextW, $subject, 'B', 9.2, 4.4, 'L');
 
     $y += $rowH3;
 
