@@ -27,7 +27,9 @@ $pageTitle = $pageTitle ?? "Document Tracker";
   <link rel="stylesheet" href="<?= asset_url("assets/css/base.css") ?>">
   <link rel="stylesheet" href="<?= asset_url("assets/css/components.css") ?>">
   <link rel="stylesheet" href="<?= asset_url("assets/css/app-shell.css") ?>">
+  <?php if (empty($disableLegacyOrgChartStyles)): ?>
   <link rel="stylesheet" href="<?= asset_url("assets/css/org-chart.css") ?>">
+  <?php endif; ?>
   <link rel="stylesheet" href="<?= asset_url("assets/css/documents.css") ?>">
   <?php if (!empty($pageStyles) && is_array($pageStyles)): ?>
     <?php foreach ($pageStyles as $href): ?>

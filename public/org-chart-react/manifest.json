@@ -1,0 +1,18 @@
+{
+  "index.html": {
+    "file": "assets/index-BgNkLhQG.js",
+    "name": "index",
+    "src": "index.html",
+    "isEntry": true,
+    "css": [
+      "assets/index-DigaM7qq.css"
+    ],
+    "assets": [
+      "assets/mpwlogo1-BAXFBqLe.png"
+    ]
+  },
+  "src/assets/mpwlogo1.png": {
+    "file": "assets/mpwlogo1-BAXFBqLe.png",
+    "src": "src/assets/mpwlogo1.png"
+  }
+}

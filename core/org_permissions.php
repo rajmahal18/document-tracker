@@ -12,13 +12,14 @@ function org_role_rank(string $authorityRole): int {
 }
 
 function current_org_editor_context(): array {
+  $sessionRole = strtolower(trim((string)($_SESSION['role'] ?? 'user')));
   return [
     'user_id' => (int)($_SESSION['user_id'] ?? 0),
     'division_id' => (int)($_SESSION['division_id'] ?? 0),
     'section_id' => (int)($_SESSION['section_id'] ?? 0),
     'authority_role' => trim((string)($_SESSION['authority_role'] ?? 'staff')),
     'role_rank' => org_role_rank(trim((string)($_SESSION['authority_role'] ?? 'staff'))),
-    'is_admin' => (string)($_SESSION['role'] ?? 'user') === 'admin',
+    'is_admin' => $sessionRole === 'admin',
   ];
 }
 
@@ -31,11 +32,14 @@ function can_edit_any_org_user(): bool {
 function can_edit_org_target(array $editor, array $target): bool {
   $editorId = (int)($editor['user_id'] ?? 0);
   $targetId = (int)($target['id'] ?? 0);
-  if ($editorId <= 0 || $targetId <= 0 || $editorId === $targetId) {
+  if ($editorId <= 0 || $targetId <= 0) {
     return false;
   }
   if (!empty($editor['is_admin'])) {
     return true;
+  }
+  if ($editorId === $targetId) {
+    return false;
   }
 
   $editorRole = trim((string)($editor['authority_role'] ?? 'staff'));

@@ -13,10 +13,18 @@ $hasUsername = username_column_exists($conn);
 $hasPermanent = db_column_exists($conn, "users", "permanent");
 $hasChiefAssistant = db_column_exists($conn, "users", "chief_assistant_user_id");
 $hasAssistantAssignments = assistant_assignments_table_ready($conn);
+$profilePhotoColumn = null;
+foreach (["profile_photo_url", "avatar_url", "photo_url"] as $candidatePhotoColumn) {
+  if (db_column_exists($conn, "users", $candidatePhotoColumn)) {
+    $profilePhotoColumn = $candidatePhotoColumn;
+    break;
+  }
+}
 
 $viewerDivisionId = (int)($_SESSION["division_id"] ?? 0);
 $orgEditor = current_org_editor_context();
 $canManageOrg = can_edit_any_org_user();
+$orgEditorIsAdmin = !empty($orgEditor["is_admin"]) || is_admin_user();
 $assignableRoles = org_assignable_roles_for_editor($orgEditor);
 $nowTs = time();
 $onlineWindow = 120;
@@ -102,6 +110,479 @@ function user_initials(string $name): string {
     if (mb_strlen($initials) >= 2) break;
   }
   return $initials !== '' ? $initials : 'U';
+}
+
+function org_profile_photo_url(?string $value): string {
+  $value = trim((string)$value);
+  if ($value === '') {
+    return '';
+  }
+  if (preg_match('/^(https?:)?\/\//i', $value) || str_starts_with($value, 'data:image/')) {
+    return $value;
+  }
+  return asset_url(ltrim($value, '/'));
+}
+
+function org_chart_document_stats(mysqli $conn): array {
+  $stats = [];
+  $ensure = static function (int $userId) use (&$stats): void {
+    if ($userId <= 0) return;
+    if (!isset($stats[$userId])) {
+      $stats[$userId] = [
+        'received' => 0,
+        'forwarded' => 0,
+        'incoming' => 0,
+        'pending' => 0,
+        'completed' => 0,
+        'assistant_actions' => 0,
+      ];
+    }
+  };
+
+  $readCount = static function (string $sql, string $key) use ($conn, &$stats, $ensure): void {
+    $res = $conn->query($sql);
+    if (!$res) return;
+    while ($row = $res->fetch_assoc()) {
+      $userId = (int)($row['user_id'] ?? 0);
+      $ensure($userId);
+      if ($userId > 0) {
+        $stats[$userId][$key] = (int)($row['total'] ?? 0);
+      }
+    }
+    $res->free();
+  };
+
+  if (db_table_exists($conn, 'routes')) {
+    $hasRoutesCancelled = db_column_exists($conn, 'routes', 'cancelled_at');
+    $routeNotCancelled = $hasRoutesCancelled ? 'AND cancelled_at IS NULL' : '';
+    $receivedSources = [];
+    if (db_column_exists($conn, 'routes', 'received_by_user_id')) {
+      $receivedSources[] = "SELECT received_by_user_id AS user_id, document_id FROM routes WHERE received_by_user_id IS NOT NULL AND received_by_user_id > 0 {$routeNotCancelled}";
+    }
+    if (db_column_exists($conn, 'routes', 'to_user_id') && db_column_exists($conn, 'routes', 'received_at')) {
+      $receivedSources[] = "SELECT to_user_id AS user_id, document_id FROM routes WHERE to_user_id IS NOT NULL AND to_user_id > 0 AND received_at IS NOT NULL {$routeNotCancelled}";
+    }
+    if ($receivedSources !== []) {
+      $readCount('SELECT user_id, COUNT(DISTINCT document_id) AS total FROM (' . implode(' UNION ', $receivedSources) . ') x GROUP BY user_id', 'received');
+    }
+
+    $forwardedSources = [];
+    if (db_column_exists($conn, 'routes', 'sent_by_user_id')) {
+      $forwardedSources[] = "SELECT sent_by_user_id AS user_id, document_id FROM routes WHERE sent_by_user_id IS NOT NULL AND sent_by_user_id > 0 {$routeNotCancelled}";
+    }
+    if (db_column_exists($conn, 'routes', 'from_user_id')) {
+      $forwardedSources[] = "SELECT from_user_id AS user_id, document_id FROM routes WHERE from_user_id IS NOT NULL AND from_user_id > 0 {$routeNotCancelled}";
+    }
+    if ($forwardedSources !== []) {
+      $readCount('SELECT user_id, COUNT(DISTINCT document_id) AS total FROM (' . implode(' UNION ', $forwardedSources) . ') x GROUP BY user_id', 'forwarded');
+    }
+
+    if (db_column_exists($conn, 'routes', 'to_user_id') && db_column_exists($conn, 'routes', 'received_at')) {
+      $pendingSources = ["SELECT to_user_id AS user_id, document_id FROM routes WHERE to_user_id IS NOT NULL AND to_user_id > 0 AND received_at IS NULL {$routeNotCancelled}"];
+      if (db_table_exists($conn, 'document_branches') && db_column_exists($conn, 'document_branches', 'current_assignee_user_id')) {
+        $branchStatusSql = db_column_exists($conn, 'document_branches', 'branch_status') ? "AND branch_status = 'ACTIVE'" : '';
+        $branchReferenceSql = db_column_exists($conn, 'document_branches', 'is_reference') ? 'AND is_reference = 0' : '';
+        $pendingSources[] = "SELECT current_assignee_user_id AS user_id, document_id FROM document_branches WHERE current_assignee_user_id IS NOT NULL AND current_assignee_user_id > 0 {$branchStatusSql} {$branchReferenceSql}";
+      }
+      $readCount('SELECT user_id, COUNT(DISTINCT document_id) AS total FROM (' . implode(' UNION ', $pendingSources) . ') x GROUP BY user_id', 'pending');
+    }
+  }
+
+  if (db_table_exists($conn, 'document_events') && db_column_exists($conn, 'document_events', 'payload_json')) {
+    $readCount("
+      SELECT assistant_user_id AS user_id, COUNT(DISTINCT document_id) AS total
+      FROM (
+        SELECT
+          document_id,
+          CAST(JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.assistant_actual_user_id')) AS UNSIGNED) AS assistant_user_id
+        FROM document_events
+        WHERE payload_json IS NOT NULL
+          AND JSON_EXTRACT(payload_json, '$.assistant_actual_user_id') IS NOT NULL
+      ) x
+      WHERE assistant_user_id > 0
+      GROUP BY assistant_user_id
+    ", 'assistant_actions');
+  }
+
+  $incomingDocs = [];
+  $pendingDocs = [];
+  $participatedDocs = [];
+  $completedCandidateDocs = [];
+  $addDoc = static function (array &$bucket, int $userId, int $documentId) use ($ensure): void {
+    if ($userId <= 0 || $documentId <= 0) return;
+    $ensure($userId);
+    if (!isset($bucket[$userId])) $bucket[$userId] = [];
+    $bucket[$userId][$documentId] = true;
+  };
+  $isCompletedStatus = static function (?string $status): bool {
+    return in_array(strtoupper(trim((string)($status ?? 'ACTIVE'))), ['RELEASED', 'ARCHIVED'], true);
+  };
+
+  if (db_table_exists($conn, 'documents') && db_column_exists($conn, 'documents', 'created_by_user_id')) {
+    $documentStatusExpr = db_column_exists($conn, 'documents', 'current_status') ? 'current_status' : "'ACTIVE'";
+    $res = $conn->query("SELECT id AS document_id, created_by_user_id AS user_id, {$documentStatusExpr} AS current_status FROM documents WHERE created_by_user_id IS NOT NULL AND created_by_user_id > 0");
+    if ($res) {
+      while ($row = $res->fetch_assoc()) {
+        $addDoc($participatedDocs, (int)($row['user_id'] ?? 0), (int)($row['document_id'] ?? 0));
+        if ($isCompletedStatus((string)($row['current_status'] ?? 'ACTIVE'))) {
+          $addDoc($completedCandidateDocs, (int)($row['user_id'] ?? 0), (int)($row['document_id'] ?? 0));
+        }
+      }
+      $res->free();
+    }
+  }
+
+  if (db_table_exists($conn, 'routes')) {
+    $routeCancelledExpr = db_column_exists($conn, 'routes', 'cancelled_at') ? 'cancelled_at' : 'NULL';
+    $routeReceivedExpr = db_column_exists($conn, 'routes', 'received_at') ? 'received_at' : 'NULL';
+    $routeKindExpr = db_column_exists($conn, 'routes', 'route_kind') ? 'route_kind' : "'ACTION'";
+    $routeToExpr = db_column_exists($conn, 'routes', 'to_user_id') ? 'to_user_id' : 'NULL';
+    $routeSentByExpr = db_column_exists($conn, 'routes', 'sent_by_user_id') ? 'sent_by_user_id' : 'NULL';
+    $routeReceivedByExpr = db_column_exists($conn, 'routes', 'received_by_user_id') ? 'received_by_user_id' : 'NULL';
+    $routeStatusJoinSql = db_table_exists($conn, 'documents') ? 'LEFT JOIN documents d_done ON d_done.id = routes.document_id' : '';
+    $routeStatusExpr = db_table_exists($conn, 'documents') && db_column_exists($conn, 'documents', 'current_status') ? 'd_done.current_status' : "'ACTIVE'";
+    $res = $conn->query("
+      SELECT
+        routes.document_id,
+        {$routeToExpr} AS to_user_id,
+        {$routeSentByExpr} AS sent_by_user_id,
+        {$routeReceivedByExpr} AS received_by_user_id,
+        {$routeReceivedExpr} AS received_at,
+        {$routeCancelledExpr} AS cancelled_at,
+        {$routeKindExpr} AS route_kind,
+        {$routeStatusExpr} AS current_status
+      FROM routes
+      {$routeStatusJoinSql}
+    ");
+    if ($res) {
+      while ($row = $res->fetch_assoc()) {
+        $documentId = (int)($row['document_id'] ?? 0);
+        $toUserId = (int)($row['to_user_id'] ?? 0);
+        $sentByUserId = (int)($row['sent_by_user_id'] ?? 0);
+        $receivedByUserId = (int)($row['received_by_user_id'] ?? 0);
+        $isCancelled = trim((string)($row['cancelled_at'] ?? '')) !== '';
+        $isReceived = trim((string)($row['received_at'] ?? '')) !== '';
+        $isActionRoute = strtoupper(trim((string)($row['route_kind'] ?? 'ACTION'))) === 'ACTION';
+        $isCompleted = $isCompletedStatus((string)($row['current_status'] ?? 'ACTIVE'));
+
+        $addDoc($participatedDocs, $toUserId, $documentId);
+        $addDoc($participatedDocs, $sentByUserId, $documentId);
+        $addDoc($participatedDocs, $receivedByUserId, $documentId);
+        if ($isCompleted) {
+          $addDoc($completedCandidateDocs, $toUserId, $documentId);
+          $addDoc($completedCandidateDocs, $sentByUserId, $documentId);
+          $addDoc($completedCandidateDocs, $receivedByUserId, $documentId);
+        }
+        if (!$isCancelled && !$isReceived && $isActionRoute) {
+          $addDoc($incomingDocs, $toUserId, $documentId);
+        }
+      }
+      $res->free();
+    }
+  }
+
+  if (db_table_exists($conn, 'document_branches') && db_column_exists($conn, 'document_branches', 'current_assignee_user_id')) {
+    $branchStatusExpr = db_column_exists($conn, 'document_branches', 'branch_status') ? 'branch_status' : "'ACTIVE'";
+    $branchReferenceExpr = db_column_exists($conn, 'document_branches', 'is_reference') ? 'is_reference' : '0';
+    $branchStatusJoinSql = db_table_exists($conn, 'documents') ? 'LEFT JOIN documents d_done ON d_done.id = document_branches.document_id' : '';
+    $branchDocumentStatusExpr = db_table_exists($conn, 'documents') && db_column_exists($conn, 'documents', 'current_status') ? 'd_done.current_status' : "'ACTIVE'";
+    $res = $conn->query("
+      SELECT document_branches.document_id, current_assignee_user_id AS user_id, {$branchStatusExpr} AS branch_status, {$branchReferenceExpr} AS is_reference, {$branchDocumentStatusExpr} AS current_status
+      FROM document_branches
+      {$branchStatusJoinSql}
+      WHERE current_assignee_user_id IS NOT NULL AND current_assignee_user_id > 0
+    ");
+    if ($res) {
+      while ($row = $res->fetch_assoc()) {
+        $userId = (int)($row['user_id'] ?? 0);
+        $documentId = (int)($row['document_id'] ?? 0);
+        $status = strtoupper(trim((string)($row['branch_status'] ?? 'ACTIVE')));
+        $isReference = (int)($row['is_reference'] ?? 0) === 1;
+        $addDoc($participatedDocs, $userId, $documentId);
+        if ($isCompletedStatus((string)($row['current_status'] ?? 'ACTIVE'))) {
+          $addDoc($completedCandidateDocs, $userId, $documentId);
+        }
+        if ($status === 'ACTIVE' && !$isReference) {
+          $addDoc($pendingDocs, $userId, $documentId);
+        }
+      }
+      $res->free();
+    }
+  }
+
+  if (db_table_exists($conn, 'document_events') && db_column_exists($conn, 'document_events', 'payload_json')) {
+    $eventStatusJoinSql = db_table_exists($conn, 'documents') ? 'LEFT JOIN documents d_done ON d_done.id = x.document_id' : '';
+    $eventStatusExpr = db_table_exists($conn, 'documents') && db_column_exists($conn, 'documents', 'current_status') ? 'd_done.current_status' : "'ACTIVE'";
+    $res = $conn->query("
+      SELECT
+        x.document_id,
+        x.assistant_user_id,
+        {$eventStatusExpr} AS current_status
+      FROM (
+        SELECT
+          document_id,
+          CAST(JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.assistant_actual_user_id')) AS UNSIGNED) AS assistant_user_id
+        FROM document_events
+        WHERE payload_json IS NOT NULL
+          AND JSON_EXTRACT(payload_json, '$.assistant_actual_user_id') IS NOT NULL
+      ) x
+      {$eventStatusJoinSql}
+      WHERE x.assistant_user_id > 0
+    ");
+    if ($res) {
+      while ($row = $res->fetch_assoc()) {
+        $addDoc($participatedDocs, (int)($row['assistant_user_id'] ?? 0), (int)($row['document_id'] ?? 0));
+        if ($isCompletedStatus((string)($row['current_status'] ?? 'ACTIVE'))) {
+          $addDoc($completedCandidateDocs, (int)($row['assistant_user_id'] ?? 0), (int)($row['document_id'] ?? 0));
+        }
+      }
+      $res->free();
+    }
+  }
+
+  $allUserIds = array_unique(array_merge(array_keys($participatedDocs), array_keys($completedCandidateDocs), array_keys($incomingDocs), array_keys($pendingDocs), array_keys($stats)));
+  foreach ($allUserIds as $userId) {
+    $userId = (int)$userId;
+    $ensure($userId);
+    $incoming = $incomingDocs[$userId] ?? [];
+    $pending = $pendingDocs[$userId] ?? [];
+    $completed = $completedCandidateDocs[$userId] ?? [];
+    foreach (array_keys($incoming + $pending) as $documentId) {
+      unset($completed[$documentId]);
+    }
+    $stats[$userId]['incoming'] = count($incoming);
+    $stats[$userId]['pending'] = count($pending);
+    $stats[$userId]['completed'] = count($completed);
+  }
+
+  if (db_table_exists($conn, 'documents') && db_table_exists($conn, 'routes')) {
+    $ctxSql = "
+      SELECT
+        u.id,
+        u.section_id,
+        u.is_chief,
+        COALESCE(u.authority_role, '') AS authority_role
+      FROM users u
+      JOIN sections s ON s.id = u.section_id
+      JOIN divisions d ON d.id = s.division_id
+      WHERE u.is_active = 1
+        AND s.is_active = 1
+        AND d.is_active = 1
+    ";
+    $ctxRes = $conn->query($ctxSql);
+    if ($ctxRes) {
+      $hasBranches = db_table_exists($conn, 'document_branches');
+      $branchPredicate = $hasBranches
+        ? "EXISTS (SELECT 1 FROM document_branches b_chk WHERE b_chk.document_id = d.id)"
+        : "0=1";
+      $noBranchPredicate = $hasBranches
+        ? "NOT EXISTS (SELECT 1 FROM document_branches b_chk WHERE b_chk.document_id = d.id)"
+        : "1=1";
+      $hasEvents = db_table_exists($conn, 'document_events') && db_column_exists($conn, 'document_events', 'payload_json');
+
+      while ($ctx = $ctxRes->fetch_assoc()) {
+        $userId = (int)($ctx['id'] ?? 0);
+        $sectionId = (int)($ctx['section_id'] ?? 0);
+        if ($userId <= 0 || $sectionId <= 0) {
+          continue;
+        }
+        $authorityRole = trim((string)($ctx['authority_role'] ?? ''));
+        $isChief = ((int)($ctx['is_chief'] ?? 0) === 1) || in_array($authorityRole, ['director', 'division_head', 'section_head'], true);
+        $chiefInt = $isChief ? 1 : 0;
+
+        $incomingPredicate = "EXISTS (
+          SELECT 1
+          FROM routes r_in
+          WHERE r_in.document_id = d.id
+            AND r_in.received_at IS NULL
+            AND r_in.cancelled_at IS NULL
+            AND (
+              (
+                {$branchPredicate}
+                AND r_in.route_kind = 'ACTION'
+                AND r_in.to_user_id = {$userId}
+                AND EXISTS (
+                  SELECT 1
+                  FROM document_branches b_in
+                  WHERE b_in.id = r_in.branch_id
+                    AND b_in.current_assignee_user_id = r_in.to_user_id
+                )
+              )
+              OR
+              (
+                {$noBranchPredicate}
+                AND (
+                  r_in.to_user_id = {$userId}
+                  OR ({$chiefInt} = 1 AND r_in.to_user_id IS NULL AND r_in.to_section_id = {$sectionId})
+                )
+              )
+            )
+        )";
+
+        $pendingPredicate = "(
+          (
+            {$branchPredicate}
+            AND EXISTS (
+              SELECT 1
+              FROM document_branches b_act2
+              WHERE b_act2.document_id = d.id
+                AND b_act2.branch_status = 'ACTIVE'
+                AND b_act2.current_assignee_user_id = {$userId}
+                AND b_act2.is_reference = 0
+            )
+          )
+          OR
+          (
+            {$noBranchPredicate}
+            AND d.current_status = 'ACTIVE'
+            AND d.current_holder_section_id = {$sectionId}
+            AND NOT EXISTS (
+              SELECT 1
+              FROM routes r_act_legacy
+              WHERE r_act_legacy.document_id = d.id
+                AND r_act_legacy.route_kind = 'ACTION'
+                AND r_act_legacy.received_at IS NULL
+                AND r_act_legacy.cancelled_at IS NULL
+            )
+            AND (
+              (
+                d.created_by_user_id = {$userId}
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM routes r_received_any
+                  WHERE r_received_any.document_id = d.id
+                    AND r_received_any.route_kind = 'ACTION'
+                    AND r_received_any.received_at IS NOT NULL
+                    AND r_received_any.cancelled_at IS NULL
+                )
+              )
+              OR EXISTS (
+                SELECT 1
+                FROM routes r_last_received
+                WHERE r_last_received.id = (
+                  SELECT r_last_pick.id
+                  FROM routes r_last_pick
+                  WHERE r_last_pick.document_id = d.id
+                    AND r_last_pick.route_kind = 'ACTION'
+                    AND r_last_pick.received_at IS NOT NULL
+                    AND r_last_pick.cancelled_at IS NULL
+                  ORDER BY r_last_pick.received_at DESC, r_last_pick.id DESC
+                  LIMIT 1
+                )
+                AND (
+                  r_last_received.to_user_id = {$userId}
+                  OR (
+                    r_last_received.to_user_id IS NULL
+                    AND {$chiefInt} = 1
+                    AND r_last_received.to_section_id = {$sectionId}
+                  )
+                )
+              )
+            )
+          )
+        )";
+
+        $assistantOwnIsolationPredicate = "1=1";
+        if ($hasEvents && assistant_assignments_table_ready($conn)) {
+          $assistantOwnIsolationPredicate = "NOT (
+            EXISTS (SELECT 1 FROM principal_assistants pa_iso WHERE pa_iso.assistant_user_id = {$userId})
+            AND EXISTS (
+              SELECT 1
+              FROM document_events e_acting
+              WHERE e_acting.document_id = d.id
+                AND e_acting.actor_user_id = {$userId}
+                AND e_acting.payload_json REGEXP '\"acting_principal_user_id\"[[:space:]]*:[[:space:]]*[1-9]'
+            )
+            AND d.created_by_user_id <> {$userId}
+            AND NOT EXISTS (
+              SELECT 1
+              FROM routes r_direct
+              WHERE r_direct.document_id = d.id
+                AND r_direct.to_user_id = {$userId}
+            )
+          )";
+        }
+
+        $participationPredicate = "(
+          d.created_by_user_id = {$userId}
+          OR EXISTS (
+            SELECT 1
+            FROM routes r_part
+            WHERE r_part.document_id = d.id
+              AND (
+                r_part.to_user_id = {$userId}
+                OR r_part.sent_by_user_id = {$userId}
+                OR r_part.received_by_user_id = {$userId}
+              )
+          )" . ($hasEvents ? "
+          OR EXISTS (
+            SELECT 1
+            FROM document_events e_part
+            WHERE e_part.document_id = d.id
+              AND e_part.event_type IN ('sent', 'forwarded')
+              AND e_part.payload_json REGEXP '\"acting_principal_user_id\"[[:space:]]*:[[:space:]]*{$userId}([^0-9]|$)'
+          )" : "") . "
+        )";
+
+        $completePredicate = "(
+          NOT ({$incomingPredicate})
+          AND NOT ({$pendingPredicate})
+          AND {$participationPredicate}
+        )";
+
+        $statRes = $conn->query("
+          SELECT
+            SUM(d.current_status = 'ACTIVE' AND ({$incomingPredicate})) AS incoming,
+            SUM(d.current_status = 'ACTIVE' AND ({$pendingPredicate})) AS pending,
+            SUM({$completePredicate}) AS completed
+          FROM documents d
+          WHERE {$assistantOwnIsolationPredicate}
+        ");
+        if ($statRes) {
+          $row = $statRes->fetch_assoc() ?: [];
+          $ensure($userId);
+          $stats[$userId]['incoming'] = (int)($row['incoming'] ?? 0);
+          $stats[$userId]['pending'] = (int)($row['pending'] ?? 0);
+          $stats[$userId]['completed'] = (int)($row['completed'] ?? 0);
+          $statRes->free();
+        }
+      }
+      $ctxRes->free();
+    }
+  }
+
+  return $stats;
+}
+
+function org_chart_assistant_principal_rollup(mysqli $conn): array {
+  if (!assistant_assignments_table_ready($conn)) {
+    return [];
+  }
+
+  $res = $conn->query("
+    SELECT
+      pa.assistant_user_id AS user_id,
+      COUNT(DISTINCT pa.principal_user_id) AS total,
+      GROUP_CONCAT(pu.full_name ORDER BY pu.full_name SEPARATOR ', ') AS names
+    FROM principal_assistants pa
+    JOIN users pu ON pu.id = pa.principal_user_id
+    WHERE pu.is_active = 1
+    GROUP BY pa.assistant_user_id
+  ");
+  if (!$res) return [];
+
+  $rollup = [];
+  while ($row = $res->fetch_assoc()) {
+    $userId = (int)($row['user_id'] ?? 0);
+    if ($userId > 0) {
+      $rollup[$userId] = [
+        'assistant_for_count' => (int)($row['total'] ?? 0),
+        'assistant_for_names' => trim((string)($row['names'] ?? '')),
+      ];
+    }
+  }
+  $res->free();
+  return $rollup;
 }
 
 function division_kicker(string $divisionName): string {
@@ -219,6 +700,9 @@ if ($secRes) {
   }
 }
 
+$documentStatsByUser = org_chart_document_stats($conn);
+$assistantPrincipalRollupByUser = org_chart_assistant_principal_rollup($conn);
+
 $userSql = "
   SELECT
     u.id,
@@ -232,6 +716,7 @@ $userSql = "
     " . ($hasOfficialTitle ? "u.official_title" : "NULL") . " AS official_title,
     " . ($hasAuthorityRole ? "u.authority_role" : "NULL") . " AS authority_role,
     " . ($hasLastSeenAt ? "u.last_seen_at" : "NULL") . " AS last_seen_at,
+    " . ($profilePhotoColumn !== null ? "u.`" . $conn->real_escape_string($profilePhotoColumn) . "`" : "NULL") . " AS profile_photo_url,
     s.name AS section_name,
     s.id AS resolved_section_id,
     d.id AS division_id,
@@ -282,11 +767,13 @@ if ($userRes) {
       $isOnline = ($lastSeenTs !== false) && (($nowTs - $lastSeenTs) <= $onlineWindow);
     }
 
+    $userId = (int)($row["id"] ?? 0);
     $target = [
-      "id" => (int)($row["id"] ?? 0),
+      "id" => $userId,
       "full_name" => (string)($row["full_name"] ?? ""),
       "email" => (string)($row["email"] ?? ""),
       "username" => (string)($row["username"] ?? ""),
+      "profile_photo_url" => org_profile_photo_url((string)($row["profile_photo_url"] ?? "")),
       "authority_role" => $authorityRole,
       "authority_weight" => $authorityWeight[$authorityRole] ?? 99,
       "display_title" => $displayTitle,
@@ -300,11 +787,19 @@ if ($userRes) {
       "chief_assistant_name" => trim((string)($row["chief_assistant_name"] ?? "")),
       "chief_assistant_user_ids" => trim((string)($row["chief_assistant_user_ids"] ?? "")),
       "chief_assistant_names" => trim((string)($row["chief_assistant_names"] ?? "")),
+      "assistant_for_count" => (int)($assistantPrincipalRollupByUser[$userId]["assistant_for_count"] ?? 0),
+      "assistant_for_names" => (string)($assistantPrincipalRollupByUser[$userId]["assistant_for_names"] ?? ""),
+      "documents_received_count" => (int)($documentStatsByUser[$userId]["received"] ?? 0),
+      "documents_forwarded_count" => (int)($documentStatsByUser[$userId]["forwarded"] ?? 0),
+      "documents_incoming_count" => (int)($documentStatsByUser[$userId]["incoming"] ?? 0),
+      "documents_pending_count" => (int)($documentStatsByUser[$userId]["pending"] ?? 0),
+      "documents_completed_count" => (int)($documentStatsByUser[$userId]["completed"] ?? 0),
       "is_online" => $isOnline,
       "show_presence" => ($viewerDivisionId > 0 && $viewerDivisionId === $divisionId),
       "is_leader" => is_leadership_role($authorityRole),
     ];
     $target["can_edit"] = $canManageOrg && can_edit_org_target($orgEditor, $target);
+    $target["can_upload_photo"] = $orgEditorIsAdmin && $target["can_edit"];
     $target["can_assign_assistant"] = ($hasChiefAssistant || $hasAssistantAssignments) && can_assign_assistant_for_target($orgEditor, $target);
     $target["assistant_candidates_json"] = $target["can_assign_assistant"]
       ? json_encode(org_fetch_assistant_candidates($conn, $target), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
@@ -381,381 +876,127 @@ if ($rootDivision === null && !empty($divisions)) {
   $childDivisions = array_values(array_slice($divisions, 1));
 }
 
+$disableLegacyOrgChartStyles = true;
+$currentPage = 'org_chart.php';
+
 require __DIR__ . "/../includes/layout.php";
+
+$spotlightDivision = ($viewerDivisionId > 0 && isset($divisions[$viewerDivisionId]))
+  ? $divisions[$viewerDivisionId]
+  : $rootDivision;
+
+$orgChartStats = [
+  'activeDivisions' => max(0, count($divisions) - 1),
+  'activeUsers' => array_reduce($divisions, static fn(int $carry, array $division): int => $carry + (int)$division['user_count'], 0),
+  'totalSections' => array_reduce($divisions, static fn(int $carry, array $division): int => $carry + (int)$division['section_count'], 0),
+];
+
+$orgChartCopy = [
+  'eyebrow' => '2026 Org Atlas',
+  'title' => 'Technical Services',
+  'subtitle' => 'Delivering precision in public works',
+];
+
+function org_chart_manifest_path(): string {
+  return __DIR__ . '/org-chart-react/manifest.json';
+}
+
+function org_chart_manifest_data(): ?array {
+  static $manifest = null;
+  static $loaded = false;
+
+  if ($loaded) {
+    return $manifest;
+  }
+
+  $loaded = true;
+  $path = org_chart_manifest_path();
+  if (!is_file($path)) {
+    return $manifest = null;
+  }
+
+  $decoded = json_decode((string)file_get_contents($path), true);
+  if (!is_array($decoded)) {
+    return $manifest = null;
+  }
+
+  return $manifest = $decoded;
+}
+
+function org_chart_entry_assets(): array {
+  $manifest = org_chart_manifest_data();
+  if (!is_array($manifest)) {
+    return ['css' => [], 'js' => []];
+  }
+
+  $entry = $manifest['index.html'] ?? null;
+  if (!is_array($entry)) {
+    $entry = reset($manifest);
+    if (!is_array($entry)) {
+      return ['css' => [], 'js' => []];
+    }
+  }
+
+  $css = [];
+  foreach (($entry['css'] ?? []) as $href) {
+    if (is_string($href) && $href !== '') {
+      $css[] = asset_url('public/org-chart-react/' . ltrim($href, '/'));
+    }
+  }
+
+  $js = [];
+  $entryFile = (string)($entry['file'] ?? '');
+  if ($entryFile !== '') {
+    $js[] = asset_url('public/org-chart-react/' . ltrim($entryFile, '/'));
+  }
+
+  return ['css' => $css, 'js' => $js];
+}
+
+$orgChartAssets = org_chart_entry_assets();
+$orgChartBuildReady = !empty($orgChartAssets['js']);
 ?>
 
-
-
-
-
-<div class="orgArt2026" id="orgAtlas2026">
-  <section class="orgHeroShell">
-    <div class="orgHeroGrid">
-      <div>
-        <p class="orgHeroEyebrow">2026 Org Atlas</p>
-        <h2 class="orgHeroTitle">Technical Services, refined.</h2>
-        <p class="orgHeroSub">Delivering Precision in Public Works</p>
-        <div class="orgHeroRail">
-          <span class="orgHeroNote"><span class="orgHeroDot"></span>Integrity</span>
-          <span class="orgHeroNote"><span class="orgHeroDot"></span>Reliability</span>
-          <span class="orgHeroNote"><span class="orgHeroDot"></span>Efficiency</span>
-          <span class="orgHeroNote"><span class="orgHeroDot"></span>Accountability</span>
-        </div>
-      </div>
-
-      <aside class="orgControlDeck">
-        <div class="orgSearchWrap">
-          <label class="orgSearchLabel" for="orgSearchInput">Search</label>
-          <div class="orgSearchBox">
-            <span class="orgSearchIcon" aria-hidden="true">⌕</span>
-            <input id="orgSearchInput" class="orgSearchInput" type="search" placeholder="Search division, section, person, or title..." autocomplete="off">
-          </div>
-          
-        </div>
-
-        <div class="orgActionRow">
-          <button type="button" class="orgActionBtn isPrimary" id="orgExpandAllBtn">Expand all members</button>
-          <button type="button" class="orgActionBtn" id="orgCollapseAllBtn">Collapse all</button>
-          <button type="button" class="orgActionBtn" id="orgResetFilterBtn">Reset view</button>
-        </div>
-
-        <?php if ($canManageOrg): ?>
-          <div class="orgActionRow" style="margin-top:10px;">
-            <button type="button" class="orgActionBtn" id="orgEditModeBtn" data-edit-mode="off">Enable edit mode</button>
-            <div class="mini" style="opacity:.75; align-self:center;">You can update lower-ranked users inside your allowed scope.</div>
-          </div>
-        <?php endif; ?>
-
-        <div class="orgHeroStats">
-          <div class="orgHeroStat">
-            <p class="orgHeroStatValue"><?= max(0, count($divisions) - 1) ?></p>
-            <p class="orgHeroStatLabel">Active divisions</p>
-          </div>
-          <div class="orgHeroStat">
-            <p class="orgHeroStatValue"><?= array_reduce($divisions, static fn(int $carry, array $division): int => $carry + (int)$division['user_count'], 0) ?></p>
-            <p class="orgHeroStatLabel">Active users</p>
-          </div>
-          <div class="orgHeroStat">
-            <p class="orgHeroStatValue"><?= array_reduce($divisions, static fn(int $carry, array $division): int => $carry + (int)$division['section_count'], 0) ?></p>
-            <p class="orgHeroStatLabel">Total sections</p>
-          </div>
-        </div>
-      </aside>
-    </div>
-  </section>
-
-  <?php if ($rootDivision): ?>
-
-    <?php
-      $spotlightDivision = $viewerDivisionId > 0 && isset($divisions[$viewerDivisionId]) ? $divisions[$viewerDivisionId] : $rootDivision;
-      $spotlightIsViewerDivision = $viewerDivisionId > 0 && isset($divisions[$viewerDivisionId]);
-    ?>
-    <section class="orgSpotlight">
-      <div class="orgSpotlightGrid">
-        <div>
-          <p class="orgMiniLabel"><?= $spotlightIsViewerDivision ? "Your division" : "Spotlight" ?></p>
-          <h3 class="orgSpotlightTitle"><?= htmlspecialchars($spotlightDivision['name']) ?></h3>
-</div>
-        <div class="orgCounters">
-          <div class="orgCounter">
-            <p class="orgCounterValue"><?= (int)$spotlightDivision['user_count'] ?></p>
-            <p class="orgCounterLabel">People</p>
-          </div>
-          <div class="orgCounter">
-            <p class="orgCounterValue"><?= (int)$spotlightDivision['section_count'] ?></p>
-            <p class="orgCounterLabel">Sections</p>
-          </div>
-          <div class="orgCounter">
-            <p class="orgCounterValue"><?= (int)count($spotlightDivision['chief_office']['leaders'] ?? []) ?></p>
-            <p class="orgCounterLabel">Leaders visible</p>
-          </div>
-        </div>
-      </div>
+<div class="orgChartMountPage">
+  <?php if (!$orgChartBuildReady): ?>
+    <section style="background:#fff;border:1px solid #dbe4ef;border-radius:20px;padding:20px 22px;box-shadow:0 16px 36px rgba(15,23,42,.06);max-width:980px;">
+      <p style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#1b63df;">React org chart not built yet</p>
+      <h2 style="margin:0 0 10px;font-size:24px;line-height:1.2;color:#0f172a;">The PHP integration is ready.</h2>
+      <p style="margin:0 0 14px;color:#475569;">This page is now wired for the React + Tailwind org chart, but the frontend bundle still needs to be built once on your machine.</p>
+      <ol style="margin:0 0 14px 18px;color:#334155;line-height:1.7;">
+        <li>Open your project root in terminal.</li>
+        <li>Go to <code>frontend/org-chart-react</code>.</li>
+        <li>Run <code>npm install</code>.</li>
+        <li>Run <code>npm run build</code>.</li>
+        <li>Refresh this page.</li>
+      </ol>
+      <p style="margin:0;color:#64748b;font-size:13px;">Build output will go directly to <code>public/org-chart-react</code>, and this page will auto-load the hashed assets from <code>manifest.json</code>.</p>
     </section>
+  <?php else: ?>
+    <script>
+      window.__ORG_CHART_BOOTSTRAP__ = <?= json_encode([
+        'rootDivision' => $rootDivision,
+        'childDivisions' => array_values($childDivisions),
+        'spotlightDivision' => $spotlightDivision,
+        'divisions' => array_values($divisions),
+        'assignableRoles' => $assignableRoles,
+        'canManageOrg' => $canManageOrg,
+        'viewerDivisionId' => $viewerDivisionId,
+        'stats' => $orgChartStats,
+        'copy' => $orgChartCopy,
+      ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
+    </script>
 
-    <section class="orgStage">
-      <div class="orgStageGlow"></div>
-      <div class="orgDrillBar" id="orgDrillBar" aria-live="polite">
-        <button type="button" class="orgDrillBack" id="orgDrillBackBtn">
-          <span class="orgDrillBackArrow">←</span>
-          <span class="orgDrillBackLabel">Back to</span>
-          <span class="orgDrillBackDivName" id="orgDrillBackDivName">All divisions</span>
-        </button>
-      </div>
-      <div class="orgRootShell orgSearchable" id="org-root-card" data-search="<?= htmlspecialchars(search_blob($rootDivision['name'], $rootDivision['chief_office']['name'] ?? '')) ?>">
-        <div class="orgRootTop">
-          <div>
-            <p class="orgKicker"><?= htmlspecialchars(division_kicker($rootDivision['name'])) ?></p>
-            <h2 class="orgRootTitle"><?= htmlspecialchars($rootDivision['name']) ?></h2>
-</div>
-          <div class="orgCounters">
-            <div class="orgCounter">
-              <p class="orgCounterValue"><?= (int)$rootDivision['user_count'] ?></p>
-              <p class="orgCounterLabel">Users here</p>
-            </div>
-            <div class="orgCounter">
-              <p class="orgCounterValue"><?= count($childDivisions) ?></p>
-              <p class="orgCounterLabel">Divisions below</p>
-            </div>
-          </div>
-        </div>
+    <?php foreach ($orgChartAssets['css'] as $href): ?>
+      <link rel="stylesheet" href="<?= htmlspecialchars($href, ENT_QUOTES, 'UTF-8') ?>">
+    <?php endforeach; ?>
 
-        <?php if ($rootDivision['chief_office']): ?>
-          <div class="orgSectionsFlow">
-            <article class="orgChiefSection orgSearchable" data-search="<?= htmlspecialchars(search_blob($rootDivision['chief_office']['name'], $rootDivision['name'])) ?>">
-              <div class="orgSectionHeader">
-                <div>
-                  <p class="orgSectionLabel">Top office</p>
-                  <h3 class="orgSectionTitle"><?= htmlspecialchars($rootDivision['chief_office']['name']) ?></h3>
-</div>
-                <span class="orgMiniCount"><?= count($rootDivision['chief_office']['users']) ?></span>
-              </div>
+    <div id="root"></div>
 
-              <?php if (!$rootDivision['chief_office']['leaders'] && !$rootDivision['chief_office']['members']): ?>
-                <div class="orgUserEmpty">No active users yet.</div>
-              <?php else: ?>
-                <div class="orgLeaderList">
-                  <?php foreach ($rootDivision['chief_office']['leaders'] as $user): ?>
-                    <?= render_org_user_card($user, true) ?>
-                  <?php endforeach; ?>
-                </div>
-
-                <?php if ($rootDivision['chief_office']['member_count'] > 0): ?>
-                  <?php $rootDrawerId = 'org-members-root-' . (int)$rootDivision['chief_office']['id']; ?>
-                  <div class="orgSectionActions">
-                    <span class="orgMemberCount"><?= (int)$rootDivision['chief_office']['member_count'] ?> additional members</span>
-                    <button type="button" class="orgMemberToggle" data-target="<?= htmlspecialchars($rootDrawerId) ?>" aria-expanded="false">
-                      See all members
-                    </button>
-                  </div>
-                  <div class="orgMemberDrawer" id="<?= htmlspecialchars($rootDrawerId) ?>" hidden>
-                    <div class="orgMemberList">
-                      <?php foreach ($rootDivision['chief_office']['members'] as $user): ?>
-                        <?= render_org_user_card($user) ?>
-                      <?php endforeach; ?>
-                    </div>
-                  </div>
-                <?php endif; ?>
-              <?php endif; ?>
-            </article>
-          </div>
-        <?php endif; ?>
-      </div>
-
-      <?php if ($childDivisions): ?>
-        <div class="orgTreeConnector"></div>
-        <div class="orgDivisionGrid" id="orgDivisionGrid">
-          <?php foreach ($childDivisions as $division): ?>
-            <?php
-              $divisionSearch = search_blob($division['name']);
-              foreach ($division['sections'] as $scanSection) {
-                $divisionSearch .= ' ' . search_blob($scanSection['name']);
-                foreach ($scanSection['users'] as $scanUser) {
-                  $divisionSearch .= ' ' . search_blob((string)$scanUser['full_name'], (string)$scanUser['display_title'], (string)$scanUser['authority_role']);
-                }
-              }
-            ?>
-            <section class="orgDivisionCard orgSearchable"
-              id="org-division-<?= (int)$division['id'] ?>"
-              data-search="<?= htmlspecialchars(trim($divisionSearch)) ?>"
-              data-division-id="<?= (int)$division['id'] ?>"
-              data-division-name="<?= htmlspecialchars($division['name']) ?>">
-              <div class="orgDivisionHead">
-                <div>
-                  <p class="orgKicker"><?= htmlspecialchars(division_kicker($division['name'])) ?></p>
-                  <h3 class="orgDivisionName"><?= htmlspecialchars($division['name']) ?></h3>
-                  <div class="orgDivisionMetaWrap">
-                    <span class="orgDivisionMetaPill"><?= (int)$division['section_count'] ?> sections</span>
-                    <span class="orgDivisionMetaPill"><?= (int)$division['user_count'] ?> people</span>
-                    <?php if ($viewerDivisionId === (int)$division['id']): ?>
-                      <span class="orgDivisionMetaPill">Your lane</span>
-                    <?php endif; ?>
-                  </div>
-                </div>
-                <span class="orgMiniCount"><?= (int)$division['user_count'] ?></span>
-              </div>
-
-              <button type="button" class="orgDrillHint" data-drill="<?= (int)$division['id'] ?>">
-                <span class="orgDrillHintDot"></span>
-                Focus this division
-              </button>
-
-              <div class="orgDivisionMetrics">
-                <div class="orgDivisionMetric">
-                  <p class="orgDivisionMetricValue"><?= (int)$division['section_count'] ?></p>
-                  <p class="orgDivisionMetricLabel">Sections</p>
-                </div>
-                <div class="orgDivisionMetric">
-                  <p class="orgDivisionMetricValue"><?= (int)$division['user_count'] ?></p>
-                  <p class="orgDivisionMetricLabel">People</p>
-                </div>
-                <div class="orgDivisionMetric">
-                  <p class="orgDivisionMetricValue"><?= (int)count($division['chief_office']['leaders'] ?? []) ?></p>
-                  <p class="orgDivisionMetricLabel">Visible leaders</p>
-                </div>
-              </div>
-
-              <div class="orgSectionsFlow">
-                <?php if ($division['chief_office']): ?>
-                  <article class="orgChiefSection orgSearchable" data-search="<?= htmlspecialchars(search_blob($division['name'], $division['chief_office']['name'])) ?>">
-                    <div class="orgSectionHeader">
-                      <div>
-                        <p class="orgSectionLabel">Chief office</p>
-                        <h4 class="orgSectionTitle"><?= htmlspecialchars($division['chief_office']['name']) ?></h4>
-</div>
-                      <span class="orgMiniCount"><?= count($division['chief_office']['users']) ?></span>
-                    </div>
-
-                    <?php if (!$division['chief_office']['leaders'] && !$division['chief_office']['members']): ?>
-                      <div class="orgUserEmpty">No active users yet.</div>
-                    <?php else: ?>
-                      <div class="orgLeaderList">
-                        <?php foreach ($division['chief_office']['leaders'] as $user): ?>
-                          <?= render_org_user_card($user, true) ?>
-                        <?php endforeach; ?>
-                      </div>
-
-                      <?php if ($division['chief_office']['member_count'] > 0): ?>
-                        <?php $chiefDrawerId = 'org-members-chief-' . (int)$division['chief_office']['id']; ?>
-                        <div class="orgSectionActions">
-                          <span class="orgMemberCount"><?= (int)$division['chief_office']['member_count'] ?> additional members</span>
-                          <button type="button" class="orgMemberToggle" data-target="<?= htmlspecialchars($chiefDrawerId) ?>" aria-expanded="false">
-                            See all members
-                          </button>
-                        </div>
-                        <div class="orgMemberDrawer" id="<?= htmlspecialchars($chiefDrawerId) ?>" hidden>
-                          <div class="orgMemberList">
-                            <?php foreach ($division['chief_office']['members'] as $user): ?>
-                              <?= render_org_user_card($user) ?>
-                            <?php endforeach; ?>
-                          </div>
-                        </div>
-                      <?php endif; ?>
-                    <?php endif; ?>
-                  </article>
-                <?php endif; ?>
-
-                <?php foreach ($division['child_sections'] as $section): ?>
-                  <article class="orgSectionCard orgSearchable" data-search="<?= htmlspecialchars(search_blob($division['name'], $section['name'])) ?>">
-                    <div class="orgSectionHeader">
-                      <div>
-                        <p class="orgSectionLabel">Section</p>
-                        <h4 class="orgSectionTitle"><?= htmlspecialchars($section['name']) ?></h4>
-</div>
-                      <span class="orgMiniCount"><?= count($section['users']) ?></span>
-                    </div>
-
-                    <?php if (!$section['leaders'] && !$section['members']): ?>
-                      <div class="orgUserEmpty">No active users yet.</div>
-                    <?php else: ?>
-                      <?php if ($section['leaders']): ?>
-                        <div class="orgLeaderList">
-                          <?php foreach ($section['leaders'] as $user): ?>
-                            <?= render_org_user_card($user, true) ?>
-                          <?php endforeach; ?>
-                        </div>
-                      <?php endif; ?>
-
-                      <?php if (!$section['leaders'] && $section['members']): ?>
-                        <div class="orgUserEmpty">No chief assigned yet.</div>
-                      <?php endif; ?>
-
-                      <?php if ($section['member_count'] > 0): ?>
-                        <?php $drawerId = 'org-members-' . (int)$section['id']; ?>
-                        <div class="orgSectionActions">
-                          <span class="orgMemberCount"><?= (int)$section['member_count'] ?> members hidden by default</span>
-                          <button type="button" class="orgMemberToggle" data-target="<?= htmlspecialchars($drawerId) ?>" aria-expanded="false">
-                            See all members
-                          </button>
-                        </div>
-                        <div class="orgMemberDrawer" id="<?= htmlspecialchars($drawerId) ?>" hidden>
-                          <div class="orgMemberList">
-                            <?php foreach ($section['members'] as $user): ?>
-                              <?= render_org_user_card($user) ?>
-                            <?php endforeach; ?>
-                          </div>
-                        </div>
-                      <?php endif; ?>
-                    <?php endif; ?>
-                  </article>
-                <?php endforeach; ?>
-              </div>
-            </section>
-          <?php endforeach; ?>
-        </div>
-        <div class="orgEmptyState" id="orgEmptyState">No matching result in this organizational chart.</div>
-      <?php endif; ?>
-    </section>
+    <?php foreach ($orgChartAssets['js'] as $src): ?>
+      <script type="module" src="<?= htmlspecialchars($src, ENT_QUOTES, 'UTF-8') ?>"></script>
+    <?php endforeach; ?>
   <?php endif; ?>
 </div>
-
-<?php if ($canManageOrg): ?>
-<div id="orgEditModal" class="modalWrap" aria-hidden="true">
-  <div class="modalBackdrop" data-org-close="1"></div>
-  <div class="modalCard" role="dialog" aria-modal="true" aria-labelledby="orgEditModalTitle">
-    <div class="modalHeader">
-      <h3 id="orgEditModalTitle">Edit org user</h3>
-      <button type="button" class="modalClose" data-org-close="1" aria-label="Close">✕</button>
-    </div>
-    <form id="orgEditForm" class="modalBody">
-      <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token(), ENT_QUOTES, 'UTF-8') ?>">
-      <input type="hidden" name="target_user_id" id="org_target_user_id">
-
-      <div class="authField">
-        <label for="org_full_name">Account owner / full name</label>
-        <input id="org_full_name" name="full_name" type="text" required maxlength="200">
-      </div>
-      <div class="authField">
-        <label for="org_username_preview">Username</label>
-        <input id="org_username_preview" type="text" readonly>
-      </div>
-      <div class="authField">
-        <label for="org_email">Email</label>
-        <input id="org_email" name="email" type="email" required maxlength="200">
-      </div>
-      <div class="authField">
-        <label for="org_official_title">Official title</label>
-        <input id="org_official_title" name="official_title" type="text" maxlength="100">
-      </div>
-      <div class="authField">
-        <label for="org_authority_role">Authority role</label>
-        <select id="org_authority_role" name="authority_role" required>
-          <?php foreach ($assignableRoles as $roleKey => $roleLabel): ?>
-            <option value="<?= htmlspecialchars($roleKey) ?>"><?= htmlspecialchars($roleLabel) ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <?php if ($hasPermanent): ?>
-      <div class="authField">
-        <label class="authCheck">
-          <input id="org_permanent" name="permanent" type="checkbox" value="1">
-          <span>Permanent position holder</span>
-        </label>
-      </div>
-      <?php endif; ?>
-      <?php if ($hasChiefAssistant || $hasAssistantAssignments): ?>
-      <div class="authField" id="orgAssistantField" hidden>
-        <label for="org_chief_assistant_user_id">Assigned assistants</label>
-        <select id="org_chief_assistant_user_id" name="chief_assistant_user_ids[]" multiple size="6">
-          <option value="0">No assigned assistant</option>
-        </select>
-        <div class="mini" id="orgAssistantHelp" style="opacity:.8;margin-top:6px;">Choose one or more staff users who can assist this chief inside the allowed domain.</div>
-      </div>
-      <?php endif; ?>
-      <div class="mini" id="orgEditScopeNote" style="opacity:.75;margin-top:6px;">Section and division are read-only in this pass. Use this to update account ownership and org details inside your allowed scope.</div>
-      <div id="orgEditMsg" class="notice" style="display:none;margin-top:12px;"></div>
-    </form>
-    <div class="modalFooter">
-      <button type="button" class="btnComp" data-org-close="1">Cancel</button>
-      <button type="submit" class="btnSecondary" form="orgEditForm">Save changes</button>
-    </div>
-  </div>
-</div>
-<?php endif; ?>
-
-<script src="<?= asset_url("assets/js/drill-down.js") ?>"></script>
-<?php if ($canManageOrg): ?>
-<script src="<?= asset_url("assets/js/org-chart-page.js") ?>"></script>
-<?php endif; ?>
 
 <?php require __DIR__ . "/../includes/footer.php"; ?>

@@ -14,10 +14,51 @@ require_login();
 require_csrf();
 
 $editor = current_org_editor_context();
-if (!can_edit_any_org_user()) {
+$editorIsAdmin = !empty($editor['is_admin']) || is_admin_user();
+if (!$editorIsAdmin) {
+  $sessionUserId = (int)($_SESSION['user_id'] ?? 0);
+  if ($sessionUserId > 0) {
+    $adminCheck = $conn->prepare('SELECT role FROM users WHERE id = ? LIMIT 1');
+    if ($adminCheck) {
+      $adminCheck->bind_param('i', $sessionUserId);
+      $adminCheck->execute();
+      $adminRow = $adminCheck->get_result()->fetch_assoc();
+      $adminCheck->close();
+      $editorIsAdmin = strtolower(trim((string)($adminRow['role'] ?? ''))) === 'admin';
+    }
+  }
+}
+if ($editorIsAdmin) {
+  $editor['is_admin'] = true;
+  $editor['role_rank'] = max((int)($editor['role_rank'] ?? 0), org_role_rank('admin'));
+}
+if (!$editorIsAdmin && !can_edit_any_org_user()) {
   http_response_code(403);
   echo json_encode(['ok' => false, 'error' => 'You are not allowed to edit the org chart.']);
   exit;
+}
+
+$hasProfilePhotoUrl = db_column_exists($conn, 'users', 'profile_photo_url');
+if (!$hasProfilePhotoUrl) {
+  $conn->query('ALTER TABLE users ADD COLUMN profile_photo_url VARCHAR(255) NULL');
+  $hasProfilePhotoUrl = $conn->errno === 0;
+}
+
+function org_delete_local_profile_photo(string $relativePath): void {
+  $relativePath = ltrim(str_replace('\\', '/', trim($relativePath)), '/');
+  if ($relativePath === '' || !str_starts_with($relativePath, 'uploads/profile-pictures/')) {
+    return;
+  }
+
+  $root = realpath(__DIR__ . '/../uploads/profile-pictures');
+  $file = realpath(__DIR__ . '/../' . $relativePath);
+  if (!is_string($root) || !is_string($file) || !str_starts_with($file, $root . DIRECTORY_SEPARATOR)) {
+    return;
+  }
+
+  if (is_file($file)) {
+    @unlink($file);
+  }
 }
 
 $targetUserId = (int)($_POST['target_user_id'] ?? 0);
@@ -26,6 +67,7 @@ $email = trim((string)($_POST['email'] ?? ''));
 $officialTitle = normalize_whitespace((string)($_POST['official_title'] ?? ''));
 $authorityRole = trim((string)($_POST['authority_role'] ?? 'staff'));
 $permanent = isset($_POST['permanent']) && (string)($_POST['permanent']) === '1' ? 1 : 0;
+$removeProfilePhoto = isset($_POST['remove_profile_photo']) && (string)($_POST['remove_profile_photo']) === '1';
 $hasChiefAssistant = db_column_exists($conn, 'users', 'chief_assistant_user_id');
 $hasAssistantAssignments = assistant_assignments_table_ready($conn);
 $rawAssistantIds = $_POST['chief_assistant_user_ids'] ?? ($_POST['chief_assistant_user_id'] ?? []);
@@ -52,6 +94,7 @@ $targetSql = 'SELECT u.id, u.full_name, u.email, u.section_id, u.role, u.is_chie
   . (db_column_exists($conn, 'users', 'permanent') ? 'u.permanent' : '0') . ' AS permanent, '
   . (db_column_exists($conn, 'users', 'official_title') ? 'u.official_title' : 'NULL') . ' AS official_title, '
   . (db_column_exists($conn, 'users', 'authority_role') ? 'u.authority_role' : 'NULL') . ' AS authority_role, '
+  . ($hasProfilePhotoUrl ? 'u.profile_photo_url' : 'NULL') . ' AS profile_photo_url, '
   . ($hasChiefAssistant ? 'u.chief_assistant_user_id' : 'NULL') . ' AS chief_assistant_user_id, '
   . 's.name AS section_name, s.id AS resolved_section_id, d.id AS division_id, d.name AS division_name '
   . 'FROM users u '
@@ -77,10 +120,83 @@ $target['authority_role'] = $targetRole;
 
 $canEditBasic = can_edit_org_target($editor, $target);
 $canAssignAssistant = ($hasChiefAssistant || $hasAssistantAssignments) && can_assign_assistant_for_target($editor, $target);
+if ($editorIsAdmin) {
+  $canEditBasic = true;
+  $canAssignAssistant = ($hasChiefAssistant || $hasAssistantAssignments)
+    && org_user_is_assistant_assignable_principal((string)($target['authority_role'] ?? ''));
+}
 if (!$canEditBasic && !$canAssignAssistant) {
   http_response_code(403);
   echo json_encode(['ok' => false, 'error' => 'You are not allowed to update this user.']);
   exit;
+}
+
+$uploadedProfilePhotoPath = null;
+$uploadedProfilePhoto = $_FILES['profile_photo'] ?? null;
+$hasUploadedProfilePhoto = is_array($uploadedProfilePhoto)
+  && (int)($uploadedProfilePhoto['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
+
+$canUploadProfilePhoto = $editorIsAdmin && $canEditBasic;
+if (($hasUploadedProfilePhoto || $removeProfilePhoto) && !$canUploadProfilePhoto) {
+  http_response_code(403);
+  echo json_encode(['ok' => false, 'error' => 'Only admins can update org chart profile photos.']);
+  exit;
+}
+
+if (($hasUploadedProfilePhoto || $removeProfilePhoto) && !$hasProfilePhotoUrl) {
+  http_response_code(500);
+  echo json_encode(['ok' => false, 'error' => 'Profile photo storage is not ready.']);
+  exit;
+}
+
+if ($hasUploadedProfilePhoto) {
+  $uploadError = (int)($uploadedProfilePhoto['error'] ?? UPLOAD_ERR_NO_FILE);
+  if ($uploadError !== UPLOAD_ERR_OK) {
+    http_response_code(422);
+    echo json_encode(['ok' => false, 'error' => 'Profile photo upload failed. Please choose another image.']);
+    exit;
+  }
+
+  $tmpPath = (string)($uploadedProfilePhoto['tmp_name'] ?? '');
+  $size = (int)($uploadedProfilePhoto['size'] ?? 0);
+  if ($tmpPath === '' || !is_uploaded_file($tmpPath) || $size <= 0 || $size > 2 * 1024 * 1024) {
+    http_response_code(422);
+    echo json_encode(['ok' => false, 'error' => 'Profile photo must be a JPG, PNG, or WebP image up to 2MB.']);
+    exit;
+  }
+
+  $finfo = finfo_open(FILEINFO_MIME_TYPE);
+  $mime = $finfo ? (string)finfo_file($finfo, $tmpPath) : '';
+  if ($finfo) {
+    finfo_close($finfo);
+  }
+  $extensions = [
+    'image/jpeg' => 'jpg',
+    'image/png' => 'png',
+    'image/webp' => 'webp',
+  ];
+  if (!isset($extensions[$mime])) {
+    http_response_code(422);
+    echo json_encode(['ok' => false, 'error' => 'Profile photo must be a JPG, PNG, or WebP image.']);
+    exit;
+  }
+
+  $uploadDir = __DIR__ . '/../uploads/profile-pictures';
+  if (!is_dir($uploadDir) && !mkdir($uploadDir, 0775, true)) {
+    http_response_code(500);
+    echo json_encode(['ok' => false, 'error' => 'Could not prepare profile photo storage.']);
+    exit;
+  }
+
+  $fileName = 'user-' . $targetUserId . '-' . date('Ymd-His') . '-' . bin2hex(random_bytes(6)) . '.' . $extensions[$mime];
+  $destination = $uploadDir . DIRECTORY_SEPARATOR . $fileName;
+  if (!move_uploaded_file($tmpPath, $destination)) {
+    http_response_code(500);
+    echo json_encode(['ok' => false, 'error' => 'Could not save profile photo.']);
+    exit;
+  }
+  $uploadedProfilePhotoPath = 'uploads/profile-pictures/' . $fileName;
+  $removeProfilePhoto = false;
 }
 
 if ($canEditBasic) {
@@ -95,13 +211,15 @@ if ($canEditBasic) {
     exit;
   }
 
-  $allowedRoles = array_keys(org_assignable_roles_for_editor($editor));
+  $allowedRoles = $editorIsAdmin
+    ? ['director', 'division_head', 'division_assistant', 'section_head', 'staff', 'admin']
+    : array_keys(org_assignable_roles_for_editor($editor));
   if (!in_array($authorityRole, $allowedRoles, true)) {
     http_response_code(422);
     echo json_encode(['ok' => false, 'error' => 'That authority role is not allowed for your scope.']);
     exit;
   }
-  if (org_role_rank($authorityRole) >= (int)($editor['role_rank'] ?? 0) && empty($editor['is_admin'])) {
+  if (org_role_rank($authorityRole) >= (int)($editor['role_rank'] ?? 0) && !$editorIsAdmin) {
     http_response_code(422);
     echo json_encode(['ok' => false, 'error' => 'You cannot assign a role equal to or higher than your own.']);
     exit;
@@ -160,6 +278,15 @@ if ($hasPermanent) {
   $types .= 'i';
   $params[] = $permanent;
 }
+if ($hasProfilePhotoUrl && $canUploadProfilePhoto) {
+  if ($uploadedProfilePhotoPath !== null) {
+    $fields[] = 'profile_photo_url = ?';
+    $types .= 's';
+    $params[] = $uploadedProfilePhotoPath;
+  } elseif ($removeProfilePhoto) {
+    $fields[] = 'profile_photo_url = NULL';
+  }
+}
 if ($hasChiefAssistant) {
   if ($chiefAssistantUserId > 0) {
     $fields[] = 'chief_assistant_user_id = ?';
@@ -184,11 +311,18 @@ foreach ($params as $k => $v) {
 }
 call_user_func_array([$upd, 'bind_param'], $bind);
 if (!$upd->execute()) {
+  if ($uploadedProfilePhotoPath !== null) {
+    org_delete_local_profile_photo($uploadedProfilePhotoPath);
+  }
   http_response_code(500);
   echo json_encode(['ok' => false, 'error' => 'Failed to update org user.']);
   exit;
 }
 $upd->close();
+
+if (($uploadedProfilePhotoPath !== null || $removeProfilePhoto) && $hasProfilePhotoUrl) {
+  org_delete_local_profile_photo((string)($target['profile_photo_url'] ?? ''));
+}
 
 if ($canAssignAssistant && $hasAssistantAssignments) {
   $del = $conn->prepare('DELETE FROM principal_assistants WHERE principal_user_id = ?');

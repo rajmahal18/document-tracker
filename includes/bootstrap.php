@@ -560,7 +560,7 @@ function assistant_assignments_table_ready(mysqli $conn): bool {
  */
 
 function is_admin_user(): bool {
-  return (($_SESSION["role"] ?? "") === "admin");
+  return strtolower(trim((string)($_SESSION["role"] ?? ""))) === "admin";
 }
 
 function is_chief_user(): bool {
