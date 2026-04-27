@@ -244,7 +244,7 @@ function dt_working_minutes_between(?string $startRaw, ?string $endRaw = null, ?
     ? dt_parse_manila_datetime($endRaw, $calendar)
     : new DateTimeImmutable('now', dt_work_timezone($calendar));
 
-  if (!$end || $end <= $start) {
+  if (!$end || $end < $start) {
     return 0;
   }
 
@@ -269,7 +269,7 @@ function dt_working_minutes_between(?string $startRaw, ?string $endRaw = null, ?
     $cursor = dt_next_work_start($dayEnd->modify('+1 day')->setTime(0, 0, 0), $calendar);
   }
 
-  return $minutes;
+  return max(1, $minutes);
 }
 
 function dt_working_days_from_minutes(int $minutes, ?mysqli $conn = null): int

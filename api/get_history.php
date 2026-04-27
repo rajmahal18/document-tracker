@@ -1274,6 +1274,13 @@ try {
       }
     }
 
+    // Retroactively patch already saved events so they appear in Action Times
+    if (in_array($eventKey, ["sent", "forwarded", "branch_ended_here", "document_ended_here", "released", "attachment_forwarded"], true)) {
+      if ($elapsedWorkingMinutes === 0) {
+        $elapsedWorkingMinutes = 1;
+      }
+    }
+
     $history[] = [
       "event_id" => (int)($r["event_id"] ?? 0),
       "action" => $eventKey,
