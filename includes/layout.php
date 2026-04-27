@@ -182,21 +182,30 @@ $pageTitle = $pageTitle ?? "Document Tracker";
         elseif ($section !== "") $orgLine = $section;
       ?>
 
-      <div class="mini" style="margin: 0 0 12px; opacity: .85;">
-        Signed in as <b><?= htmlspecialchars($fullName) ?></b>
-        <?php if ($username !== ""): ?>
-          <br>
-          <span style="opacity:.75;">@<?= htmlspecialchars($username) ?></span>
-        <?php endif; ?>
-        <?php if ($officialTitle !== ""): ?>
-          <br>
-          <span style="opacity:.75;"><?= htmlspecialchars($officialTitle) ?></span>
-        <?php endif; ?>
-        <?php if ($orgLine !== ""): ?>
-          <br>
-          <span style="opacity:.75;">
-            <?= htmlspecialchars($orgLine) ?>
-          </span>
-        <?php endif; ?>
+      <?php
+        $profilePhotoUrl = trim((string)($_SESSION["profile_photo_url"] ?? ""));
+        $profileInitials = function_exists('app_user_initials') ? app_user_initials($fullName) : strtoupper(substr($fullName, 0, 1));
+      ?>
+      <div class="mini appUserSummary" style="margin: 0 0 12px;">
+        <span class="appAvatar appAvatarMd" aria-hidden="true">
+          <?php if ($profilePhotoUrl !== ""): ?>
+            <img src="<?= htmlspecialchars($profilePhotoUrl, ENT_QUOTES, "UTF-8") ?>" alt="">
+          <?php else: ?>
+            <span><?= htmlspecialchars($profileInitials) ?></span>
+          <?php endif; ?>
+        </span>
+        <span class="appUserSummaryText">
+          <span class="appUserSummaryKicker">Signed in as</span>
+          <b><?= htmlspecialchars($fullName) ?></b>
+          <?php if ($username !== ""): ?>
+            <span class="appUserSummaryMuted">@<?= htmlspecialchars($username) ?></span>
+          <?php endif; ?>
+          <?php if ($officialTitle !== ""): ?>
+            <span class="appUserSummaryMuted"><?= htmlspecialchars($officialTitle) ?></span>
+          <?php endif; ?>
+          <?php if ($orgLine !== ""): ?>
+            <span class="appUserSummaryMuted"><?= htmlspecialchars($orgLine) ?></span>
+          <?php endif; ?>
+        </span>
       </div>
     <?php endif; ?>

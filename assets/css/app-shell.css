@@ -1559,3 +1559,96 @@ body[data-theme="dark"] .scanDebugItem[data-tone="warn"] { color: #fde68a; }
 body[data-theme="dark"] .scanDebugItem[data-tone="bad"] { color: #fecaca; }
 body[data-theme="dark"] .qrDocCardCompact { background: linear-gradient(180deg, rgba(11,58,102,0.26), rgba(8,19,29,0.96)); }
 body[data-theme="dark"] .qrStatusPill { background: rgba(96,165,250,0.12); color: #dbeafe; }
+
+/* Compact user avatars for signed-in and assistant identity blocks */
+.appUserSummary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #64748b;
+  opacity: 1 !important;
+}
+
+.appUserSummaryText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.appUserSummaryText b {
+  color: #334155;
+  font-size: 13px;
+}
+
+.appUserSummaryKicker,
+.appUserSummaryMuted {
+  color: #8a97aa;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.appUserSummaryMuted {
+  font-weight: 600;
+}
+
+.appAvatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #e0f2fe, #eef2ff);
+  color: #0f4f8f;
+  border: 2px solid rgba(255,255,255,.92);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, .12);
+  font-weight: 900;
+  letter-spacing: .02em;
+}
+
+.appAvatarMd {
+  width: 38px;
+  height: 38px;
+  font-size: 12px;
+}
+
+.appAvatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.appAvatar span {
+  line-height: 1;
+}
+
+body[data-theme="dark"] .appUserSummaryText b {
+  color: #e5edf7;
+}
+
+body[data-theme="dark"] .appUserSummaryKicker,
+body[data-theme="dark"] .appUserSummaryMuted {
+  color: #9fb1c7;
+}
+
+body[data-theme="dark"] .appAvatar {
+  background: linear-gradient(135deg, #0f375e, #172554);
+  color: #dbeafe;
+  border-color: rgba(15, 23, 42, .9);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .32);
+}
+
+@media (max-width: 640px) {
+  .appUserSummary {
+    align-items: flex-start;
+  }
+
+  .appAvatarMd {
+    width: 34px;
+    height: 34px;
+    font-size: 11px;
+  }
+}

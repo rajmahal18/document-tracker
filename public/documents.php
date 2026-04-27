@@ -1625,7 +1625,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
 
 <?php $hasActiveFilters = ($search !== "" || $statusGet !== "" || $date_from !== "" || $date_to !== "" || $quick !== "" || ($sort !== "" && $sort !== "workflow")); ?>
 <style>
-.docsViewTabs{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px}.docsViewTab{padding:10px 14px;border-radius:12px;border:1px solid rgba(15,23,42,.12);background:#fff;color:#0f172a;text-decoration:none;font-weight:700}.docsViewTab.isActive{background:#0f172a;color:#fff}.docsAssistantBar{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin:0 0 16px;padding:14px;border:1px solid rgba(15,23,42,.08);border-radius:16px;background:#fff}.docsAssistantBar label{display:block;font-size:12px;font-weight:700;color:#475569;margin-bottom:6px}.docsAssistantBar select{min-width:260px;padding:10px 12px;border-radius:12px;border:1px solid rgba(15,23,42,.12)}.docsAssistantHint{font-size:12px;color:#64748b}
+.docsViewTabs{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px}.docsViewTab{padding:10px 14px;border-radius:12px;border:1px solid rgba(15,23,42,.12);background:#fff;color:#0f172a;text-decoration:none;font-weight:700}.docsViewTab.isActive{background:#0f172a;color:#fff}.docsAssistantBar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 16px;padding:14px;border:1px solid rgba(15,23,42,.08);border-radius:16px;background:#fff}.docsAssistantIdentity{display:flex;align-items:center;gap:10px;min-width:min(100%,360px)}.docsAssistantField{display:block;min-width:0}.docsAssistantBar label,.docsAssistantFieldLabel{display:block;font-size:12px;font-weight:800;color:#475569;margin-bottom:6px}.docsAssistantBar select{width:min(100%,260px);padding:10px 12px;border-radius:12px;border:1px solid rgba(15,23,42,.12);background:#fff}.docsAssistantHint{font-size:12px;color:#64748b;min-width:220px;flex:1}@media(max-width:640px){.docsAssistantBar{align-items:stretch}.docsAssistantIdentity{width:100%}.docsAssistantField{flex:1}.docsAssistantBar select{width:100%;min-width:0}.docsAssistantHint{min-width:100%}}
 </style>
 <div class="docsPageShell">
   <div class="docsViewTabs" aria-label="Documents view tabs">
@@ -1643,8 +1643,25 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
       <input type="hidden" name="to" value="<?= htmlspecialchars($date_to) ?>">
       <input type="hidden" name="quick" value="<?= htmlspecialchars($quick) ?>">
       <input type="hidden" name="sort" value="<?= htmlspecialchars($sort) ?>">
-      <label>Acting for<select name="acting_principal_user_id" onchange="this.form.submit()"><?php foreach ($assistantPrincipals as $principal): ?><option value="<?= (int)$principal['id'] ?>" <?= (int)$principal['id'] === (int)($activeAssistantPrincipal['id'] ?? 0) ? 'selected' : '' ?>><?= htmlspecialchars((string)$principal['full_name']) ?></option><?php endforeach; ?></select></label>
-      <div class="docsAssistantHint">Separate assistant queue for <?= htmlspecialchars((string)($activeAssistantPrincipal['full_name'] ?? 'the selected chief')) ?>. Actions remain under your account, but authority checks use this chief context.</div>
+      <?php
+        $activePrincipalName = (string)($activeAssistantPrincipal['full_name'] ?? 'Selected chief');
+        $activePrincipalPhotoUrl = (string)($activeAssistantPrincipal['profile_photo_url'] ?? '');
+        $activePrincipalInitials = function_exists('app_user_initials') ? app_user_initials($activePrincipalName) : strtoupper(substr($activePrincipalName, 0, 1));
+      ?>
+      <div class="docsAssistantIdentity">
+        <span class="appAvatar appAvatarMd" aria-hidden="true">
+          <?php if ($activePrincipalPhotoUrl !== ''): ?>
+            <img src="<?= htmlspecialchars($activePrincipalPhotoUrl, ENT_QUOTES, 'UTF-8') ?>" alt="">
+          <?php else: ?>
+            <span><?= htmlspecialchars($activePrincipalInitials) ?></span>
+          <?php endif; ?>
+        </span>
+        <label class="docsAssistantField">
+          <span class="docsAssistantFieldLabel">Acting for</span>
+          <select name="acting_principal_user_id" onchange="this.form.submit()"><?php foreach ($assistantPrincipals as $principal): ?><option value="<?= (int)$principal['id'] ?>" <?= (int)$principal['id'] === (int)($activeAssistantPrincipal['id'] ?? 0) ? 'selected' : '' ?>><?= htmlspecialchars((string)$principal['full_name']) ?></option><?php endforeach; ?></select>
+        </label>
+      </div>
+      <div class="docsAssistantHint">Separate assistant queue for <?= htmlspecialchars($activePrincipalName) ?>. Actions remain under your account, but authority checks use this chief context.</div>
     </form>
   <?php endif; ?>
   <nav class="docsMobileTabs" aria-label="Documents sections">

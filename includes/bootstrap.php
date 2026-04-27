@@ -582,6 +582,7 @@ function assistant_fetch_assigned_principals(mysqli $conn, int $assistantUserId)
   if ($assistantUserId <= 0) return [];
   $hasAuthorityRole = db_column_exists($conn, 'users', 'authority_role');
   $hasOfficialTitle = db_column_exists($conn, 'users', 'official_title');
+  $hasProfilePhotoUrl = db_column_exists($conn, 'users', 'profile_photo_url');
   $hasLegacyAssistant = db_column_exists($conn, 'users', 'chief_assistant_user_id');
   $hasAssignmentTable = assistant_assignments_table_ready($conn);
   if (!$hasLegacyAssistant && !$hasAssignmentTable) return [];
@@ -603,6 +604,7 @@ function assistant_fetch_assigned_principals(mysqli $conn, int $assistantUserId)
     SELECT u.id, u.full_name, u.section_id, u.role, u.is_chief, '
     . ($hasAuthorityRole ? 'u.authority_role' : 'NULL') . ' AS authority_role, '
     . ($hasOfficialTitle ? 'u.official_title' : 'NULL') . ' AS official_title, '
+    . ($hasProfilePhotoUrl ? 'u.profile_photo_url' : 'NULL') . ' AS profile_photo_url, '
     . 's.name AS section_name, d.id AS division_id, d.name AS division_name '
     . 'FROM users u '
     . 'LEFT JOIN sections s ON s.id = u.section_id '
@@ -628,6 +630,7 @@ function assistant_fetch_assigned_principals(mysqli $conn, int $assistantUserId)
       $authority = ((int)($row['is_chief'] ?? 0) === 1) ? 'section_head' : 'staff';
     }
     $row['authority_role'] = $authority;
+    $row['profile_photo_url'] = app_profile_photo_url((string)($row['profile_photo_url'] ?? ''));
     $row['acting_label'] = match ($authority) {
       'director' => 'Office of the Director',
       'division_head' => 'Office of the Division Chief',

@@ -5,6 +5,35 @@ function normalize_whitespace(string $value): string {
   return trim((string)(preg_replace('/\s+/', ' ', $value) ?? $value));
 }
 
+
+function app_user_initials(string $name): string {
+  $parts = preg_split('/\s+/', trim($name)) ?: [];
+  $initials = '';
+  foreach ($parts as $part) {
+    $clean = trim((string)$part, " .,-_\t\n\r\0\x0B");
+    if ($clean === '') continue;
+    if (function_exists('mb_substr') && function_exists('mb_strtoupper')) {
+      $initials .= mb_strtoupper(mb_substr($clean, 0, 1));
+    } else {
+      $initials .= strtoupper(substr($clean, 0, 1));
+    }
+    if (strlen($initials) >= 2) break;
+  }
+  return $initials !== '' ? $initials : 'U';
+}
+
+function app_profile_photo_url(?string $value): string {
+  $value = trim((string)$value);
+  if ($value === '') return '';
+  if (preg_match('/^(https?:)?\/\//i', $value) || str_starts_with($value, 'data:image/')) {
+    return $value;
+  }
+  if (function_exists('asset_url')) {
+    return asset_url(ltrim($value, '/'));
+  }
+  return ltrim($value, '/');
+}
+
 function username_column_exists(mysqli $conn): bool {
   return db_column_exists($conn, 'users', 'username');
 }
@@ -94,12 +123,14 @@ function refresh_session_identity(mysqli $conn, int $userId): void {
   $hasOfficialTitle = db_column_exists($conn, 'users', 'official_title');
   $hasAuthorityRole = db_column_exists($conn, 'users', 'authority_role');
   $hasUsername = username_column_exists($conn);
+  $hasProfilePhotoUrl = db_column_exists($conn, 'users', 'profile_photo_url');
   $sql = '
       SELECT
         u.id,
         u.full_name,
         ' . ($hasUsername ? 'u.username' : 'NULL') . ' AS username,
         u.email,
+        ' . ($hasProfilePhotoUrl ? 'u.profile_photo_url' : 'NULL') . ' AS profile_photo_url,
         u.must_change_password,
         u.role,
         u.section_id,
@@ -125,6 +156,7 @@ function refresh_session_identity(mysqli $conn, int $userId): void {
   $_SESSION['full_name'] = (string)$user['full_name'];
   $_SESSION['username'] = trim((string)($user['username'] ?? ''));
   $_SESSION['email'] = (string)($user['email'] ?? '');
+  $_SESSION['profile_photo_url'] = app_profile_photo_url((string)($user['profile_photo_url'] ?? ''));
   $_SESSION['role'] = (string)($user['role'] ?? 'user');
   $_SESSION['must_change_password'] = (int)($user['must_change_password'] ?? 0);
   $_SESSION['section_id'] = isset($user['section_id']) ? (int)$user['section_id'] : null;
