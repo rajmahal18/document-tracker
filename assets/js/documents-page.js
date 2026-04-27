@@ -198,6 +198,26 @@
     return s;
   }
 
+  function actorInitials(name) {
+    const parts = clean(name).split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return "U";
+    if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
+    return (parts[0].slice(0, 1) + parts[1].slice(0, 1)).toUpperCase();
+  }
+
+  function renderTimelineActorAvatar(item, sizeClass = "") {
+    const photoUrl = clean(item?.actor_photo_url);
+    const initials = clean(item?.actor_initials) || actorInitials(item?.actor || "User");
+    const fallbackStyle = photoUrl ? ' style="display:none;"' : "";
+
+    return `
+      <span class="appAvatar tActorAvatar ${esc(sizeClass)}" aria-hidden="true">
+        ${photoUrl ? `<img src="${esc(photoUrl)}" alt="" loading="lazy" decoding="async" onerror="this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='inline-flex';">` : ""}
+        <span${fallbackStyle}>${esc(initials)}</span>
+      </span>
+    `;
+  }
+
   function normalizedPendingRemarksValue() {
     return (elPendingRemarksInput?.value ?? "").toString().trim();
   }
@@ -2023,9 +2043,11 @@
               <div class="tContent">
                 <div class="tRow">
                   <div class="tMeta tMetaLeft">
-                    ${esc(fmt(i.acted_at))}
-                    <br>
-                    ${esc(i.actor || "System")}
+                    <div class="tActorMetaHead">
+                      ${renderTimelineActorAvatar(i)}
+                      <span class="tActorTime">${esc(fmt(i.acted_at))}</span>
+                    </div>
+                    <span class="tActorName">${esc(i.actor || "System")}</span>
                   </div>
 
                   <div class="tRight">
@@ -2196,7 +2218,10 @@
                   return `
                     <div class="tLine action-${esc(actionKey)}">
                       <div class="tLineLeft">
-                        <span class="tLineTime">${esc(fmt(i.acted_at))}</span>
+                        <div class="tLineMetaHead">
+                          ${renderTimelineActorAvatar(i, "tActorAvatarSm")}
+                          <span class="tLineTime">${esc(fmt(i.acted_at))}</span>
+                        </div>
                         <span class="tLineTag">${esc(prettyAction(actionKey).toUpperCase())}</span>
                         ${isReferenceEvent ? `<span class="tLineTag">FOR REFERENCE</span>` : ``}
                       </div>

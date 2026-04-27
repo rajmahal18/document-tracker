@@ -521,6 +521,14 @@ try {
     return $ackSummaryCache[$cacheKey];
   };
 
+  $actorProfilePhotoColumn = null;
+  foreach (["profile_photo_url", "avatar_url", "photo_url"] as $candidatePhotoColumn) {
+    if (db_column_exists($conn, "users", $candidatePhotoColumn)) {
+      $actorProfilePhotoColumn = $candidatePhotoColumn;
+      break;
+    }
+  }
+
   $stmt = $conn->prepare("
     SELECT
       e.id AS event_id,
@@ -533,6 +541,7 @@ try {
       s_actor.name AS actor_section_name,
       d_actor.name AS actor_division_name,
       u.full_name AS actor,
+      " . ($actorProfilePhotoColumn !== null ? "u.`" . $conn->real_escape_string($actorProfilePhotoColumn) . "`" : "NULL") . " AS actor_profile_photo_raw,
       s_from.name AS from_section,
       d_from.name AS from_division_name,
       s_to.name AS to_section,
@@ -617,6 +626,10 @@ try {
     );
 
     $actor = (string)($r["actor"] ?? "—");
+    $actorPhotoUrl = app_profile_photo_url((string)($r["actor_profile_photo_raw"] ?? ""));
+    $actorInitials = function_exists("app_user_initials")
+      ? app_user_initials($actor)
+      : strtoupper(substr(trim($actor), 0, 1));
     $actingPrincipalName = trim((string)($payload["acting_principal_name"] ?? ""));
     $actingLabel = trim((string)($payload["acting_label"] ?? ""));
     if ($actingPrincipalName !== "") {
@@ -1035,6 +1048,10 @@ try {
     if ($shouldRedact) {
       $safeDivision = $eventDivision;
       $actor = $safeDivision;
+      $actorPhotoUrl = "";
+      $actorInitials = function_exists("app_user_initials")
+        ? app_user_initials($safeDivision)
+        : strtoupper(substr(trim($safeDivision), 0, 1));
       $branchLabel = '';
       $personMovementLabel = '';
       $payloadRecipientSummary = '';
@@ -1138,6 +1155,8 @@ try {
       "personal_deadline_at" => $personalDeadlineValue,
       "acted_at" => (string)($r["created_at"] ?? ""),
       "actor" => $actor,
+      "actor_photo_url" => $actorPhotoUrl,
+      "actor_initials" => $actorInitials,
       "from_section" => $movementFrom !== '' ? $movementFrom : $from,
       "to_section" => $movementTo !== '' ? $movementTo : $to,
       "movement_label" => $movementLabel,

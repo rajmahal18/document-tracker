@@ -1042,6 +1042,37 @@ button[id]::before {
   line-height: 1.25;
 }
 
+.tActorMetaHead,
+.tLineMetaHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tActorTime {
+  min-width: 0;
+}
+
+.tActorName {
+  display: block;
+  margin-top: 6px;
+}
+
+.tActorAvatar {
+  width: 28px;
+  height: 28px;
+  font-size: 10px;
+  border-width: 1px;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.12);
+}
+
+.tActorAvatarSm {
+  width: 24px;
+  height: 24px;
+  font-size: 9px;
+}
+
 .tAction {
   font-weight: 900;
   font-size: 12px;
@@ -2527,6 +2558,11 @@ body[data-theme="dark"] .tMeta {
   color: #b7c8dc;
 }
 
+body[data-theme="dark"] .tActorAvatar {
+  border-color: rgba(15, 23, 42, 0.92);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.32);
+}
+
 body[data-theme="dark"] .tGroupToggle,
 body[data-theme="dark"] .tToggle {
   background: rgba(255, 255, 255, 0.07);
@@ -2832,6 +2868,18 @@ body[data-theme="dark"] .forwardDeadlineWrap {
 
   .tLineTag {
     margin-top: 0;
+  }
+
+  .tActorAvatar {
+    width: 26px;
+    height: 26px;
+    font-size: 9px;
+  }
+
+  .tActorAvatarSm {
+    width: 22px;
+    height: 22px;
+    font-size: 8px;
   }
 }
 
