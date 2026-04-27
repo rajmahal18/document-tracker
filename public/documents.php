@@ -772,7 +772,7 @@ $sql = "
     -- last holder (fallback when not in transit)
     sf_last.name AS last_holder_name,
 
-    0 AS days_stuck,
+    COALESCE(r_open.sent_at, r_last.received_at, d.created_at) AS stuck_since_at,
     TIMESTAMPDIFF(DAY, COALESCE((
       SELECT e_closed.created_at
       FROM document_events e_closed
@@ -1286,8 +1286,9 @@ $stmt->execute();
 $docs = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
 foreach ($docs as &$docRow) {
+  $stuckSince = (string)($docRow['stuck_since_at'] ?? $docRow['updated_at'] ?? '');
   $workingMinutesStuck = strtoupper((string)($docRow['current_status'] ?? 'ACTIVE')) === 'ACTIVE'
-    ? dt_working_minutes_between((string)($docRow['updated_at'] ?? ''), null, $conn)
+    ? dt_working_minutes_between($stuckSince, null, $conn)
     : 0;
 
   $docRow['working_minutes_stuck'] = $workingMinutesStuck;
@@ -2920,7 +2921,12 @@ $end   = min($totalPages, $page + 2);
       if (typeof args[0] === 'string' && args[0].includes('get_history.php')) {
         response.clone().json().then(data => {
           if (data.ok && data.history) {
-            renderElapsedTimes(data.history);
+            renderElapsedTimes(
+              data.history,
+              Number(data.viewer_live_elapsed_working_minutes || 0),
+              Boolean(data.viewer_live_elapsed_enabled),
+              data.live_elapsed_working_minutes_by_user || {}
+            );
           }
         }).catch(() => {});
       }
@@ -2937,7 +2943,7 @@ $end   = min($totalPages, $page + 2);
       return `${mins} min${mins > 1 ? 's' : ''}`;
     }
 
-    function renderElapsedTimes(history) {
+    function renderElapsedTimes(history, liveMyElapsedMinutes = 0, liveMyEnabled = false, liveByUser = {}) {
       const container = document.getElementById('d_elapsed_times');
       if (!container) return;
 
@@ -3016,8 +3022,19 @@ $end   = min($totalPages, $page + 2);
         }
       });
 
+      const liveByUserObj = (liveByUser && typeof liveByUser === 'object') ? liveByUser : {};
+      Object.entries(liveByUserObj).forEach(([uid, mins]) => {
+        const userKey = String(uid || '').trim();
+        const liveMins = Number(mins || 0);
+        if (!/^\d+$/.test(userKey) || liveMins <= 0) return;
+        totalsByUserId[userKey] = (Number(totalsByUserId[userKey] || 0) + liveMins);
+      });
+
       const myUserId = Number(window.__CTX__?.actualUserId || 0);
       const myTotal = myUserId > 0 ? Number(totalsByUserId[String(myUserId)] || 0) : 0;
+      const hasMyLiveFromMap = myUserId > 0 && Number(liveByUserObj[String(myUserId)] || 0) > 0;
+      const liveMyTotal = (!hasMyLiveFromMap && liveMyEnabled && liveMyElapsedMinutes > 0) ? Number(liveMyElapsedMinutes) : 0;
+      const myTotalWithLive = myTotal + liveMyTotal;
       if (myUserId > 0) {
         delete totalsByUserId[String(myUserId)];
       }
@@ -3037,8 +3054,9 @@ $end   = min($totalPages, $page + 2);
         .sort((a, b) => b.total - a.total || a.label.localeCompare(b.label));
 
       const lines = [];
-      if (myTotal > 0) {
-        lines.push(`<div style="margin-bottom:4px; color:#0f172a;"><strong>My elapsed time:</strong> ${formatWorkingTime(myTotal)}</div>`);
+      if (myTotalWithLive > 0) {
+        const myLabel = liveMyTotal > 0 ? 'My elapsed time (live)' : 'My elapsed time';
+        lines.push(`<div style="margin-bottom:4px; color:#0f172a;"><strong>${myLabel}:</strong> ${formatWorkingTime(myTotalWithLive)}</div>`);
       }
       others.forEach(row => {
         lines.push(`<div style="margin-bottom:4px; color:#475569;"><strong>${row.label}:</strong> ${formatWorkingTime(row.total)}</div>`);

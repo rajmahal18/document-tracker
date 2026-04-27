@@ -152,7 +152,23 @@ try {
   $viewerDivisionId = (int)($identity['effective_division_id'] ?? 0);
   $viewerDivisionName = trim((string)($identity['effective_division_name'] ?? ''));
   $viewerRole = strtolower(trim((string)($identity['effective_role'] ?? '')));
+  $viewerIsChief = (bool)($identity['effective_is_chief'] ?? false);
   $viewerIsAdmin = ($viewerRole === "admin") && !(bool)($identity['assistant_mode'] ?? false);
+  $viewerLiveElapsedEnabled = false;
+  $viewerLiveElapsedWorkingMinutes = 0;
+  $liveElapsedMinutesByUser = [];
+
+  $stmtDocMeta = $conn->prepare("
+    SELECT current_status, created_at
+    FROM documents
+    WHERE id = ?
+    LIMIT 1
+  ");
+  $stmtDocMeta->bind_param("i", $docId);
+  $stmtDocMeta->execute();
+  $docMetaRow = $stmtDocMeta->get_result()->fetch_assoc() ?: [];
+  $docCurrentStatus = strtoupper(trim((string)($docMetaRow['current_status'] ?? 'ACTIVE')));
+  $docCreatedAt = trim((string)($docMetaRow['created_at'] ?? ''));
 
   $viewerIsDocumentOrigin = false;
 
@@ -318,6 +334,104 @@ try {
     && !in_array($selectedBranchId, $allowedBranchIds, true)
   ) {
     $selectedBranchId = 0;
+  }
+
+  if ($docCurrentStatus === 'ACTIVE') {
+    $activeUserIds = [];
+
+    if ($docHasRealBranches) {
+      $stmtActiveUsers = $conn->prepare("
+        SELECT DISTINCT current_assignee_user_id
+        FROM document_branches
+        WHERE document_id = ?
+          AND branch_status = 'ACTIVE'
+          AND current_assignee_user_id IS NOT NULL
+          AND current_assignee_user_id > 0
+      ");
+      $stmtActiveUsers->bind_param("i", $docId);
+      $stmtActiveUsers->execute();
+      $activeUserRows = $stmtActiveUsers->get_result()->fetch_all(MYSQLI_ASSOC) ?: [];
+      foreach ($activeUserRows as $activeUserRow) {
+        $activeUserId = (int)($activeUserRow['current_assignee_user_id'] ?? 0);
+        if ($activeUserId > 0) $activeUserIds[] = $activeUserId;
+      }
+    } else {
+      $stmtOpenLegacyRoutes = $conn->prepare("
+        SELECT COUNT(*) AS c
+        FROM routes
+        WHERE document_id = ?
+          AND route_kind = 'ACTION'
+          AND received_at IS NULL
+          AND cancelled_at IS NULL
+      ");
+      $stmtOpenLegacyRoutes->bind_param("i", $docId);
+      $stmtOpenLegacyRoutes->execute();
+      $legacyOpenActionRoutes = (int)($stmtOpenLegacyRoutes->get_result()->fetch_assoc()['c'] ?? 0);
+
+      if ($legacyOpenActionRoutes === 0) {
+        $stmtLastLegacyReceived = $conn->prepare("
+          SELECT received_by_user_id
+          FROM routes
+          WHERE document_id = ?
+            AND route_kind = 'ACTION'
+            AND received_by_user_id IS NOT NULL
+            AND received_at IS NOT NULL
+            AND cancelled_at IS NULL
+          ORDER BY received_at DESC, id DESC
+          LIMIT 1
+        ");
+        $stmtLastLegacyReceived->bind_param("i", $docId);
+        $stmtLastLegacyReceived->execute();
+        $legacyOwnerUserId = (int)($stmtLastLegacyReceived->get_result()->fetch_assoc()['received_by_user_id'] ?? 0);
+        if ($legacyOwnerUserId > 0) {
+          $activeUserIds[] = $legacyOwnerUserId;
+        }
+      }
+
+      if (
+        $viewerUserId > 0
+        && workflow_user_can_act_legacy_document($conn, $docId, $viewerUserId, $viewerSectionId, $viewerIsChief, false)
+      ) {
+        $activeUserIds[] = $viewerUserId;
+      }
+    }
+
+    $activeUserIds = array_values(array_unique(array_filter(array_map('intval', $activeUserIds), static fn($id) => $id > 0)));
+
+    if ($activeUserIds !== []) {
+      $stmtStartForUser = $conn->prepare("
+        SELECT received_at
+        FROM routes
+        WHERE document_id = ?
+          AND received_by_user_id = ?
+          AND received_at IS NOT NULL
+          AND cancelled_at IS NULL
+        ORDER BY received_at DESC
+        LIMIT 1
+      ");
+
+      foreach ($activeUserIds as $activeUserId) {
+        $startRaw = null;
+        $stmtStartForUser->bind_param("ii", $docId, $activeUserId);
+        $stmtStartForUser->execute();
+        $startRow = $stmtStartForUser->get_result()->fetch_assoc();
+
+        if ($startRow && !empty($startRow['received_at'])) {
+          $startRaw = (string)$startRow['received_at'];
+        } elseif ($docCreatedAt !== '') {
+          $startRaw = $docCreatedAt;
+        }
+
+        $liveElapsedMinutesByUser[(string)$activeUserId] = $startRaw
+          ? dt_working_minutes_between($startRaw, null, $conn)
+          : 0;
+      }
+    }
+  }
+
+  if ($viewerUserId > 0) {
+    $viewerLiveElapsedWorkingMinutes = (int)($liveElapsedMinutesByUser[(string)$viewerUserId] ?? 0);
+    $viewerLiveElapsedEnabled = ($viewerLiveElapsedWorkingMinutes > 0);
   }
 
   $selectedBranchScopeIds = [];
@@ -1136,13 +1250,16 @@ try {
     }
 
     $elapsedWorkingMinutes = isset($payload["elapsed_working_minutes"]) ? (int)$payload["elapsed_working_minutes"] : -1;
+    // If payload does not contain elapsed_working_minutes, calculate for historical purposes.
+    // For live tracking, this is done after the loop.
     if ($elapsedWorkingMinutes === -1) {
       $elapsedWorkingMinutes = 0;
       if (in_array($eventKey, ["sent", "forwarded", "branch_ended_here", "document_ended_here", "released", "attachment_forwarded"], true)) {
         $histActorUid = (int)($r["actor_user_id"] ?? 0);
         $histCreatedAt = (string)($r["created_at"] ?? "");
-        $stmtStartFallback = $conn->prepare("SELECT received_at FROM routes WHERE document_id = ? AND received_by_user_id = ? AND received_at IS NOT NULL AND cancelled_at IS NULL AND received_at <= ? ORDER BY received_at DESC LIMIT 1");
-        $stmtStartFallback->bind_param("iis", $docId, $histActorUid, $histCreatedAt);
+        $fallbackBranchId = $resolvedBranchId > 0 ? $resolvedBranchId : 0;
+        $stmtStartFallback = $conn->prepare("SELECT received_at FROM routes WHERE document_id = ? AND received_by_user_id = ? AND (? <= 0 OR branch_id = ?) AND received_at IS NOT NULL AND cancelled_at IS NULL AND received_at <= ? ORDER BY received_at DESC LIMIT 1");
+        $stmtStartFallback->bind_param("iiiis", $docId, $histActorUid, $fallbackBranchId, $fallbackBranchId, $histCreatedAt);
         $stmtStartFallback->execute();
         $startFallbackRow = $stmtStartFallback->get_result()->fetch_assoc();
         if ($startFallbackRow && !empty($startFallbackRow['received_at'])) {
@@ -1199,6 +1316,9 @@ try {
     "ok" => true,
     "branch_mode" => $docHasRealBranches,
     "viewer_is_document_origin" => $viewerIsDocumentOrigin,
+    "viewer_live_elapsed_enabled" => $viewerLiveElapsedEnabled,
+    "viewer_live_elapsed_working_minutes" => $viewerLiveElapsedWorkingMinutes,
+    "live_elapsed_working_minutes_by_user" => $liveElapsedMinutesByUser,
     "branches" => $branches,
     "selected_branch_id" => $selectedBranchId > 0 ? $selectedBranchId : null,
     "history" => $history

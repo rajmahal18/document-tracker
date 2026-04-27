@@ -473,8 +473,13 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
 
   // Calculate elapsed working time for the actor before saving event
   $startRaw = null;
-  $stmtStart = $conn->prepare("SELECT received_at FROM routes WHERE document_id = ? AND received_by_user_id = ? AND received_at IS NOT NULL AND cancelled_at IS NULL ORDER BY received_at DESC LIMIT 1");
-  $stmtStart->bind_param("ii", $docId, $actualUserId);
+  if ($docHasRealBranches && isset($sourceBranchId) && $sourceBranchId > 0) {
+    $stmtStart = $conn->prepare("SELECT received_at FROM routes WHERE document_id = ? AND branch_id = ? AND received_by_user_id = ? AND received_at IS NOT NULL AND cancelled_at IS NULL ORDER BY received_at DESC LIMIT 1");
+    $stmtStart->bind_param("iii", $docId, $sourceBranchId, $actualUserId);
+  } else {
+    $stmtStart = $conn->prepare("SELECT received_at FROM routes WHERE document_id = ? AND received_by_user_id = ? AND received_at IS NOT NULL AND cancelled_at IS NULL ORDER BY received_at DESC LIMIT 1");
+    $stmtStart->bind_param("ii", $docId, $actualUserId);
+  }
   $stmtStart->execute();
   $startRow = $stmtStart->get_result()->fetch_assoc();
   if ($startRow && !empty($startRow['received_at'])) {
