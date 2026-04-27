@@ -1312,6 +1312,131 @@ try {
     ];
   }
 
+  $involvedUserIds = [];
+  foreach ($history as $h) {
+    if (!empty($h['actor_user_id'])) $involvedUserIds[] = (int)$h['actor_user_id'];
+  }
+  foreach ($activeUserIds ?? [] as $uid) {
+    if ($uid > 0) $involvedUserIds[] = (int)$uid;
+  }
+  if ($viewerUserId > 0) {
+    $involvedUserIds[] = $viewerUserId;
+  }
+  $involvedUserIds = array_values(array_unique($involvedUserIds));
+
+  $userProfiles = [];
+  if (!empty($involvedUserIds)) {
+    $inPlaceholders = implode(',', array_fill(0, count($involvedUserIds), '?'));
+    $types = str_repeat('i', count($involvedUserIds));
+
+    $principalToAssistants = [];
+    $assistantToPrincipal = [];
+
+    if (function_exists('assistant_assignments_table_ready') && assistant_assignments_table_ready($conn)) {
+      $paSql = "
+        SELECT principal_user_id, assistant_user_id
+        FROM principal_assistants
+        WHERE principal_user_id IN ($inPlaceholders)
+           OR assistant_user_id IN ($inPlaceholders)
+      ";
+      $stmtPa = $conn->prepare($paSql);
+      $paParams = array_merge($involvedUserIds, $involvedUserIds);
+      $paTypes = $types . $types;
+      $stmtPa->bind_param($paTypes, ...$paParams);
+      $stmtPa->execute();
+      $paRows = $stmtPa->get_result()->fetch_all(MYSQLI_ASSOC);
+      foreach ($paRows as $r) {
+        $p = (int)$r['principal_user_id'];
+        $a = (int)$r['assistant_user_id'];
+        $principalToAssistants[$p][] = $a;
+        $assistantToPrincipal[$a] = $p;
+      }
+    }
+
+    if (db_column_exists($conn, 'users', 'chief_assistant_user_id')) {
+      $caSql = "
+        SELECT id AS principal_user_id, chief_assistant_user_id AS assistant_user_id
+        FROM users
+        WHERE (id IN ($inPlaceholders) OR chief_assistant_user_id IN ($inPlaceholders))
+          AND chief_assistant_user_id IS NOT NULL AND chief_assistant_user_id > 0
+      ";
+      $stmtCa = $conn->prepare($caSql);
+      $caParams = array_merge($involvedUserIds, $involvedUserIds);
+      $caTypes = $types . $types;
+      $stmtCa->bind_param($caTypes, ...$caParams);
+      $stmtCa->execute();
+      $caRows = $stmtCa->get_result()->fetch_all(MYSQLI_ASSOC);
+      foreach ($caRows as $r) {
+        $p = (int)$r['principal_user_id'];
+        $a = (int)$r['assistant_user_id'];
+        $principalToAssistants[$p][] = $a;
+        $assistantToPrincipal[$a] = $p;
+      }
+    }
+
+    $neededUserIds = $involvedUserIds;
+    foreach ($principalToAssistants as $p => $asts) {
+      $neededUserIds[] = $p;
+      foreach ($asts as $a) $neededUserIds[] = $a;
+    }
+    foreach ($assistantToPrincipal as $a => $p) {
+      $neededUserIds[] = $a;
+      $neededUserIds[] = $p;
+    }
+    $neededUserIds = array_values(array_unique($neededUserIds));
+
+    $userMeta = [];
+    if (!empty($neededUserIds)) {
+      $nPlaceholders = implode(',', array_fill(0, count($neededUserIds), '?'));
+      $nTypes = str_repeat('i', count($neededUserIds));
+      $photoCol = $actorProfilePhotoColumn ? "`" . $conn->real_escape_string($actorProfilePhotoColumn) . "`" : "NULL";
+      $uSql = "SELECT id, full_name, {$photoCol} AS photo FROM users WHERE id IN ($nPlaceholders)";
+      $stmtU = $conn->prepare($uSql);
+      $stmtU->bind_param($nTypes, ...$neededUserIds);
+      $stmtU->execute();
+      $uRows = $stmtU->get_result()->fetch_all(MYSQLI_ASSOC);
+      foreach ($uRows as $r) {
+        $uid = (int)$r['id'];
+        $name = trim((string)$r['full_name']);
+        $photo = app_profile_photo_url((string)($r['photo'] ?? ''));
+        $initials = function_exists('app_user_initials') ? app_user_initials($name) : strtoupper(substr($name, 0, 1));
+        $userMeta[$uid] = [
+          'id' => $uid,
+          'name' => $name,
+          'photo' => $photo,
+          'initials' => $initials
+        ];
+      }
+    }
+
+    foreach ($involvedUserIds as $uid) {
+      $group = [];
+      $pId = $assistantToPrincipal[$uid] ?? $uid;
+      if (isset($userMeta[$pId])) {
+        $group[] = $userMeta[$pId];
+      }
+      if (isset($principalToAssistants[$pId])) {
+        foreach ($principalToAssistants[$pId] as $aId) {
+          if (isset($userMeta[$aId])) {
+            $group[] = $userMeta[$aId];
+          }
+        }
+      }
+      $uniqueGroup = [];
+      $seen = [];
+      foreach ($group as $g) {
+        if (!isset($seen[$g['id']])) {
+          $seen[$g['id']] = true;
+          $uniqueGroup[] = $g;
+        }
+      }
+      if (empty($uniqueGroup) && isset($userMeta[$uid])) {
+        $uniqueGroup[] = $userMeta[$uid];
+      }
+      $userProfiles[$uid] = $uniqueGroup;
+    }
+  }
+
   echo json_encode([
     "ok" => true,
     "branch_mode" => $docHasRealBranches,
@@ -1319,6 +1444,7 @@ try {
     "viewer_live_elapsed_enabled" => $viewerLiveElapsedEnabled,
     "viewer_live_elapsed_working_minutes" => $viewerLiveElapsedWorkingMinutes,
     "live_elapsed_working_minutes_by_user" => $liveElapsedMinutesByUser,
+    "user_profiles" => $userProfiles,
     "branches" => $branches,
     "selected_branch_id" => $selectedBranchId > 0 ? $selectedBranchId : null,
     "history" => $history
