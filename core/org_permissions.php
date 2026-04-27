@@ -195,7 +195,7 @@ function org_fetch_assistant_candidates(mysqli $conn, array $target): array {
         $resolvedRole = 'staff';
       }
     }
-    if ($resolvedRole !== 'staff') {
+    if (!in_array($resolvedRole, ['staff', 'admin'], true)) {
       continue;
     }
 

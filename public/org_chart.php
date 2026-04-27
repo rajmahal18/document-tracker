@@ -798,9 +798,9 @@ if ($userRes) {
       "show_presence" => ($viewerDivisionId > 0 && $viewerDivisionId === $divisionId),
       "is_leader" => is_leadership_role($authorityRole),
     ];
-    $target["can_edit"] = $canManageOrg && can_edit_org_target($orgEditor, $target);
+    $target["can_edit"] = $canManageOrg && ($orgEditorIsAdmin || can_edit_org_target($orgEditor, $target));
     $target["can_upload_photo"] = $orgEditorIsAdmin && $target["can_edit"];
-    $target["can_assign_assistant"] = ($hasChiefAssistant || $hasAssistantAssignments) && can_assign_assistant_for_target($orgEditor, $target);
+    $target["can_assign_assistant"] = ($hasChiefAssistant || $hasAssistantAssignments) && ($orgEditorIsAdmin ? org_user_is_assistant_assignable_principal($authorityRole) : can_assign_assistant_for_target($orgEditor, $target));
     $target["assistant_candidates_json"] = $target["can_assign_assistant"]
       ? json_encode(org_fetch_assistant_candidates($conn, $target), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
       : '[]';
