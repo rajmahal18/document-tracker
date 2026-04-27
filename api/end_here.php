@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . "/../includes/bootstrap.php";
 require_login();
+require_once __DIR__ . "/../core/working_time.php";
 
 header("Content-Type: application/json");
 
@@ -40,6 +41,21 @@ if ($actualUserId <= 0 || $principalUserId <= 0 || $mySectionId <= 0) {
 $eventRemarks = "";
 if ($remarks !== "" && strcasecmp($remarks, "none") !== 0) {
   $eventRemarks = $remarks;
+}
+
+function get_elapsed_working_minutes($conn, $docId, $userId) {
+  $stmt = $conn->prepare("SELECT received_at FROM routes WHERE document_id = ? AND received_by_user_id = ? AND received_at IS NOT NULL AND cancelled_at IS NULL ORDER BY received_at DESC LIMIT 1");
+  $stmt->bind_param("ii", $docId, $userId);
+  $stmt->execute();
+  $row = $stmt->get_result()->fetch_assoc();
+  if ($row && !empty($row['received_at'])) {
+    return dt_working_minutes_between($row['received_at'], null, $conn);
+  }
+  $stmt = $conn->prepare("SELECT created_at FROM documents WHERE id = ? LIMIT 1");
+  $stmt->bind_param("i", $docId);
+  $stmt->execute();
+  $startRaw = $stmt->get_result()->fetch_assoc()['created_at'] ?? null;
+  return $startRaw ? dt_working_minutes_between($startRaw, null, $conn) : 0;
 }
 
 try {
@@ -165,6 +181,7 @@ try {
         "new_status" => $newStatus,
         "document_completed" => $documentCompleted,
         "active_action_branches_remaining" => $activeActionBranches,
+        "elapsed_working_minutes" => get_elapsed_working_minutes($conn, $docId, $actualUserId),
         "acting_principal_user_id" => ($principalUserId !== $actualUserId) ? $principalUserId : null,
         "acting_principal_name" => ($principalUserId !== $actualUserId) ? (string)($identity["acting_principal_name"] ?? "") : "",
         "acting_label" => ($principalUserId !== $actualUserId) ? (string)($identity["acting_label"] ?? "") : "",
@@ -316,6 +333,7 @@ try {
       "old_status" => $oldStatus,
       "new_status" => "RELEASED",
       "document_completed" => true,
+      "elapsed_working_minutes" => get_elapsed_working_minutes($conn, $docId, $actualUserId),
       "acting_principal_user_id" => ($principalUserId !== $actualUserId) ? $principalUserId : null,
       "acting_principal_name" => ($principalUserId !== $actualUserId) ? (string)($identity["acting_principal_name"] ?? "") : "",
       "acting_label" => ($principalUserId !== $actualUserId) ? (string)($identity["acting_label"] ?? "") : "",

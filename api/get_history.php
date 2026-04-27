@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . "/../includes/bootstrap.php";
 require_login();
+require_once __DIR__ . "/../core/working_time.php";
 
 header("Content-Type: application/json");
 
@@ -535,6 +536,7 @@ try {
       e.event_type,
       e.created_at,
       e.payload_json,
+      e.actor_user_id,
       e.actor_section_id,
       e.from_section_id,
       e.to_section_id,
@@ -1133,6 +1135,28 @@ try {
       }
     }
 
+    $elapsedWorkingMinutes = isset($payload["elapsed_working_minutes"]) ? (int)$payload["elapsed_working_minutes"] : -1;
+    if ($elapsedWorkingMinutes === -1) {
+      $elapsedWorkingMinutes = 0;
+      if (in_array($eventKey, ["sent", "forwarded", "branch_ended_here", "document_ended_here", "released", "attachment_forwarded"], true)) {
+        $histActorUid = (int)($r["actor_user_id"] ?? 0);
+        $histCreatedAt = (string)($r["created_at"] ?? "");
+        $stmtStartFallback = $conn->prepare("SELECT received_at FROM routes WHERE document_id = ? AND received_by_user_id = ? AND received_at IS NOT NULL AND cancelled_at IS NULL AND received_at <= ? ORDER BY received_at DESC LIMIT 1");
+        $stmtStartFallback->bind_param("iis", $docId, $histActorUid, $histCreatedAt);
+        $stmtStartFallback->execute();
+        $startFallbackRow = $stmtStartFallback->get_result()->fetch_assoc();
+        if ($startFallbackRow && !empty($startFallbackRow['received_at'])) {
+          $elapsedWorkingMinutes = dt_working_minutes_between($startFallbackRow['received_at'], $histCreatedAt, $conn);
+        } else {
+          $stmtDocFallback = $conn->prepare("SELECT created_at FROM documents WHERE id = ? LIMIT 1");
+          $stmtDocFallback->bind_param("i", $docId);
+          $stmtDocFallback->execute();
+          $docStartRawFallback = $stmtDocFallback->get_result()->fetch_assoc()['created_at'] ?? null;
+          $elapsedWorkingMinutes = $docStartRawFallback ? dt_working_minutes_between($docStartRawFallback, $histCreatedAt, $conn) : 0;
+        }
+      }
+    }
+
     $history[] = [
       "event_id" => (int)($r["event_id"] ?? 0),
       "action" => $eventKey,
@@ -1152,6 +1176,8 @@ try {
       "branch_split_redacted" => $branchSplitRedacted,
       "remarks" => $canSeeRemarks ? $remarksValue : "",
       "released_to" => $canSeeRemarks ? $releasedToValue : "",
+      "actor_user_id" => (int)($r["actor_user_id"] ?? 0),
+      "elapsed_working_minutes" => $elapsedWorkingMinutes,
       "personal_deadline_at" => $personalDeadlineValue,
       "acted_at" => (string)($r["created_at"] ?? ""),
       "actor" => $actor,

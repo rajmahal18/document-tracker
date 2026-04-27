@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . "/../includes/bootstrap.php";
 require_login();
+require_once __DIR__ . "/../core/working_time.php";
 
 header("Content-Type: application/json");
 
@@ -470,6 +471,22 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
     $stmt->execute();
   }
 
+  // Calculate elapsed working time for the actor before saving event
+  $startRaw = null;
+  $stmtStart = $conn->prepare("SELECT received_at FROM routes WHERE document_id = ? AND received_by_user_id = ? AND received_at IS NOT NULL AND cancelled_at IS NULL ORDER BY received_at DESC LIMIT 1");
+  $stmtStart->bind_param("ii", $docId, $actualUserId);
+  $stmtStart->execute();
+  $startRow = $stmtStart->get_result()->fetch_assoc();
+  if ($startRow && !empty($startRow['received_at'])) {
+    $startRaw = $startRow['received_at'];
+  } else {
+    $stmtDoc = $conn->prepare("SELECT created_at FROM documents WHERE id = ? LIMIT 1");
+    $stmtDoc->bind_param("i", $docId);
+    $stmtDoc->execute();
+    $startRaw = $stmtDoc->get_result()->fetch_assoc()['created_at'] ?? null;
+  }
+  $elapsedWorkingMinutes = $startRaw ? dt_working_minutes_between($startRaw, null, $conn) : 0;
+
   $payload = json_encode([
     "remarks" => $routeRemarks,
     "send_batch_id" => $sendBatchId,
@@ -493,6 +510,7 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
     "new_branch_ids" => array_values(array_unique(array_filter($newBranchIds))),
     "document_deadline_at" => $documentDeadlineAt,
     "personal_deadline_at" => $personalDeadlineAt,
+    "elapsed_working_minutes" => $elapsedWorkingMinutes,
     "acting_principal_user_id" => ($userId > 0 && $userId !== $actualUserId) ? $userId : null,
     "acting_principal_name" => ($userId > 0 && $userId !== $actualUserId) ? (string)($identity['acting_principal_name'] ?? '') : '',
     "acting_label" => ($userId > 0 && $userId !== $actualUserId) ? (string)($identity['acting_label'] ?? '') : '',

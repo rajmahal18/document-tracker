@@ -78,6 +78,7 @@ require __DIR__ . "/../includes/layout.php";
   window.__CSRF__ = "<?= htmlspecialchars(csrf_token(), ENT_QUOTES, "UTF-8") ?>";
 
   window.__CTX__ = {
+    actualUserId: <?= (int)($_SESSION["user_id"] ?? 0) ?>,
     myUserId: <?= $assistantModeEnabled ? (int)($activeAssistantPrincipal['id'] ?? 0) : (int)($_SESSION["user_id"] ?? 0) ?>,
     mySectionId: <?= $assistantModeEnabled ? (int)($activeAssistantPrincipal['section_id'] ?? 0) : (int)($_SESSION["section_id"] ?? 0) ?>,
     myRole: "<?= htmlspecialchars($_SESSION["role"] ?? "user") ?>",
@@ -2570,6 +2571,12 @@ $end   = min($totalPages, $page + 2);
     <div class="kv"><div class="k">Subject</div><div class="v" id="d_subject"></div></div>
     <div class="kv"><div class="k">Type</div><div class="v" id="d_type"></div></div>
     <div class="kv"><div class="k" id="d_activity_label">Days stuck</div><div class="v" id="d_days"></div></div>
+    <div class="kv">
+      <div class="k">Action Times</div>
+      <div class="v" id="d_elapsed_times">
+        <span class="mini" style="opacity:0.7;">Loading...</span>
+      </div>
+    </div>
     <div class="kv" id="rowEditDocumentDetails" style="display:none;">
       <div class="k">Correction</div>
       <div class="v"><button type="button" class="btnSecondary" id="btnEditDocumentDetails">Edit details</button></div>
@@ -2903,6 +2910,159 @@ $end   = min($totalPages, $page + 2);
     <div id="recBody" class="attBody" style="padding:16px;"></div>
   </div>
 </div>
+
+<script>
+  (function() {
+    const originalFetch = window.fetch;
+    window.fetch = async function(...args) {
+      const response = await originalFetch.apply(this, args);
+      
+      if (typeof args[0] === 'string' && args[0].includes('get_history.php')) {
+        response.clone().json().then(data => {
+          if (data.ok && data.history) {
+            renderElapsedTimes(data.history);
+          }
+        }).catch(() => {});
+      }
+      return response;
+    };
+
+    function formatWorkingTime(minutes) {
+      if (minutes <= 0) return '0 mins';
+      const totalHours = Math.floor(minutes / 60);
+      const mins = minutes % 60;
+      
+      if (totalHours > 0 && mins > 0) return `${totalHours} hr${totalHours > 1 ? 's' : ''} and ${mins} min${mins > 1 ? 's' : ''}`;
+      if (totalHours > 0) return `${totalHours} hr${totalHours > 1 ? 's' : ''}`;
+      return `${mins} min${mins > 1 ? 's' : ''}`;
+    }
+
+    function renderElapsedTimes(history) {
+      const container = document.getElementById('d_elapsed_times');
+      if (!container) return;
+
+      const eventsAsc = [...(Array.isArray(history) ? history : [])].sort((a, b) => {
+        const ta = new Date(a?.acted_at || 0).getTime();
+        const tb = new Date(b?.acted_at || 0).getTime();
+        if (ta !== tb) return ta - tb;
+        return (a?.event_id || 0) - (b?.event_id || 0);
+      });
+
+      // elapsed_working_minutes is cumulative for the current handling stint.
+      // We keep only the peak cumulative value per stint, then sum stint peaks.
+      const runningStintMax = {};
+      const totalsByUserId = {};
+      const nameByUserId = {};
+      const fallbackTotalsByName = {};
+
+      const flushUserStint = (actorUserId) => {
+        const userKey = String(actorUserId);
+        const stintMax = runningStintMax[userKey] || 0;
+        if (stintMax > 0) {
+          totalsByUserId[userKey] = (totalsByUserId[userKey] || 0) + stintMax;
+        }
+        runningStintMax[userKey] = 0;
+      };
+
+      const flushNameStint = (actorName) => {
+        const nameKey = String(actorName || '').trim();
+        if (!nameKey) return;
+        const stintMax = runningStintMax[nameKey] || 0;
+        if (stintMax > 0) {
+          fallbackTotalsByName[nameKey] = (fallbackTotalsByName[nameKey] || 0) + stintMax;
+        }
+        runningStintMax[nameKey] = 0;
+      };
+
+      eventsAsc.forEach(ev => {
+        const actorUserId = Number(ev?.actor_user_id || 0);
+        const rawActorName = String(ev?.actor || '').replace(/\s*\(via.*?\)\s*/g, '').trim();
+        const mins = Number(ev?.elapsed_working_minutes || 0);
+        const action = String(ev?.action || '').toLowerCase();
+
+        if (actorUserId > 0 && rawActorName) {
+          nameByUserId[String(actorUserId)] = rawActorName;
+        }
+
+        // "received" means a new handling stint starts for this user.
+        // Close any previous stint before resetting.
+        if (action === 'received') {
+          if (actorUserId > 0) {
+            flushUserStint(actorUserId);
+          } else if (rawActorName) {
+            flushNameStint(rawActorName);
+          }
+          return;
+        }
+
+        if (mins <= 0) return;
+
+        if (actorUserId > 0) {
+          const userKey = String(actorUserId);
+          runningStintMax[userKey] = Math.max(runningStintMax[userKey] || 0, mins);
+        } else if (rawActorName) {
+          runningStintMax[rawActorName] = Math.max(runningStintMax[rawActorName] || 0, mins);
+        }
+      });
+
+      // Flush open stints at the end of the history.
+      Object.keys(runningStintMax).forEach(key => {
+        const stintMax = runningStintMax[key] || 0;
+        if (stintMax <= 0) return;
+        if (/^\d+$/.test(key)) {
+          totalsByUserId[key] = (totalsByUserId[key] || 0) + stintMax;
+        } else {
+          fallbackTotalsByName[key] = (fallbackTotalsByName[key] || 0) + stintMax;
+        }
+      });
+
+      const myUserId = Number(window.__CTX__?.actualUserId || 0);
+      const myTotal = myUserId > 0 ? Number(totalsByUserId[String(myUserId)] || 0) : 0;
+      if (myUserId > 0) {
+        delete totalsByUserId[String(myUserId)];
+      }
+
+      const others = Object.entries(totalsByUserId)
+        .map(([uid, total]) => ({
+          uid,
+          total: Number(total || 0),
+          label: nameByUserId[uid] || `User #${uid}`,
+        }))
+        .filter(row => row.total > 0)
+        .sort((a, b) => b.total - a.total || a.label.localeCompare(b.label));
+
+      const fallbackOthers = Object.entries(fallbackTotalsByName)
+        .map(([label, total]) => ({ label, total: Number(total || 0) }))
+        .filter(row => row.total > 0)
+        .sort((a, b) => b.total - a.total || a.label.localeCompare(b.label));
+
+      const lines = [];
+      if (myTotal > 0) {
+        lines.push(`<div style="margin-bottom:4px; color:#0f172a;"><strong>My elapsed time:</strong> ${formatWorkingTime(myTotal)}</div>`);
+      }
+      others.forEach(row => {
+        lines.push(`<div style="margin-bottom:4px; color:#475569;"><strong>${row.label}:</strong> ${formatWorkingTime(row.total)}</div>`);
+      });
+      fallbackOthers.forEach(row => {
+        lines.push(`<div style="margin-bottom:4px; color:#475569;"><strong>${row.label}:</strong> ${formatWorkingTime(row.total)}</div>`);
+      });
+
+      if (lines.length === 0) {
+        container.innerHTML = '<span class="mini" style="opacity:0.7;">No action times recorded yet.</span>';
+      } else {
+        container.innerHTML = lines.join('');
+      }
+    }
+
+    document.addEventListener('click', (e) => {
+      const row = e.target.closest('tr[data-doc]');
+      if (row) {
+        const container = document.getElementById('d_elapsed_times');
+        if (container) container.innerHTML = '<span class="mini" style="opacity:0.7;">Calculating...</span>';
+      }
+    });
+  })();
+</script>
 
 <?php $pageScripts = [asset_url("assets/js/documents-page.js")]; ?>
 <?php require __DIR__ . "/../includes/footer.php"; ?>
