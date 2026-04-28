@@ -1490,6 +1490,112 @@ $stats = [
   "active" => (int)($statRows["active"] ?? 0),
 ];
 
+$myAvgMins = 0;
+$myAvgText = "";
+if ($myUserId > 0 && db_table_exists($conn, 'document_events')) {
+  $actionDocsByUser = [];
+  $routeActionSql = "SELECT document_id FROM routes WHERE route_kind = 'ACTION' AND (to_user_id = {$myUserId} OR received_by_user_id = {$myUserId})";
+  $branchActionSql = $branchMode ? " UNION SELECT document_id FROM document_branches WHERE is_reference = 0 AND current_assignee_user_id = {$myUserId}" : "";
+  $creatorActionSql = " UNION SELECT id AS document_id FROM documents WHERE created_by_user_id = {$myUserId}";
+  
+  $resAction = $conn->query($routeActionSql . $branchActionSql . $creatorActionSql);
+  if ($resAction) {
+    while($r = $resAction->fetch_assoc()) {
+      $actionDocsByUser[(int)$r['document_id']] = true;
+    }
+    $resAction->free();
+  }
+
+  $resEvents = $conn->query("
+    SELECT
+      document_id,
+      created_at,
+      event_type,
+      COALESCE(JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.kind')), '') AS payload_kind,
+      CAST(JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.elapsed_working_minutes')) AS SIGNED) AS elapsed_mins,
+      COALESCE(JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.route_kind')), '') AS route_kind
+    FROM document_events
+    WHERE COALESCE(NULLIF(CAST(JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.acting_principal_user_id')) AS UNSIGNED), 0), actor_user_id) = {$myUserId}
+    ORDER BY document_id ASC, created_at ASC, id ASC
+  ");
+
+  if ($resEvents) {
+    $stints = [];
+    $sumMins = 0;
+    $docCount = 0;
+    
+    while ($row = $resEvents->fetch_assoc()) {
+      $did = (int)$row['document_id'];
+      $eventType = strtolower(trim((string)($row['event_type'] ?? '')));
+      $payloadKind = strtolower(trim((string)($row['payload_kind'] ?? '')));
+      $routeKind = strtoupper(trim((string)($row['route_kind'] ?? '')));
+      
+      $action = $eventType;
+      if ($eventType === 'updated' && in_array($payloadKind, ['branch_ended_here', 'document_ended_here', 'attachment_forwarded', 'attachment_forward_task_done'], true)) {
+          $action = $payloadKind;
+      }
+      if ($eventType === 'updated' && $payloadKind === 'attachment_added') {
+          $action = $payloadKind;
+      }
+
+      $createdAt = (string)($row['created_at'] ?? '');
+      $elapsedMins = (int)($row['elapsed_mins'] ?? 0);
+
+      if ($action === 'received' || $action === 'created') {
+          if (isset($stints[$did])) {
+              if ($stints[$did]['max_mins'] > 0 && !$stints[$did]['is_reference'] && isset($actionDocsByUser[$did])) {
+                  $sumMins += $stints[$did]['max_mins'];
+                  $docCount++;
+              }
+          }
+          $stints[$did] = [
+              'start_at' => $createdAt,
+              'max_mins' => 0,
+              'is_open' => true,
+              'is_reference' => ($routeKind === 'REFERENCE')
+          ];
+      } else {
+          if (!isset($stints[$did])) {
+              $stints[$did] = [
+                  'start_at' => $createdAt,
+                  'max_mins' => 0,
+                  'is_open' => true,
+                  'is_reference' => false
+              ];
+          }
+          if ($elapsedMins > 0) {
+              $stints[$did]['max_mins'] = max($stints[$did]['max_mins'], $elapsedMins);
+          } elseif (in_array($action, ['sent', 'forwarded', 'released', 'branch_ended_here', 'document_ended_here', 'attachment_forwarded'], true)) {
+              $startAt = $stints[$did]['start_at'];
+              $calcMins = dt_working_minutes_between($startAt, $createdAt, $conn);
+              if ($calcMins <= 0) $calcMins = 1;
+              $stints[$did]['max_mins'] = max($stints[$did]['max_mins'], $calcMins);
+              $stints[$did]['is_open'] = false;
+          }
+      }
+    }
+    $resEvents->free();
+
+    foreach ($stints as $did => $stint) {
+        if (!$stint['is_reference'] && isset($actionDocsByUser[$did]) && $stint['max_mins'] > 0) {
+            $sumMins += $stint['max_mins'];
+            $docCount++;
+        }
+    }
+
+    if ($docCount > 0) {
+        $myAvgMins = (int)round($sumMins / $docCount);
+        $myAvgText = $myAvgMins . ' mins';
+        if ($myAvgMins >= 60) {
+            $h = intdiv($myAvgMins, 60);
+            $m = $myAvgMins % 60;
+            $myAvgText = $h . ' hr' . ($h > 1 ? 's' : '');
+            if ($m > 0) $myAvgText .= ' ' . $m . ' min' . ($m > 1 ? 's' : '');
+        }
+    }
+  }
+}
+
 // Helper for pagination URLs (preserve current filters)
 function pageUrl(int $p): string {
   $q = $_GET;
@@ -1679,6 +1785,13 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
     </div>
 
     <div class="docsHeroActions">
+      <?php if ($myAvgText !== ""): ?>
+      <div class="docsSummaryPill">
+        <span class="docsSummaryValue" style="font-size:16px; margin-bottom:2px;"><?= htmlspecialchars($myAvgText) ?></span>
+        <span class="docsSummaryLabel">my avg processing time</span>
+      </div>
+      <?php endif; ?>
+
       <div class="docsSummaryPill">
         <span class="docsSummaryValue"><?= (int)$total ?></span>
         <span class="docsSummaryLabel">documents in this view</span>
