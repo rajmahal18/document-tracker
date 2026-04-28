@@ -23,6 +23,8 @@ export interface OrgUser {
   documents_incoming_count?: number
   documents_pending_count?: number
   documents_completed_count?: number
+  avg_working_minutes?: number
+  avg_processing_time?: string
   authority_role: AuthorityRole
   display_title: string
   official_title: string

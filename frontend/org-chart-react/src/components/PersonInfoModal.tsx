@@ -15,6 +15,8 @@ export function PersonInfoModal({ user, onClose, onEdit }: Props) {
   const incomingCount = user.documents_incoming_count ?? user.documents_received_count ?? 0
   const pendingCount = user.documents_pending_count ?? 0
   const completedCount = user.documents_completed_count ?? user.documents_forwarded_count ?? 0
+  const averageProcessingTime = user.avg_processing_time || 'N/A'
+  const averageProcessingMins = user.avg_working_minutes ?? 0
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/45 px-4 py-6 backdrop-blur-sm" onClick={onClose}>
@@ -45,6 +47,12 @@ export function PersonInfoModal({ user, onClose, onEdit }: Props) {
               <DocMetric label="Pending" helper="Already with user for action" value={pendingCount} tone="pending" />
               <DocMetric label="Completed" helper="User part is already done" value={completedCount} tone="complete" />
             </div>
+          </section>
+
+          <section className="person-note">
+            <p className="person-modal-label">Average processing time</p>
+            <p>{averageProcessingTime}</p>
+            <p className="mt-1 text-xs text-ink-500">Based on recorded elapsed working time per completed user action ({averageProcessingMins} mins average).</p>
           </section>
 
           {user.chief_assistant_names ? (

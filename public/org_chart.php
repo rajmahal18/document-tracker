@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require __DIR__ . "/../includes/bootstrap.php";
+require_once __DIR__ . "/../core/working_time.php";
 require_login();
 
 $pageTitle = "Organizational Chart - Document Tracker";
@@ -135,6 +136,7 @@ function org_chart_document_stats(mysqli $conn): array {
         'pending' => 0,
         'completed' => 0,
         'assistant_actions' => 0,
+        'avg_working_minutes' => 0,
       ];
     }
   };
@@ -189,6 +191,245 @@ function org_chart_document_stats(mysqli $conn): array {
   }
 
   if (db_table_exists($conn, 'document_events') && db_column_exists($conn, 'document_events', 'payload_json')) {
+    $workingMinutesByUser = [];
+    $docsHandledByUser = [];
+    $activeAssignmentsByUserDoc = [];
+
+    $recordWorkingTime = static function(int $userId, int $documentId, int $mins) use (&$workingMinutesByUser, &$docsHandledByUser): void {
+      if ($userId <= 0 || $documentId <= 0 || $mins <= 0) return;
+      if (!isset($workingMinutesByUser[$userId])) {
+        $workingMinutesByUser[$userId] = 0;
+        $docsHandledByUser[$userId] = [];
+      }
+      $workingMinutesByUser[$userId] += $mins;
+      $docsHandledByUser[$userId][$documentId] = true;
+    };
+
+    $actionDocsByUser = [];
+
+    if (db_table_exists($conn, 'documents') && db_column_exists($conn, 'documents', 'current_status')) {
+      $hasBranches = db_table_exists($conn, 'document_branches') && db_column_exists($conn, 'document_branches', 'current_assignee_user_id');
+      
+      if (db_column_exists($conn, 'documents', 'created_by_user_id')) {
+        $resCreator = $conn->query("SELECT id, created_by_user_id FROM documents WHERE created_by_user_id > 0");
+        if ($resCreator) {
+          while ($row = $resCreator->fetch_assoc()) {
+            $actionDocsByUser[(int)$row['created_by_user_id']][(int)$row['id']] = true;
+          }
+          $resCreator->free();
+        }
+      }
+
+      if ($hasBranches) {
+        $branchReferenceSql = db_column_exists($conn, 'document_branches', 'is_reference') ? 'AND is_reference = 0' : '';
+        $resActionBranch = $conn->query("
+          SELECT document_id, current_assignee_user_id AS user_id
+          FROM document_branches
+          WHERE current_assignee_user_id > 0
+          {$branchReferenceSql}
+        ");
+        if ($resActionBranch) {
+          while ($row = $resActionBranch->fetch_assoc()) {
+            $actionDocsByUser[(int)$row['user_id']][(int)$row['document_id']] = true;
+          }
+          $resActionBranch->free();
+        }
+      }
+
+      if (db_table_exists($conn, 'routes')) {
+        $routeKindSql = db_column_exists($conn, 'routes', 'route_kind') ? "AND route_kind = 'ACTION'" : '';
+        $hasToUser = db_column_exists($conn, 'routes', 'to_user_id');
+        $hasReceivedBy = db_column_exists($conn, 'routes', 'received_by_user_id');
+        $routeSources = [];
+        if ($hasToUser) $routeSources[] = "SELECT document_id, to_user_id AS user_id FROM routes WHERE to_user_id > 0 {$routeKindSql}";
+        if ($hasReceivedBy) $routeSources[] = "SELECT document_id, received_by_user_id AS user_id FROM routes WHERE received_by_user_id > 0 {$routeKindSql}";
+        if ($routeSources !== []) {
+            $resActionRoute = $conn->query(implode(" UNION ", $routeSources));
+            if ($resActionRoute) {
+              while ($row = $resActionRoute->fetch_assoc()) {
+                $actionDocsByUser[(int)$row['user_id']][(int)$row['document_id']] = true;
+              }
+              $resActionRoute->free();
+            }
+        }
+      }
+
+      if ($hasBranches) {
+        $branchStatusSql = db_column_exists($conn, 'document_branches', 'branch_status') ? "AND b.branch_status = 'ACTIVE'" : '';
+        $branchReferenceSql = db_column_exists($conn, 'document_branches', 'is_reference') ? "AND b.is_reference = 0" : '';
+        $resActiveBranches = $conn->query("
+          SELECT b.document_id, b.current_assignee_user_id AS user_id
+          FROM document_branches b
+          JOIN documents d ON d.id = b.document_id
+          WHERE d.current_status = 'ACTIVE'
+            AND b.current_assignee_user_id IS NOT NULL
+            AND b.current_assignee_user_id > 0
+            {$branchStatusSql}
+            {$branchReferenceSql}
+        ");
+        if ($resActiveBranches) {
+          while ($row = $resActiveBranches->fetch_assoc()) {
+            $uid = (int)($row['user_id'] ?? 0);
+            $did = (int)($row['document_id'] ?? 0);
+            if ($uid > 0 && $did > 0) {
+                if (!isset($activeAssignmentsByUserDoc[$uid])) $activeAssignmentsByUserDoc[$uid] = [];
+                $activeAssignmentsByUserDoc[$uid][$did] = true;
+            }
+          }
+          $resActiveBranches->free();
+        }
+      }
+
+      if (db_table_exists($conn, 'routes') && db_column_exists($conn, 'routes', 'received_by_user_id')) {
+        $routeNotCancelled = db_column_exists($conn, 'routes', 'cancelled_at') ? 'AND r.cancelled_at IS NULL' : '';
+        $routeKindSql = db_column_exists($conn, 'routes', 'route_kind') ? "AND r.route_kind = 'ACTION'" : '';
+        $routeKindSubSql = db_column_exists($conn, 'routes', 'route_kind') ? "AND r2.route_kind = 'ACTION'" : '';
+        $noBranchCond = $hasBranches ? "AND NOT EXISTS (SELECT 1 FROM document_branches b2 WHERE b2.document_id = d.id)" : "";
+        $resLegacyActive = $conn->query("
+          SELECT d.id AS document_id, r.received_by_user_id AS user_id
+          FROM documents d
+          JOIN routes r ON r.document_id = d.id
+          WHERE d.current_status = 'ACTIVE'
+            AND r.received_by_user_id IS NOT NULL
+            AND r.received_by_user_id > 0
+            AND r.received_at IS NOT NULL
+            {$routeKindSql}
+            {$routeNotCancelled}
+            {$noBranchCond}
+            AND r.id = (
+               SELECT MAX(id) FROM routes r2 WHERE r2.document_id = d.id AND r2.received_at IS NOT NULL {$routeNotCancelled} {$routeKindSubSql}
+            )
+        ");
+        if ($resLegacyActive) {
+          while ($row = $resLegacyActive->fetch_assoc()) {
+            $uid = (int)($row['user_id'] ?? 0);
+            $did = (int)($row['document_id'] ?? 0);
+            if ($uid > 0 && $did > 0) {
+                if (!isset($activeAssignmentsByUserDoc[$uid])) $activeAssignmentsByUserDoc[$uid] = [];
+                $activeAssignmentsByUserDoc[$uid][$did] = true;
+            }
+          }
+          $resLegacyActive->free();
+        }
+      }
+    }
+
+    $resEventActions = $conn->query("
+      SELECT
+        de.document_id,
+        COALESCE(NULLIF(CAST(JSON_UNQUOTE(JSON_EXTRACT(de.payload_json, '$.acting_principal_user_id')) AS UNSIGNED), 0), de.actor_user_id) AS user_id,
+        de.created_at,
+        de.event_type,
+        COALESCE(JSON_UNQUOTE(JSON_EXTRACT(de.payload_json, '$.kind')), '') AS payload_kind,
+        CAST(JSON_UNQUOTE(JSON_EXTRACT(de.payload_json, '$.elapsed_working_minutes')) AS SIGNED) AS elapsed_mins,
+        COALESCE(JSON_UNQUOTE(JSON_EXTRACT(de.payload_json, '$.route_kind')), '') AS route_kind
+      FROM document_events de
+      WHERE de.created_at IS NOT NULL
+      ORDER BY de.document_id ASC, de.created_at ASC, de.id ASC
+    ");
+
+    if ($resEventActions) {
+      $currentStintByUserDoc = [];
+
+      while ($row = $resEventActions->fetch_assoc()) {
+        $userId = (int)($row['user_id'] ?? 0);
+        $documentId = (int)($row['document_id'] ?? 0);
+        if ($userId <= 0 || $documentId <= 0) continue;
+
+        $eventType = strtolower(trim((string)($row['event_type'] ?? '')));
+        $payloadKind = strtolower(trim((string)($row['payload_kind'] ?? '')));
+        $routeKind = strtoupper(trim((string)($row['route_kind'] ?? '')));
+        
+        $action = $eventType;
+        if ($eventType === 'updated' && in_array($payloadKind, ['branch_ended_here', 'document_ended_here', 'attachment_forwarded', 'attachment_forward_task_done'], true)) {
+            $action = $payloadKind;
+        }
+        if ($eventType === 'updated' && $payloadKind === 'attachment_added') {
+            $action = $payloadKind;
+        }
+
+        $createdAt = (string)($row['created_at'] ?? '');
+        $elapsedMins = (int)($row['elapsed_mins'] ?? 0);
+
+        if (!isset($currentStintByUserDoc[$userId])) $currentStintByUserDoc[$userId] = [];
+
+        if ($action === 'received' || $action === 'created') {
+            if (isset($currentStintByUserDoc[$userId][$documentId])) {
+                $stintMax = $currentStintByUserDoc[$userId][$documentId]['max_mins'];
+                $isRef = $currentStintByUserDoc[$userId][$documentId]['is_reference'] ?? false;
+                if ($stintMax > 0 && !$isRef) {
+                    $recordWorkingTime($userId, $documentId, $stintMax);
+                }
+            }
+            $currentStintByUserDoc[$userId][$documentId] = [
+                'start_at' => $createdAt,
+                'max_mins' => 0,
+                'is_open' => true,
+                'is_reference' => ($routeKind === 'REFERENCE')
+            ];
+        } else {
+            if (!isset($currentStintByUserDoc[$userId][$documentId])) {
+                $currentStintByUserDoc[$userId][$documentId] = [
+                    'start_at' => $createdAt,
+                    'max_mins' => 0,
+                    'is_open' => true,
+                    'is_reference' => false
+                ];
+            }
+
+            if ($elapsedMins > 0) {
+                $currentStintByUserDoc[$userId][$documentId]['max_mins'] = max($currentStintByUserDoc[$userId][$documentId]['max_mins'], $elapsedMins);
+            } else {
+                if (in_array($action, ['sent', 'forwarded', 'released', 'branch_ended_here', 'document_ended_here', 'attachment_forwarded'], true)) {
+                    $startAt = $currentStintByUserDoc[$userId][$documentId]['start_at'];
+                    $calcMins = dt_working_minutes_between($startAt, $createdAt, $conn);
+                    if ($calcMins <= 0) $calcMins = 1;
+                    $currentStintByUserDoc[$userId][$documentId]['max_mins'] = max($currentStintByUserDoc[$userId][$documentId]['max_mins'], $calcMins);
+                }
+            }
+
+            $isCompletionLike = in_array($action, ['sent', 'forwarded', 'released', 'branch_ended_here', 'document_ended_here', 'attachment_forwarded'], true);
+            if ($isCompletionLike) {
+                $currentStintByUserDoc[$userId][$documentId]['is_open'] = false;
+            }
+        }
+      }
+      $resEventActions->free();
+
+      foreach ($currentStintByUserDoc as $uid => $docs) {
+          foreach ($docs as $did => $stint) {
+              if (!empty($stint['is_reference'])) {
+                  continue;
+              }
+
+              // Prevent any minute logging if the user's involvement in this document was strictly for reference
+              if (!isset($actionDocsByUser[$uid][$did])) {
+                  continue;
+              }
+
+              $totalForStint = $stint['max_mins'];
+
+              if ($stint['is_open'] && isset($activeAssignmentsByUserDoc[$uid][$did])) {
+                  $liveMins = dt_working_minutes_between($stint['start_at'], null, $conn);
+                  if ($liveMins <= 0) $liveMins = 1;
+                  $totalForStint = max($totalForStint, $liveMins);
+              }
+
+              if ($totalForStint > 0) {
+                  $recordWorkingTime($uid, $did, $totalForStint);
+              }
+          }
+      }
+    }
+
+    foreach ($workingMinutesByUser as $uid => $sumMins) {
+      $uid = (int)$uid;
+      $docCount = count($docsHandledByUser[$uid] ?? []);
+      if ($uid <= 0 || $docCount <= 0 || $sumMins <= 0) continue;
+      $ensure($uid);
+      $stats[$uid]['avg_working_minutes'] = (int)round($sumMins / $docCount);
+    }
+
     $readCount("
       SELECT assistant_user_id AS user_id, COUNT(DISTINCT document_id) AS total
       FROM (
@@ -794,6 +1035,8 @@ if ($userRes) {
       "documents_incoming_count" => (int)($documentStatsByUser[$userId]["incoming"] ?? 0),
       "documents_pending_count" => (int)($documentStatsByUser[$userId]["pending"] ?? 0),
       "documents_completed_count" => (int)($documentStatsByUser[$userId]["completed"] ?? 0),
+      "avg_working_minutes" => (int)($documentStatsByUser[$userId]["avg_working_minutes"] ?? 0),
+      "avg_processing_time" => (int)($documentStatsByUser[$userId]["avg_working_minutes"] ?? 0) > 0 ? dt_format_working_elapsed((int)($documentStatsByUser[$userId]["avg_working_minutes"] ?? 0), $conn) : "N/A",
       "is_online" => $isOnline,
       "show_presence" => ($viewerDivisionId > 0 && $viewerDivisionId === $divisionId),
       "is_leader" => is_leadership_role($authorityRole),
