@@ -14,6 +14,14 @@
   const elDeadlineCountdown = document.getElementById("d_deadline_countdown");
   const elSubject = document.getElementById("d_subject");
   const elType = document.getElementById("d_type");
+  const elProjects = document.getElementById("d_projects");
+  const elProjectsManageRow = document.getElementById("d_projects_manage_row");
+  const elProjectsActions = document.getElementById("d_projects_actions");
+  const btnProjectManageToggle = document.getElementById("btnProjectManageToggle");
+  const btnProjectManageClose = document.getElementById("btnProjectManageClose");
+  const inputProjectCode = document.getElementById("d_project_code_input");
+  const selProject = document.getElementById("d_project_select");
+  const btnProjectAttach = document.getElementById("btnProjectAttach");
   const elDays = document.getElementById("d_days");
   const elActivityLabel = document.getElementById("d_activity_label");
 
@@ -161,6 +169,7 @@
   let currentBranchId = 0;
   let currentPendingRemarksState = null;
   let currentEndHereMode = "end";
+  let projectManageOpen = false;
   const pendingRemarkLocalEvents = new Map();
   let deadlineTicker = null;
 
@@ -196,6 +205,162 @@
     if (!s) return "";
     if (["-", "—", "n/a", "na", "null", "undefined"].includes(s.toLowerCase())) return "";
     return s;
+  }
+
+  function canManageProjects(payload = null) {
+    const p = payload || currentPayload || {};
+    const ctx = window.__CTX__ || {};
+    const myRole = (ctx.myRole || "user").toString().toLowerCase();
+    if (myRole === "admin") return true;
+    if (Number(p.my_has_actionable_role || 0) === 1) return true;
+    return false;
+  }
+
+  function setProjectManageOpen(open) {
+    projectManageOpen = !!open;
+    syncProjectActions(currentPayload);
+    renderProjectCodes(currentPayload);
+    if (!projectManageOpen) {
+      if (inputProjectCode) inputProjectCode.value = "";
+      if (selProject) selProject.value = "";
+    }
+  }
+
+  function normalizeProjectList(payload = null) {
+    const p = payload || currentPayload || {};
+    const codes = Array.isArray(p.project_codes) ? p.project_codes : [];
+    const ids = Array.isArray(p.project_ids) ? p.project_ids : [];
+    const normalized = [];
+    const len = Math.max(codes.length, ids.length);
+    for (let i = 0; i < len; i += 1) {
+      const code = clean(codes[i]);
+      const id = Number(ids[i] || 0);
+      if (!code && id <= 0) continue;
+      normalized.push({ id, project_code: code });
+    }
+    return normalized;
+  }
+
+  function renderProjectCodes(payload = null) {
+    if (!elProjects) return;
+    const list = normalizeProjectList(payload);
+    if (!list.length) {
+      elProjects.innerHTML = "—";
+      return;
+    }
+    elProjects.innerHTML = list.map((item) => {
+      const removable = canManageProjects(payload) && projectManageOpen && Number(item.id || 0) > 0;
+      return `<span class="chip incoming" style="display:inline-flex; align-items:center; gap:6px; margin:2px 6px 2px 0;">
+        <span>${esc(item.project_code || "PROJECT")}</span>
+        ${removable ? `<button type="button" class="btnSecondary" data-project-remove="${Number(item.id || 0)}" style="padding:0 6px; min-height:24px; line-height:1;">x</button>` : ""}
+      </span>`;
+    }).join("");
+  }
+
+  async function loadProjectLookupOptions(payload = null) {
+    if (!selProject) return;
+    const p = payload || currentPayload || {};
+    const selectedIds = Array.isArray(p.project_ids) ? p.project_ids.filter((v) => Number(v || 0) > 0) : [];
+    const qs = appendActingPrincipal(new URLSearchParams(), p);
+    selectedIds.forEach((id) => qs.append("selected_ids[]", String(Number(id))));
+    selProject.innerHTML = `<option value="">Loading project codes...</option>`;
+    try {
+      const res = await fetch(`${API}/projects_lookup.php?${qs.toString()}`, {
+        cache: "no-store",
+        headers: { Accept: "application/json" }
+      });
+      const data = await res.json().catch(() => null);
+      const rows = Array.isArray(data?.projects) ? data.projects : [];
+    selProject.innerHTML = `<option value="">Or pick existing project code…</option>` + rows.map((row) => {
+        const id = Number(row?.id || 0);
+        const label = clean(row?.label) || clean(row?.project_code) || `Project #${id}`;
+        return `<option value="${id}">${esc(label)}</option>`;
+      }).join("");
+    } catch {
+      selProject.innerHTML = `<option value="">Failed to load project codes</option>`;
+    }
+  }
+
+  function syncProjectActions(payload = null) {
+    if (!elProjectsActions || !elProjectsManageRow) return;
+    const p = payload || currentPayload || {};
+    const show = canManageProjects(p) && Number(p.id || 0) > 0;
+    if (!show) {
+      elProjectsManageRow.style.display = "none";
+      elProjectsActions.style.display = "none";
+      projectManageOpen = false;
+      return;
+    }
+    elProjectsManageRow.style.display = projectManageOpen ? "none" : "";
+    elProjectsActions.style.display = projectManageOpen ? "flex" : "none";
+    if (projectManageOpen) loadProjectLookupOptions(p);
+  }
+
+  async function attachProjectCode() {
+    const docId = Number(currentPayload?.id || 0);
+    const projectId = Number(selProject?.value || 0);
+    const projectCode = clean(inputProjectCode?.value || "");
+    if (docId <= 0 || (projectId <= 0 && !projectCode)) return;
+    if (btnProjectAttach) btnProjectAttach.disabled = true;
+    try {
+      const form = appendActingPrincipal(new FormData(), currentPayload);
+      form.append("document_id", String(docId));
+      if (projectId > 0) form.append("project_id", String(projectId));
+      if (projectCode) form.append("project_code", projectCode);
+      form.append("csrf_token", window.__CSRF__ || "");
+      const res = await fetch(`${API}/attach_project.php`, {
+        method: "POST",
+        body: form,
+        headers: { Accept: "application/json" }
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        window.DTToast?.error(data?.error || `Failed to attach project code. (${res.status})`) || console.warn(data?.error || `Failed to attach project code. (${res.status})`);
+        return;
+      }
+      const projects = Array.isArray(data?.projects) ? data.projects : [];
+      currentPayload.project_codes = projects.map((row) => clean(row?.project_code)).filter(Boolean);
+      currentPayload.project_ids = projects.map((row) => Number(row?.id || 0)).filter((v) => v > 0);
+      renderProjectCodes(currentPayload);
+      await loadProjectLookupOptions(currentPayload);
+      if (inputProjectCode) inputProjectCode.value = "";
+      if (selProject) selProject.value = "";
+      window.DTToast?.success("Project code attached.") || console.log("Project code attached.");
+    } catch {
+      window.DTToast?.error("Failed to attach project code (network error).") || console.warn("Failed to attach project code (network error).");
+    } finally {
+      if (btnProjectAttach) btnProjectAttach.disabled = false;
+    }
+  }
+
+  async function detachProjectCode(projectId) {
+    const docId = Number(currentPayload?.id || 0);
+    const pid = Number(projectId || 0);
+    if (docId <= 0 || pid <= 0) return;
+    try {
+      const form = appendActingPrincipal(new FormData(), currentPayload);
+      form.append("document_id", String(docId));
+      form.append("project_id", String(pid));
+      form.append("csrf_token", window.__CSRF__ || "");
+      const res = await fetch(`${API}/detach_project.php`, {
+        method: "POST",
+        body: form,
+        headers: { Accept: "application/json" }
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        window.DTToast?.error(data?.error || `Failed to remove project code. (${res.status})`) || console.warn(data?.error || `Failed to remove project code. (${res.status})`);
+        return;
+      }
+      const projects = Array.isArray(data?.projects) ? data.projects : [];
+      currentPayload.project_codes = projects.map((row) => clean(row?.project_code)).filter(Boolean);
+      currentPayload.project_ids = projects.map((row) => Number(row?.id || 0)).filter((v) => v > 0);
+      renderProjectCodes(currentPayload);
+      await loadProjectLookupOptions(currentPayload);
+      window.DTToast?.success("Project code removed.") || console.log("Project code removed.");
+    } catch {
+      window.DTToast?.error("Failed to remove project code (network error).") || console.warn("Failed to remove project code (network error).");
+    }
   }
 
   function actorInitials(name) {
@@ -2451,6 +2616,9 @@
     renderDeadline(payload.deadline_at || "", payload.my_personal_deadline_at || "", deadlineOutcome);
     if (elSubject) elSubject.textContent = payload.subject || "—";
     if (elType) elType.textContent = payload.content_type || "—";
+    projectManageOpen = false;
+    renderProjectCodes(payload);
+    syncProjectActions(payload);
     if (elActivityLabel) elActivityLabel.textContent = payload.activity_label || "Days stuck";
     if (elDays) elDays.textContent = payload.activity_value || (payload.days_stuck ?? "0");
 
@@ -3526,6 +3694,17 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
     const actingId = actingPrincipalId();
     if (actingId > 0) qs.set("acting_principal_user_id", String(actingId));
     window.location.href = `${APP.public || ""}/add_document.php?${qs.toString()}`;
+  });
+
+  btnProjectAttach?.addEventListener("click", attachProjectCode);
+  btnProjectManageToggle?.addEventListener("click", () => setProjectManageOpen(true));
+  btnProjectManageClose?.addEventListener("click", () => setProjectManageOpen(false));
+  elProjects?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-project-remove]");
+    if (!btn) return;
+    if (!canManageProjects(currentPayload)) return;
+    const projectId = Number(btn.getAttribute("data-project-remove") || 0);
+    if (projectId > 0) detachProjectCode(projectId);
   });
 
   syncToggleLabels();

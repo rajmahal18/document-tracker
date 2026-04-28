@@ -3,14 +3,75 @@ declare(strict_types=1);
 
 require __DIR__ . '/../includes/bootstrap.php';
 require_once __DIR__ . '/../core/division_tracking.php';
+require_once __DIR__ . '/../core/project_codes.php';
 require_admin();
 ensure_division_tracking_tables($conn);
 
 $pageTitle = 'Admin - Document Tracker';
 
 $activeTab = strtolower(trim((string)($_GET['tab'] ?? 'users')));
-if (!in_array($activeTab, ['users', 'documents', 'calendar', 'slip-order'], true)) {
+if (!in_array($activeTab, ['users', 'documents', 'calendar', 'slip-order', 'projects'], true)) {
   $activeTab = 'users';
+}
+
+$projectsAdminMessage = '';
+$projectsAdminMessageType = 'ok';
+if ($activeTab === 'projects' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+  require_csrf();
+  if (!project_codes_tables_ready($conn)) {
+    $projectsAdminMessage = 'Projects tables are not ready. Run migration first.';
+    $projectsAdminMessageType = 'error';
+  } else {
+    $action = strtolower(trim((string)($_POST['project_action'] ?? '')));
+    $projectCode = trim((string)($_POST['project_code'] ?? ''));
+    $projectTitle = trim((string)($_POST['project_title'] ?? ''));
+    $projectId = (int)($_POST['project_id'] ?? 0);
+    $isActive = (int)($_POST['is_active'] ?? 1) === 1 ? 1 : 0;
+
+    try {
+      if ($action === 'create') {
+        if ($projectCode === '' || $projectTitle === '') {
+          throw new RuntimeException('Project code and title are required.');
+        }
+        $stmt = $conn->prepare("
+          INSERT INTO projects (project_code, title, is_active)
+          VALUES (?, ?, 1)
+        ");
+        $stmt->bind_param('ss', $projectCode, $projectTitle);
+        $stmt->execute();
+        $projectsAdminMessage = 'Project code added.';
+      } elseif ($action === 'update') {
+        if ($projectId <= 0 || $projectCode === '' || $projectTitle === '') {
+          throw new RuntimeException('Invalid project update payload.');
+        }
+        $stmt = $conn->prepare("
+          UPDATE projects
+          SET project_code = ?, title = ?, is_active = ?, updated_at = NOW()
+          WHERE id = ?
+          LIMIT 1
+        ");
+        $stmt->bind_param('ssii', $projectCode, $projectTitle, $isActive, $projectId);
+        $stmt->execute();
+        $projectsAdminMessage = 'Project code updated.';
+      } elseif ($action === 'deactivate') {
+        if ($projectId <= 0) {
+          throw new RuntimeException('Invalid project id.');
+        }
+        $stmt = $conn->prepare("
+          UPDATE projects
+          SET is_active = 0, updated_at = NOW()
+          WHERE id = ?
+          LIMIT 1
+        ");
+        $stmt->bind_param('i', $projectId);
+        $stmt->execute();
+        $projectsAdminMessage = 'Project code deactivated.';
+      }
+    } catch (Throwable $e) {
+      $projectsAdminMessage = $e->getMessage();
+      $projectsAdminMessageType = 'error';
+    }
+  }
 }
 
 $sectionsResult = $conn->query(
@@ -152,6 +213,16 @@ if ($stmt = $conn->prepare($documentsSql)) {
   $stmt->execute();
   $documents = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
   $stmt->close();
+}
+
+$projectsMasterlist = [];
+if (project_codes_tables_ready($conn)) {
+  $projectsRes = $conn->query("
+    SELECT id, project_code, title, is_active, created_at, updated_at
+    FROM projects
+    ORDER BY is_active DESC, project_code ASC, title ASC
+  ");
+  $projectsMasterlist = $projectsRes ? $projectsRes->fetch_all(MYSQLI_ASSOC) : [];
 }
 
 $calendarSettings = [
@@ -325,6 +396,7 @@ $activeDocs = count(array_filter($documents, static fn(array $row): bool => strt
   <div class="adminTabs">
     <a class="adminTab <?= $activeTab === 'users' ? 'isActive' : '' ?>" href="<?= PUBLIC_PATH ?>/admin.php?tab=users">Users</a>
     <a class="adminTab <?= $activeTab === 'documents' ? 'isActive' : '' ?>" href="<?= PUBLIC_PATH ?>/admin.php?tab=documents">Documents</a>
+    <a class="adminTab <?= $activeTab === 'projects' ? 'isActive' : '' ?>" href="<?= PUBLIC_PATH ?>/admin.php?tab=projects">Projects</a>
     <a class="adminTab <?= $activeTab === 'calendar' ? 'isActive' : '' ?>" href="<?= PUBLIC_PATH ?>/admin.php?tab=calendar">Working Calendar</a>
     <a class="adminTab <?= $activeTab === 'slip-order' ? 'isActive' : '' ?>" href="<?= PUBLIC_PATH ?>/admin.php?tab=slip-order">DTS Slip Order</a>
     <a class="adminTab" href="<?= PUBLIC_PATH ?>/access_requests.php">Access Requests</a>
@@ -500,6 +572,93 @@ $activeDocs = count(array_filter($documents, static fn(array $row): bool => strt
             </tbody>
           </table>
         </div>
+      </div>
+    </section>
+  <?php elseif ($activeTab === 'projects'): ?>
+    <section class="adminCard">
+      <div class="adminCardHeader">
+        <div>
+          <h3>Project Codes Masterlist</h3>
+          <p>Manage allowed project codes for document tagging. Only active codes appear in selection lists.</p>
+        </div>
+      </div>
+      <div class="adminCardBody">
+        <?php if (!project_codes_tables_ready($conn)): ?>
+          <div class="adminMessage error" style="display:block;">Projects tables are missing. Run migration <code>db/migrations/20260428_project_codes.sql</code>.</div>
+        <?php else: ?>
+          <?php if ($projectsAdminMessage !== ''): ?>
+            <div class="adminMessage <?= $projectsAdminMessageType === 'error' ? 'error' : 'ok' ?>" style="display:block;"><?= htmlspecialchars($projectsAdminMessage) ?></div>
+          <?php endif; ?>
+
+          <form method="post" class="adminFormGrid" style="margin-bottom:14px;">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+            <input type="hidden" name="project_action" value="create">
+            <div>
+              <label>Project Code</label>
+              <input type="text" name="project_code" required placeholder="e.g. PROJ-123">
+            </div>
+            <div>
+              <label>Title</label>
+              <input type="text" name="project_title" required placeholder="Project title">
+            </div>
+            <div class="span2">
+              <button type="submit" class="adminPrimary">Add Project Code</button>
+            </div>
+          </form>
+
+          <div class="adminTableWrap">
+            <table class="adminTable">
+              <thead>
+                <tr>
+                  <th>Project Code</th>
+                  <th>Title</th>
+                  <th>Status</th>
+                  <th>Updated</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php foreach ($projectsMasterlist as $project): ?>
+                  <tr>
+                    <td><strong><?= htmlspecialchars((string)($project['project_code'] ?? '')) ?></strong></td>
+                    <td><?= htmlspecialchars((string)($project['title'] ?? '')) ?></td>
+                    <td>
+                      <span class="adminBadge <?= (int)($project['is_active'] ?? 0) === 1 ? 'ok' : 'warn' ?>">
+                        <?= (int)($project['is_active'] ?? 0) === 1 ? 'ACTIVE' : 'INACTIVE' ?>
+                      </span>
+                    </td>
+                    <td><?= htmlspecialchars((string)($project['updated_at'] ?? '')) ?></td>
+                    <td>
+                      <form method="post" class="adminRowActions" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+                        <input type="hidden" name="project_action" value="update">
+                        <input type="hidden" name="project_id" value="<?= (int)($project['id'] ?? 0) ?>">
+                        <input type="text" name="project_code" required value="<?= htmlspecialchars((string)($project['project_code'] ?? '')) ?>" style="min-width:120px;">
+                        <input type="text" name="project_title" required value="<?= htmlspecialchars((string)($project['title'] ?? '')) ?>" style="min-width:220px;">
+                        <select name="is_active">
+                          <option value="1" <?= (int)($project['is_active'] ?? 0) === 1 ? 'selected' : '' ?>>Active</option>
+                          <option value="0" <?= (int)($project['is_active'] ?? 0) === 0 ? 'selected' : '' ?>>Inactive</option>
+                        </select>
+                        <button type="submit" class="adminGhost">Save</button>
+                      </form>
+                      <?php if ((int)($project['is_active'] ?? 0) === 1): ?>
+                        <form method="post" style="margin-top:6px;">
+                          <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+                          <input type="hidden" name="project_action" value="deactivate">
+                          <input type="hidden" name="project_id" value="<?= (int)($project['id'] ?? 0) ?>">
+                          <button type="submit" class="adminGhost">Deactivate</button>
+                        </form>
+                      <?php endif; ?>
+                    </td>
+                  </tr>
+                <?php endforeach; ?>
+                <?php if ($projectsMasterlist === []): ?>
+                  <tr><td colspan="5"><span class="adminMini">No project codes yet.</span></td></tr>
+                <?php endif; ?>
+              </tbody>
+            </table>
+          </div>
+        <?php endif; ?>
       </div>
     </section>
   <?php elseif ($activeTab === 'slip-order'): ?>

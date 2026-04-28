@@ -4,6 +4,7 @@ declare(strict_types=1);
 require __DIR__ . "/../includes/bootstrap.php";
 require_once __DIR__ . "/../core/division_tracking.php";
 require_once __DIR__ . "/../core/working_time.php";
+require_once __DIR__ . "/../core/project_codes.php";
 require_login();
 
 /* -------------------------
@@ -166,6 +167,7 @@ if (!$assistantModeEnabled && $actualUserId > 0 && $assistantPrincipals !== []) 
 $where  = [];
 $params = [];
 $types  = "";
+$projectCodesReady = project_codes_tables_ready($conn);
 
 $allowedSorts = ["", "workflow", "newest", "urgent", "overdue_longest", "oldest"];
 if (!in_array($sort, $allowedSorts, true)) {
@@ -271,7 +273,7 @@ if ($assistantOwnPageIsolationSql !== "") {
  * Filters
  */
 if ($search !== "") {
-  $where[] = "(
+  $searchPredicate = "(
     d.tracking_no LIKE ?
     OR EXISTS (
       SELECT 1
@@ -284,9 +286,29 @@ if ($search !== "") {
     OR d.content_type LIKE ?
     OR sh.name LIKE ?
   )";
+  if ($projectCodesReady) {
+    $searchPredicate = "(
+      {$searchPredicate}
+      OR EXISTS (
+        SELECT 1
+        FROM document_projects dp_search
+        JOIN projects p_search ON p_search.id = dp_search.project_id
+        WHERE dp_search.document_id = d.id
+          AND (
+            p_search.project_code LIKE ?
+            OR p_search.title LIKE ?
+          )
+      )
+    )";
+  }
+  $where[] = $searchPredicate;
   $like = "%" . $search . "%";
   array_push($params, $like, $like, $like, $like, $like, $like);
   $types .= "ssssss";
+  if ($projectCodesReady) {
+    array_push($params, $like, $like);
+    $types .= "ss";
+  }
 }
 
 if ($statusGet !== "" && $quick === "") {
@@ -647,6 +669,22 @@ if ($page > $totalPages) {
   $offset = ($page - 1) * $perPage;
 }
 
+$projectTagSelectSql = $projectCodesReady
+  ? "COALESCE((
+      SELECT GROUP_CONCAT(DISTINCT p_tag.project_code ORDER BY p_tag.project_code SEPARATOR '||')
+      FROM document_projects dp_tag
+      JOIN projects p_tag ON p_tag.id = dp_tag.project_id
+      WHERE dp_tag.document_id = d.id
+    ), '') AS project_codes_concat,
+    COALESCE((
+      SELECT GROUP_CONCAT(DISTINCT CAST(p_tag.id AS CHAR) ORDER BY p_tag.project_code SEPARATOR ',')
+      FROM document_projects dp_tag
+      JOIN projects p_tag ON p_tag.id = dp_tag.project_id
+      WHERE dp_tag.document_id = d.id
+    ), '') AS project_ids_concat,"
+  : "'' AS project_codes_concat,
+    '' AS project_ids_concat,";
+
 $sql = "
   SELECT
     d.id,
@@ -854,6 +892,7 @@ $sql = "
       ORDER BY e_closed.created_at DESC, e_closed.id DESC
       LIMIT 1
     ), '') AS lifecycle_closed_action,
+    {$projectTagSelectSql}
 
     CASE
       WHEN EXISTS (
@@ -2346,6 +2385,8 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
 
             $docTypeText = trim((string)($d["content_type"] ?? ""));
             $docCommText = trim((string)($d["comm_type"] ?? ""));
+            $projectCodes = array_values(array_filter(array_map('trim', explode('||', (string)($d["project_codes_concat"] ?? ""))), static fn(string $v): bool => $v !== ''));
+            $projectIds = array_values(array_filter(array_map('intval', explode(',', (string)($d["project_ids_concat"] ?? ""))), static fn(int $v): bool => $v > 0));
             $docMetaType = $docTypeText !== "" && $docCommText !== ""
               ? $docTypeText . " • " . $docCommText
               : ($docTypeText !== "" ? $docTypeText : ($docCommText !== "" ? $docCommText : "—"));
@@ -2392,6 +2433,8 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
                 "subject" => $d["subject"],
                 "content_type" => $d["content_type"],
                 "comm_type" => $d["comm_type"],
+                "project_codes" => $projectCodes,
+                "project_ids" => $projectIds,
 
                 "status_label" => $docStateLabel,
                 "status_chip_class" => $drawerStatusChipClass,
@@ -2684,6 +2727,25 @@ $end   = min($totalPages, $page + 2);
     <div class="kv"><div class="k">Urgency</div><div class="v" id="d_deadline_countdown">—</div></div>
     <div class="kv"><div class="k">Subject</div><div class="v" id="d_subject"></div></div>
     <div class="kv"><div class="k">Type</div><div class="v" id="d_type"></div></div>
+    <div class="kv">
+      <div class="k">Project Codes</div>
+      <div class="v">
+        <div id="d_projects" class="mini">—</div>
+        <div style="margin-top:8px; display:none;" id="d_projects_manage_row">
+          <button type="button" class="btnSecondary" id="btnProjectManageToggle">Add Project Code</button>
+        </div>
+        <div id="d_projects_actions" style="margin-top:8px; display:none; gap:8px; align-items:center;">
+          <input id="d_project_code_input" class="search" type="text" placeholder="Type new project code">
+          <select id="d_project_select" class="search" style="min-width:240px;">
+            <option value="">Or pick existing project code…</option>
+          </select>
+          <div style="display:flex; gap:8px; width:100%;">
+            <button type="button" class="btnSecondary" id="btnProjectAttach">+ Add</button>
+            <button type="button" class="btnSecondary" id="btnProjectManageClose">Done</button>
+          </div>
+        </div>
+      </div>
+    </div>
     <div class="kv"><div class="k" id="d_activity_label">Days stuck</div><div class="v" id="d_days"></div></div>
     <div class="kv">
       <div class="k">Action Times</div>

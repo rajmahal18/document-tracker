@@ -505,6 +505,43 @@
   word-break: break-word;
 }
 
+#d_projects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+#d_projects .chip {
+  max-width: 100%;
+}
+
+#d_projects .chip > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+#d_projects_actions {
+  display: flex;
+  flex-wrap: wrap;
+  width: 100%;
+  min-width: 0;
+}
+
+#d_projects_manage_row {
+  width: 100%;
+}
+
+#d_project_select {
+  flex: 1 1 260px;
+  max-width: 100%;
+}
+
+#d_project_code_input {
+  flex: 1 1 220px;
+  max-width: 100%;
+}
+
 .drawerActions {
   padding: 10px 0 0;
   border-top: 0;
@@ -2969,6 +3006,33 @@ body[data-theme="dark"] .forwardDeadlineWrap {
   .kv {
     grid-template-columns: 1fr;
     gap: 6px;
+  }
+
+  #d_projects_actions {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 8px !important;
+  }
+
+  #d_project_select {
+    width: 100%;
+    min-width: 0 !important;
+  }
+
+  #d_project_code_input {
+    width: 100%;
+    min-width: 0 !important;
+  }
+
+  #btnProjectAttach {
+    width: 100%;
+    justify-content: center;
+  }
+
+  #btnProjectManageToggle,
+  #btnProjectManageClose {
+    width: 100%;
+    justify-content: center;
   }
 }
 

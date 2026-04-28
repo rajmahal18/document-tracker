@@ -4,6 +4,7 @@ declare(strict_types=1);
 require __DIR__ . "/../includes/bootstrap.php";
 require_once __DIR__ . "/../core/division_tracking.php";
 require_once __DIR__ . "/../core/DivisionTrackingSlip.php";
+require_once __DIR__ . "/../core/project_codes.php";
 require_login();
 
 
@@ -601,6 +602,14 @@ if ($editMode && $_SERVER["REQUEST_METHOD"] !== "POST") {
   $_POST["content_type"] = (string)($editDocument["content_type"] ?? "");
   $_POST["comm_type"] = (string)($editDocument["comm_type"] ?? "internal");
   $_POST["division_tracking_no"] = (string)($editDocument["division_tracking_no"] ?? "");
+  if (project_codes_tables_ready($conn)) {
+    $editProjects = fetch_document_projects($conn, $editDocumentId, true);
+    $_POST["project_ids"] = array_map(static fn(array $row): int => (int)($row["id"] ?? 0), $editProjects);
+    $_POST["project_codes_input"] = implode("\n", array_values(array_filter(array_map(
+      static fn(array $row): string => trim((string)($row["project_code"] ?? "")),
+      $editProjects
+    ))));
+  }
 }
 
 if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
@@ -620,6 +629,16 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   $deadlineAtRaw = trim((string)($_POST["deadline_at"] ?? ""));
   $deadlineAt    = normalize_deadline_input($deadlineAtRaw);
   $remarks       = trim((string)($_POST["remarks"] ?? ""));
+  $projectIdsRaw = $_POST["project_ids"] ?? [];
+  if (!is_array($projectIdsRaw)) {
+    $projectIdsRaw = $projectIdsRaw === '' ? [] : explode(',', (string)$projectIdsRaw);
+  }
+  $projectIds = array_values(array_unique(array_filter(array_map('intval', $projectIdsRaw), static fn(int $v): bool => $v > 0)));
+  $projectCodesInputRaw = trim((string)($_POST["project_codes_input"] ?? ""));
+  $projectCodes = parse_project_codes_input($projectCodesInputRaw);
+  if ($projectCodesInputRaw !== '' && $projectCodes === []) {
+    $error = "Please enter a valid project code.";
+  }
   if (strcasecmp($remarks, "none") === 0) {
     $remarks = "";
   }
@@ -834,6 +853,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             strtoupper(trim($divisionTrackingInput)) !== strtoupper(trim((string)($editDocument["division_tracking_no"] ?? "")))
           );
         }
+        $resolvedProjectIds = resolve_project_ids_for_document($conn, $projectIds, $projectCodes);
+        sync_document_projects($conn, $editDocumentId, $resolvedProjectIds, $userId);
 
         $payloadUpdated = json_encode([
           "kind" => "document_details_updated",
@@ -970,6 +991,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             strtoupper(trim($divisionTrackingInput)) !== strtoupper(trim($ownDivisionTrackingPreview))
           );
         }
+        $resolvedProjectIds = resolve_project_ids_for_document($conn, $projectIds, $projectCodes);
+        sync_document_projects($conn, $docId, $resolvedProjectIds, $userId);
 
         $branchMode = workflow_branch_mode_enabled($conn);
 
@@ -1512,6 +1535,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
 }
 
 $savedTempAttachment = get_saved_temp_attachment();
+$postedProjectIdsRaw = $_POST["project_ids"] ?? [];
+if (!is_array($postedProjectIdsRaw)) {
+  $postedProjectIdsRaw = $postedProjectIdsRaw === '' ? [] : explode(',', (string)$postedProjectIdsRaw);
+}
+$postedProjectIds = array_values(array_unique(array_filter(array_map('intval', $postedProjectIdsRaw), static fn(int $v): bool => $v > 0)));
+$postedProjectCodesInput = trim((string)($_POST["project_codes_input"] ?? ""));
 
 $contentTypeOptions = [
   "Memorandum",
@@ -1671,6 +1700,21 @@ require __DIR__ . "/../includes/layout.php";
             <option value="internal" <?= (($_POST["comm_type"] ?? "internal") === "internal") ? "selected" : "" ?>>Internal</option>
             <option value="external" <?= (($_POST["comm_type"] ?? "") === "external") ? "selected" : "" ?>>External</option>
           </select>
+        </div>
+
+        <div class="authField addDocFieldWide">
+          <label>Project Codes <span class="mini" style="font-weight:700;">(optional)</span></label>
+          <textarea
+            name="project_codes_input"
+            class="search"
+            rows="4"
+            placeholder="Enter one or more project codes (separate by comma or new line)"
+            style="height:auto; min-height:110px; padding:10px 12px;"
+          ><?= htmlspecialchars($postedProjectCodesInput) ?></textarea>
+          <?php foreach ($postedProjectIds as $postedProjectId): ?>
+            <input type="hidden" name="project_ids[]" value="<?= (int)$postedProjectId ?>">
+          <?php endforeach; ?>
+          <div class="mini">You can enter brand-new project codes here. Existing matches are reused automatically.</div>
         </div>
 
         <?php if ($editMode && $hasOwnDivisionSlip): ?>
