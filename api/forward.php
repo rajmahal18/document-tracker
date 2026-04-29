@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require __DIR__ . "/../includes/bootstrap.php";
+require_once __DIR__ . "/../includes/mailer.php";
 require_login();
 require_once __DIR__ . "/../core/working_time.php";
 
@@ -50,6 +51,7 @@ $toUserId    = (int)($_POST["to_user_id"] ?? 0);
 $branchIdReq = (int)($_POST["branch_id"] ?? 0);
 $receiveOnly = ((int)($_POST["receive_only"] ?? 0) === 1);
 $remarks     = trim((string)($_POST["remarks"] ?? ""));
+$notifyEmail = ((int)($_POST["notify_email"] ?? 0) === 1);
 $documentDeadlineRaw = trim((string)($_POST["document_deadline_at"] ?? ""));
 $documentDeadlineAt = normalize_deadline_input($documentDeadlineRaw);
 $personalDeadlineRaw = trim((string)($_POST["personal_deadline_at"] ?? ""));
@@ -135,7 +137,7 @@ try {
   $params = array_merge([$toSectionId], $recipients);
 
   $sql = "
-    SELECT id, full_name
+    SELECT id, full_name, email
     FROM users
     WHERE section_id = ?
       AND is_active = 1
@@ -149,10 +151,15 @@ try {
 
   $found = [];
   $recipientInfo = [];
+  $recipientEmails = [];
   while ($r = $res->fetch_assoc()) {
     $rid = (int)$r["id"];
     $found[] = $rid;
     $recipientInfo[$rid] = (string)($r["full_name"] ?? ("User #" . $rid));
+    $mail = trim((string)($r["email"] ?? ""));
+    if ($mail !== '') {
+      $recipientEmails[$rid] = $mail;
+    }
   }
 
   $recipientNames = [];
@@ -529,6 +536,89 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
 
   $conn->commit();
 
+  $emailNotify = [
+    'requested' => $notifyEmail,
+    'attempted' => 0,
+    'sent' => 0,
+    'failed' => 0,
+    'skipped' => 0,
+    'failures' => [],
+  ];
+
+  if ($notifyEmail) {
+    $docTracking = '';
+    $docTitle = '';
+    try {
+      $stmtDoc = $conn->prepare("SELECT tracking_no, subject FROM documents WHERE id = ? LIMIT 1");
+      if ($stmtDoc) {
+        $stmtDoc->bind_param("i", $docId);
+        $stmtDoc->execute();
+        $docRow = $stmtDoc->get_result()->fetch_assoc() ?: [];
+        $stmtDoc->close();
+        $docTracking = trim((string)($docRow['tracking_no'] ?? ''));
+        $docTitle = trim((string)($docRow['subject'] ?? ''));
+      }
+    } catch (Throwable $ignored) {
+      // Non-blocking lookup only.
+    }
+
+    $docLabel = $docTitle !== '' ? $docTitle : ($docTracking !== '' ? $docTracking : ('Document #' . $docId));
+
+    foreach ($recipients as $rid) {
+      $rid = (int)$rid;
+      $toEmail = trim((string)($recipientEmails[$rid] ?? ''));
+      $toName = (string)($recipientInfo[$rid] ?? ('User #' . $rid));
+      if ($toEmail === '') {
+        $emailNotify['skipped']++;
+        $emailNotify['failures'][] = [
+          'user_id' => $rid,
+          'name' => $toName,
+          'email' => '',
+          'reason' => 'Recipient has no email address.',
+        ];
+        continue;
+      }
+
+      $emailNotify['attempted']++;
+      $subject = 'Document forwarded: ' . $docLabel . ' - MPW Document Tracker';
+      $trackingLine = $docTracking !== '' ? ('Tracking code: ' . htmlspecialchars($docTracking, ENT_QUOTES, 'UTF-8') . '<br>') : '';
+      $safeToName = htmlspecialchars($toName, ENT_QUOTES, 'UTF-8');
+      $safeFromName = htmlspecialchars($fromUserName !== '' ? $fromUserName : ('User #' . $actualUserId), ENT_QUOTES, 'UTF-8');
+      $safeSection = htmlspecialchars($toSectionName !== '' ? $toSectionName : ('Section #' . $toSectionId), ENT_QUOTES, 'UTF-8');
+      $safeDocTitle = htmlspecialchars($docLabel, ENT_QUOTES, 'UTF-8');
+      $safeRemarks = htmlspecialchars($routeRemarks !== '' ? $routeRemarks : 'None', ENT_QUOTES, 'UTF-8');
+      $docLink = app_url(PUBLIC_PATH . '/documents.php');
+      $safeDocLink = htmlspecialchars($docLink, ENT_QUOTES, 'UTF-8');
+
+      $htmlBody = <<<HTML
+<p>Hello {$safeToName},</p>
+<p>A document has been forwarded to you in MPW Document Tracker.</p>
+<p>Title: {$safeDocTitle}<br>{$trackingLine}Forwarded by: {$safeFromName}<br>Destination section: {$safeSection}<br>Remarks: {$safeRemarks}</p>
+<p><a href="{$safeDocLink}">Open Document Tracker</a></p>
+HTML;
+      $textBody = "Hello {$toName},\nA document has been forwarded to you.\n"
+        . "Title: {$docLabel}\n"
+        . ($docTracking !== '' ? "Tracking code: {$docTracking}\n" : "")
+        . "Forwarded by: {$fromUserName}\nDestination section: {$toSectionName}\nRemarks: " . ($routeRemarks !== '' ? $routeRemarks : 'None') . "\n"
+        . "Open: {$docLink}\n";
+
+      $mailResult = app_send_mail($toEmail, $toName, $subject, $htmlBody, $textBody);
+      if (empty($mailResult['ok'])) {
+        $emailNotify['failed']++;
+        $reason = (string)($mailResult['error'] ?? 'Unknown mail error');
+        $emailNotify['failures'][] = [
+          'user_id' => $rid,
+          'name' => $toName,
+          'email' => $toEmail,
+          'reason' => $reason,
+        ];
+        error_log('Forward notify_email failed for user ' . $rid . ': ' . $reason);
+      } else {
+        $emailNotify['sent']++;
+      }
+    }
+  }
+
   echo json_encode([
     "ok" => true,
     "document_id" => $docId,
@@ -539,6 +629,7 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
     "branch_ids" => array_values(array_unique(array_filter($newBranchIds))),
     "document_deadline_at" => $documentDeadlineAt,
     "personal_deadline_at" => $personalDeadlineAt,
+    "email_notify" => $emailNotify,
   ]);
   exit;
 

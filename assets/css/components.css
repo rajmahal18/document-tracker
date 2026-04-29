@@ -175,6 +175,38 @@
   transform: translateY(-1px);
 }
 
+button.dtBtnLoading,
+input[type="submit"].dtBtnLoading,
+input[type="button"].dtBtnLoading {
+  position: relative;
+  pointer-events: none;
+  opacity: 0.92;
+}
+
+button.dtBtnLoading::after,
+input[type="submit"].dtBtnLoading::after,
+input[type="button"].dtBtnLoading::after {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  display: inline-block;
+  margin-left: 8px;
+  vertical-align: -2px;
+  animation: dtBtnSpin 0.7s linear infinite;
+}
+
+button .dtBtnLoadingText {
+  display: inline-flex;
+  align-items: center;
+}
+
+@keyframes dtBtnSpin {
+  to { transform: rotate(360deg); }
+}
+
 .stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(180px, 1fr));

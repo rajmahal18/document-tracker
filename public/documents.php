@@ -2919,6 +2919,14 @@ $end   = min($totalPages, $page + 2);
         <label for="d_forward_remarks" class="drawerActionRemarksLabel">Forward remarks (optional)</label>
         <textarea id="d_forward_remarks" class="search drawerActionRemarksInput" rows="3" placeholder="Add remarks for the recipient right before sending if needed"></textarea>
       </div>
+
+      <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer; margin-top:10px;">
+        <input id="f_notify_email" type="checkbox" style="margin-top:3px;">
+        <span>
+          <span style="display:block; font-size:12px; font-weight:900;">Notify this user through email</span>
+          <span class="mini" style="opacity:.75;">Sends an email notice to selected recipient(s) after forwarding.</span>
+        </span>
+      </label>
     </div>
 
     <div class="modalFooter">

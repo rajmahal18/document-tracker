@@ -92,6 +92,7 @@
   const forwardModalClose = document.getElementById("forwardModalClose");
   const btnForwardCancel = document.getElementById("btnForwardCancel");
   const elForwardRemarks = document.getElementById("d_forward_remarks");
+  const cbNotifyEmail = document.getElementById("f_notify_email");
   const releaseModal = document.getElementById("releaseModal");
   const releaseModalBackdrop = document.getElementById("releaseModalBackdrop");
   const releaseModalClose = document.getElementById("releaseModalClose");
@@ -3067,6 +3068,7 @@
     }
 
     form.append("remarks", (elForwardRemarks?.value || "").toString().trim());
+    form.append("notify_email", cbNotifyEmail?.checked ? "1" : "0");
     form.append("csrf_token", window.__CSRF__ || "");
 
     try {
@@ -3081,13 +3083,40 @@
         window.DTToast?.error(data?.error || `Failed to forward. (${res.status})`) || console.warn(data?.error || `Failed to forward. (${res.status})`);
         return;
       }
+
+      if (cbNotifyEmail?.checked) {
+        const emailNotify = data?.email_notify || {};
+        const sentCount = Number(emailNotify?.sent || 0);
+        const failedCount = Number(emailNotify?.failed || 0);
+        const skippedCount = Number(emailNotify?.skipped || 0);
+
+        if (failedCount > 0 || skippedCount > 0) {
+          const firstFailure = Array.isArray(emailNotify?.failures) && emailNotify.failures.length > 0
+            ? String(emailNotify.failures[0]?.reason || "").trim()
+            : "";
+          const details = [
+            sentCount > 0 ? `${sentCount} sent` : "",
+            failedCount > 0 ? `${failedCount} failed` : "",
+            skippedCount > 0 ? `${skippedCount} skipped` : "",
+          ].filter(Boolean).join(", ");
+          const msg = `Forward completed, but email notice had issues (${details}).` + (firstFailure ? ` ${firstFailure}` : "");
+          window.DTToast?.warning(msg) || console.warn(msg);
+        } else if (sentCount > 0) {
+          const msg = `Forward completed. Email notice sent to ${sentCount} recipient(s).`;
+          window.DTToast?.success(msg) || console.log(msg);
+        } else {
+          const msg = "Forward completed. No email notice was sent.";
+          window.DTToast?.warning(msg) || console.warn(msg);
+        }
+      }
+
       if (currentBranchMode && Number(branchBeforeForward?.id || 0) > 0) {
         savePreferredBranchId(docId, Number(branchBeforeForward.id || 0));
         saveDrawerRestoreState(docId, Number(branchBeforeForward.id || 0));
       } else {
         saveDrawerRestoreState(docId, 0);
       }
-      location.reload();
+      setTimeout(() => location.reload(), 900);
     } catch {
       window.DTToast?.error("Failed to forward (network error).") || console.warn("Failed to forward (network error).");
     }
