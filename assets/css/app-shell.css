@@ -329,6 +329,61 @@ input::placeholder {
 .appSideNav .navLogout { margin-top: 6px; }
 .navIcon { width: 18px; display: inline-flex; justify-content: center; flex: 0 0 18px; opacity: .9; }
 
+.appSideNav .navGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.appSideNav .navGroupTitle {
+  width: 100%;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 0 14px;
+  border-radius: 14px;
+  font-weight: 800;
+  font-size: 14px;
+  color: var(--app-text);
+  background: rgba(11, 58, 102, 0.06);
+  border: 1px solid rgba(11, 58, 102, 0.1);
+}
+
+.appSideNav .navGroupToggle {
+  cursor: pointer;
+  text-align: left;
+}
+
+.appSideNav .navGroupCaret {
+  margin-left: auto;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.8;
+  transform: rotate(0deg);
+  transition: transform 160ms ease;
+}
+
+.appSideNav .navGroup.isOpen .navGroupCaret {
+  transform: rotate(90deg);
+}
+
+.appSideNav .navGroupItems {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.appSideNav a.navSubLink {
+  min-height: 42px;
+  margin-left: 10px;
+  padding-left: 12px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 13px;
+}
+
 .themePickerDrawer { display: flex; padding: 4px 8px 0; justify-content: flex-start; align-items: center; gap: 12px; }
 .themeOrb {
   width: 28px;
@@ -478,6 +533,11 @@ body[data-theme="dark"] .pagerInfo { color: #bfd1e3; }
 
 body[data-theme="dark"] .appSideNav { background: linear-gradient(180deg, #102132, #0b1723); }
 body[data-theme="dark"] .appSideNav .navActive { color: #9cc9ff; background: rgba(96, 165, 250, 0.16); border-color: rgba(96, 165, 250, 0.28); }
+body[data-theme="dark"] .appSideNav .navGroupTitle {
+  background: rgba(96, 165, 250, 0.08);
+  border-color: rgba(96, 165, 250, 0.2);
+  color: #dbeafe;
+}
 body[data-theme="dark"] .appInstallDrawerBtn { color: #b9d7ff; background: rgba(96, 165, 250, 0.12); border-color: rgba(96, 165, 250, 0.24); }
 body[data-theme="dark"] .docsTableModern th { background: linear-gradient(180deg, #173f63, #102d48); }
 

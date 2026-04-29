@@ -103,20 +103,31 @@ $pageTitle = $pageTitle ?? "Document Tracker";
       <span class="navText">Home</span>
     </a>
 
-    <a href="https://mpwbarmm.com/ppd/admin/indexdocs_cside_funded1.php">
-      <span class="navIcon">$</span>
-      <span class="navText">Funded</span>
-    </a>
-
-    <a href="https://mpwbarmm.com/ppd/admin/viewdocs.php">
-      <span class="navIcon">#</span>
-      <span class="navText">Legacy Documents</span>
-    </a>
-
-    <a href="#" class="navPlaceholder" onclick="event.preventDefault()">
-      <span class="navIcon">◎</span>
-      <span class="navText">Issuances</span>
-    </a>
+    <div class="navGroup" aria-label="Documents group" id="navDocsGroup">
+      <button type="button" class="navGroupTitle navGroupToggle" id="navDocsToggle" aria-expanded="false" aria-controls="navDocsItems">
+        <span class="navIcon">&#9635;</span>
+        <span class="navText">Documents</span>
+        <span class="navGroupCaret" aria-hidden="true">&gt;</span>
+      </button>
+      <div class="navGroupItems" id="navDocsItems" hidden>
+        <a href="https://mpwbarmm.com/ppd/admin/indexdocs_cside_funded1.php" class="navSubLink">
+          <span class="navIcon">&#8250;</span>
+          <span class="navText">Funded</span>
+        </a>
+        <a href="https://mpwbarmm.com/ppd/admin/viewdocs.php" class="navSubLink">
+          <span class="navIcon">&#8250;</span>
+          <span class="navText">Legacy Documents</span>
+        </a>
+        <a href="#" class="navPlaceholder navSubLink" onclick="event.preventDefault()">
+          <span class="navIcon">&#8250;</span>
+          <span class="navText">Issuances</span>
+        </a>
+        <a href="#" class="navPlaceholder navSubLink" onclick="event.preventDefault()">
+          <span class="navIcon">&#8250;</span>
+          <span class="navText">Ministry Orders</span>
+        </a>
+      </div>
+    </div>
     <a href="<?= PUBLIC_PATH ?>/org_chart.php" class="<?= $currentPage === 'org_chart.php' ? 'navActive' : '' ?>">
       <span class="navIcon">▤</span>
       <span class="navText">Organizational Chart</span>
@@ -125,25 +136,13 @@ $pageTitle = $pageTitle ?? "Document Tracker";
       <span class="navIcon">☺</span>
       <span class="navText">My Account</span>
     </a>
-    <a href="#" class="navPlaceholder" onclick="event.preventDefault()">
-      <span class="navIcon">☷</span>
-      <span class="navText">Ministry Orders</span>
-    </a>
-
     <?php if ((string)($_SESSION["role"] ?? "user") === "admin"): ?>
       <a
         href="<?= PUBLIC_PATH ?>/admin.php"
-        class="<?= $currentPage === 'admin.php' ? 'navActive' : '' ?>"
+        class="<?= in_array($currentPage, ['admin.php', 'access_requests.php'], true) ? 'navActive' : '' ?>"
       >
         <span class="navIcon">⚙</span>
         <span class="navText">Admin</span>
-      </a>
-      <a
-        href="<?= PUBLIC_PATH ?>/access_requests.php"
-        class="<?= $currentPage === 'access_requests.php' ? 'navActive' : '' ?>"
-      >
-        <span class="navIcon">⚑</span>
-        <span class="navText">Access Requests</span>
       </a>
     <?php endif; ?>
 

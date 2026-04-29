@@ -76,7 +76,7 @@ require __DIR__ . "/../includes/layout.php";
           <span>Keep me signed in</span>
         </label>
 
-        <a class="authLink" href="#" onclick="event.preventDefault()">
+        <a class="authLink" href="<?= PUBLIC_PATH ?>/forgot_password.php">
           Forgot password?
         </a>
       </div>

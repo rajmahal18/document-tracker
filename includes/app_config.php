@@ -14,6 +14,13 @@ $config = [
     'DB_NAME' => getenv('DB_NAME') !== false ? (string)getenv('DB_NAME') : 'doc_tracker',
     'DB_USER' => getenv('DB_USER') !== false ? (string)getenv('DB_USER') : 'root',
     'DB_PASS' => getenv('DB_PASS') !== false ? (string)getenv('DB_PASS') : '',
+    'SMTP_HOST' => getenv('SMTP_HOST') !== false ? (string)getenv('SMTP_HOST') : '',
+    'SMTP_PORT' => getenv('SMTP_PORT') !== false ? (string)getenv('SMTP_PORT') : '587',
+    'SMTP_USERNAME' => getenv('SMTP_USERNAME') !== false ? (string)getenv('SMTP_USERNAME') : 'rajpaute@gmail.com',
+    'SMTP_PASSWORD' => getenv('SMTP_PASSWORD') !== false ? (string)getenv('SMTP_PASSWORD') : 'qzrcikjrdubbchdc',
+    'SMTP_ENCRYPTION' => getenv('SMTP_ENCRYPTION') !== false ? (string)getenv('SMTP_ENCRYPTION') : 'tls',
+    'MAIL_FROM_ADDRESS' => getenv('MAIL_FROM_ADDRESS') !== false ? (string)getenv('MAIL_FROM_ADDRESS') : 'rajpaute@gmail.com',
+    'MAIL_FROM_NAME' => getenv('MAIL_FROM_NAME') !== false ? (string)getenv('MAIL_FROM_NAME') : 'MPW Document Tracker',
 ];
 
 $appConfigFile = __DIR__ . '/app_config.' . $appEnv . '.php';

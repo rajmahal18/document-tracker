@@ -102,6 +102,9 @@
 
   function initNav() {
     if (!navToggle || !mainNav) return;
+    const docsToggle = document.getElementById('navDocsToggle');
+    const docsItems = document.getElementById('navDocsItems');
+    const docsGroup = document.getElementById('navDocsGroup');
 
     navToggle.addEventListener('click', function (event) {
       event.stopPropagation();
@@ -115,6 +118,15 @@
 
     if (navBackdrop) {
       navBackdrop.addEventListener('click', closeNav);
+    }
+
+    if (docsToggle && docsItems && docsGroup) {
+      docsToggle.addEventListener('click', function () {
+        const isOpen = docsGroup.classList.contains('isOpen');
+        docsGroup.classList.toggle('isOpen', !isOpen);
+        docsItems.hidden = isOpen;
+        docsToggle.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+      });
     }
 
     mainNav.querySelectorAll('a').forEach((link) => {

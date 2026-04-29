@@ -17,27 +17,66 @@ $user = $stmt->get_result()->fetch_assoc() ?: [];
 $stmt->close();
 
 $generatedUsername = generate_unique_username($conn, (string)($user['full_name'] ?? ($_SESSION['full_name'] ?? '')), $userId);
+$profilePhotoUrl = trim((string)($_SESSION['profile_photo_url'] ?? ''));
+$profileInitials = function_exists('app_user_initials')
+  ? app_user_initials((string)($user['full_name'] ?? ($_SESSION['full_name'] ?? 'U')))
+  : strtoupper(substr((string)($user['full_name'] ?? ($_SESSION['full_name'] ?? 'U')), 0, 1));
 
 require __DIR__ . '/../includes/layout.php';
 ?>
 
-<div class="grid" style="grid-template-columns:minmax(0,1.2fr) minmax(280px,.8fr); gap:18px; align-items:start;">
-  <section class="card">
-    <h2 style="margin:0 0 6px;">My Account</h2>
-    
+<style>
+  .accountPage { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(300px,.75fr); gap:18px; align-items:start; }
+  .accountMain { padding:22px; border-radius:20px; }
+  .accountHero { display:flex; align-items:center; gap:14px; padding-bottom:14px; margin-bottom:16px; border-bottom:1px solid rgba(37,99,235,.14); }
+  .accountHeroName { font-size:24px; line-height:1.1; font-weight:900; margin:0; color:#0f172a; }
+  .accountHeroMeta { margin:2px 0 0; color:#5b6b81; font-weight:700; font-size:13px; }
+  .accountLabelHint { opacity:.82; margin-top:6px; }
+  .accountAside { display:grid; gap:14px; }
+  .accountAside .asideBox { border-radius:16px; }
+  .accountOrgList { margin:0; padding:0; list-style:none; display:grid; gap:8px; }
+  .accountOrgList li { display:flex; gap:8px; align-items:baseline; }
+  .accountOrgList strong { min-width:110px; color:#334155; }
+  .accountStatusPill { display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:999px; font-size:12px; font-weight:800; letter-spacing:.02em; background:#fff7ed; color:#b45309; border:1px solid rgba(245,158,11,.28); }
+  .accountStatusPill.isOk { background:#ecfdf3; color:#166534; border-color:rgba(22,163,74,.24); }
+  @media (max-width:980px) { .accountPage { grid-template-columns:1fr; } .accountMain { padding:18px; } .accountHeroName { font-size:21px; } }
+  body[data-theme="dark"] .accountHero { border-bottom-color:rgba(148,197,255,.22); }
+  body[data-theme="dark"] .accountHeroName { color:#e6f0ff; }
+  body[data-theme="dark"] .accountHeroMeta { color:#b7c8dc; }
+  body[data-theme="dark"] .accountOrgList strong { color:#c7d7eb; }
+  body[data-theme="dark"] .accountStatusPill { background:rgba(180,83,9,.2); color:#ffd9a1; border-color:rgba(251,191,36,.32); }
+  body[data-theme="dark"] .accountStatusPill.isOk { background:rgba(22,163,74,.2); color:#b9f8d0; border-color:rgba(74,222,128,.3); }
+</style>
+
+<div class="accountPage">
+  <section class="card accountMain">
+    <div class="accountHero">
+      <span class="appAvatar appAvatarMd" aria-hidden="true">
+        <?php if ($profilePhotoUrl !== ''): ?>
+          <img src="<?= htmlspecialchars($profilePhotoUrl, ENT_QUOTES, 'UTF-8') ?>" alt="">
+        <?php else: ?>
+          <span><?= htmlspecialchars($profileInitials) ?></span>
+        <?php endif; ?>
+      </span>
+      <div>
+        <h2 class="accountHeroName">My Account</h2>
+        <p class="accountHeroMeta">Manage profile identity and sign-in details</p>
+      </div>
+    </div>
+
     <form id="accountForm" class="authForm" onsubmit="submitAccountUpdate(event)">
       <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token(), ENT_QUOTES, 'UTF-8') ?>">
 
       <div class="authField">
         <label for="account_full_name">Account owner / Full name</label>
         <input id="account_full_name" name="full_name" type="text" required maxlength="200" value="<?= htmlspecialchars((string)($user['full_name'] ?? '')) ?>">
-        <div class="mini" style="opacity:.75;margin-top:6px;">Changing this updates the account owner while keeping existing tasks and documents attached to the same account.</div>
+        <div class="mini accountLabelHint">Changing this updates the account owner while keeping existing tasks and documents attached to the same account.</div>
       </div>
 
       <div class="authField">
         <label for="account_username">Username</label>
         <input id="account_username" type="text" value="<?= htmlspecialchars((string)($user['username'] ?? $generatedUsername)) ?>" readonly>
-        <div class="mini" style="opacity:.75;margin-top:6px;">Auto-generated: given-name initial/s + middle initial + surname. This can be used to log in.</div>
+        <div class="mini accountLabelHint">Auto-generated: given-name initial/s + middle initial + surname. This can be used to log in.</div>
       </div>
 
       <div class="authField">
@@ -50,29 +89,27 @@ require __DIR__ . '/../includes/layout.php';
     </form>
   </section>
 
-  <aside class="aside">
+  <aside class="aside accountAside">
     <div class="asideBox">
       <p class="asideTitle">Current org assignment</p>
-      <ul>
-        <li><strong>Division:</strong> <?= htmlspecialchars((string)($_SESSION['division_name'] ?? '—')) ?></li>
-        <li><strong>Section:</strong> <?= htmlspecialchars((string)($_SESSION['section_name'] ?? '—')) ?></li>
-        <li><strong>Title:</strong> <?= htmlspecialchars((string)($_SESSION['official_title'] ?? '—')) ?></li>
-        <li><strong>Authority role:</strong> <?= htmlspecialchars((string)($_SESSION['authority_role'] ?? 'staff')) ?></li>
+      <ul class="accountOrgList">
+        <li><strong>Division:</strong> <span><?= htmlspecialchars((string)($_SESSION['division_name'] ?? '-')) ?></span></li>
+        <li><strong>Section:</strong> <span><?= htmlspecialchars((string)($_SESSION['section_name'] ?? '-')) ?></span></li>
+        <li><strong>Title:</strong> <span><?= htmlspecialchars((string)($_SESSION['official_title'] ?? '-')) ?></span></li>
+        <li><strong>Authority role:</strong> <span><?= htmlspecialchars((string)($_SESSION['authority_role'] ?? 'staff')) ?></span></li>
       </ul>
     </div>
 
-    <div class="asideBox" style="margin-top:14px;">
+    <div class="asideBox">
       <p class="asideTitle">Email status</p>
-      <p class="mini" style="opacity:.85;">
-        <?php if (!empty($user['email_verified_at'])): ?>
-          Verified on <?= htmlspecialchars((string)$user['email_verified_at']) ?>
-        <?php else: ?>
-          Not verified yet.
-        <?php endif; ?>
-      </p>
+      <?php if (!empty($user['email_verified_at'])): ?>
+        <span class="accountStatusPill isOk">Verified on <?= htmlspecialchars((string)$user['email_verified_at']) ?></span>
+      <?php else: ?>
+        <span class="accountStatusPill">Not verified yet</span>
+      <?php endif; ?>
     </div>
 
-    <div class="asideBox" style="margin-top:14px;">
+    <div class="asideBox">
       <p class="asideTitle">Security</p>
       <a class="authLink" href="<?= PUBLIC_PATH ?>/change_password.php">Change password</a>
     </div>
