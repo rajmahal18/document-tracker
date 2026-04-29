@@ -1,4 +1,20 @@
 (function () {
+  // Inject dark mode text color overrides for the timeline
+  const timelineStyle = document.createElement("style");
+  timelineStyle.textContent = `
+    .dark .tActorName,
+    .dark .tActorTime,
+    .dark .tLineTime,
+    .dark .tLineTitle,
+    .dark .tGroupTitle,
+    .dark .tGroupSub { color: #ffffff !important; }
+    
+    @media (prefers-color-scheme: dark) {
+      .tActorName, .tActorTime, .tLineTime, .tLineTitle, .tGroupTitle, .tGroupSub { color: #ffffff !important; }
+    }
+  `;
+  document.head.appendChild(timelineStyle);
+
   const backdrop = document.getElementById("drawerBackdrop");
   const drawer = document.getElementById("drawer");
   const closeBtn = document.getElementById("drawerClose");

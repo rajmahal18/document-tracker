@@ -3237,19 +3237,19 @@ $end   = min($totalPages, $page + 2);
         const profiles = userProfiles[uid];
         let avatarHtml = '';
         if (profiles && profiles.length > 0) {
-          avatarHtml = '<div style="display:flex; align-items:center;">';
+          avatarHtml = '<div class="elapsedTimesAvatars">';
           profiles.forEach((p, index) => {
-            const margin = index > 0 ? 'margin-left:-8px;' : '';
+            const stacked = index > 0 ? ' is-stacked' : '';
             if (p.photo) {
-              avatarHtml += `<div style="width:24px;height:24px;border-radius:50%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;overflow:hidden;border:2px solid #fff;${margin}" title="${esc(p.name)}"><img src="${esc(p.photo)}" alt="" style="width:100%;height:100%;object-fit:cover;"></div>`;
+              avatarHtml += `<div class="elapsedTimesAvatar${stacked}" title="${esc(p.name)}"><img src="${esc(p.photo)}" alt="" class="elapsedTimesAvatarImg"></div>`;
             } else {
-              avatarHtml += `<div style="width:24px;height:24px;border-radius:50%;background:#e2e8f0;color:#475569;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;overflow:hidden;border:2px solid #fff;${margin}" title="${esc(p.name)}"><span>${esc(p.initials)}</span></div>`;
+              avatarHtml += `<div class="elapsedTimesAvatar elapsedTimesAvatarInitial${stacked}" title="${esc(p.name)}"><span>${esc(p.initials)}</span></div>`;
             }
           });
           avatarHtml += '</div>';
         } else {
           const initials = (fallbackName || 'U').substring(0, 1).toUpperCase();
-          avatarHtml = `<div style="display:flex; align-items:center;"><div style="width:24px;height:24px;border-radius:50%;background:#e2e8f0;color:#475569;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;overflow:hidden;border:2px solid #fff;" title="${esc(fallbackName)}"><span>${initials}</span></div></div>`;
+          avatarHtml = `<div class="elapsedTimesAvatars"><div class="elapsedTimesAvatar elapsedTimesAvatarInitial" title="${esc(fallbackName)}"><span>${initials}</span></div></div>`;
         }
         return avatarHtml;
       }
@@ -3258,13 +3258,13 @@ $end   = min($totalPages, $page + 2);
       if (myTotalWithLive > 0) {
         const myLabel = liveMyTotal > 0 ? 'My elapsed time (live)' : 'My elapsed time';
         const myUserId = Number(window.__CTX__?.actualUserId || 0);
-        lines.push(`<div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">${generateAvatarGroup(myUserId, 'Me')}<div style="display:flex; flex-direction:column; line-height:1.3;"><strong style="color:#0f172a; font-size:13px;">${myLabel}</strong><span style="color:#475569; font-size:12px;">${formatWorkingTime(myTotalWithLive)}</span></div></div>`);
+        lines.push(`<div class="elapsedTimesRow">${generateAvatarGroup(myUserId, 'Me')}<div class="elapsedTimesMeta"><strong class="elapsedTimesName">${myLabel}</strong><span class="elapsedTimesValue">${formatWorkingTime(myTotalWithLive)}</span></div></div>`);
       }
       others.forEach(row => {
-        lines.push(`<div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">${generateAvatarGroup(row.uid, row.label)}<div style="display:flex; flex-direction:column; line-height:1.3;"><strong style="color:#0f172a; font-size:13px;">${esc(row.label)}</strong><span style="color:#475569; font-size:12px;">${formatWorkingTime(row.total)}</span></div></div>`);
+        lines.push(`<div class="elapsedTimesRow">${generateAvatarGroup(row.uid, row.label)}<div class="elapsedTimesMeta"><strong class="elapsedTimesName">${esc(row.label)}</strong><span class="elapsedTimesValue">${formatWorkingTime(row.total)}</span></div></div>`);
       });
       fallbackOthers.forEach(row => {
-        lines.push(`<div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">${generateAvatarGroup(null, row.label)}<div style="display:flex; flex-direction:column; line-height:1.3;"><strong style="color:#0f172a; font-size:13px;">${esc(row.label)}</strong><span style="color:#475569; font-size:12px;">${formatWorkingTime(row.total)}</span></div></div>`);
+        lines.push(`<div class="elapsedTimesRow">${generateAvatarGroup(null, row.label)}<div class="elapsedTimesMeta"><strong class="elapsedTimesName">${esc(row.label)}</strong><span class="elapsedTimesValue">${formatWorkingTime(row.total)}</span></div></div>`);
       });
 
       if (lines.length === 0) {
