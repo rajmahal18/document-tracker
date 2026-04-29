@@ -106,6 +106,11 @@ require __DIR__ . '/../includes/layout.php';
         <span class="accountStatusPill isOk">Verified on <?= htmlspecialchars((string)$user['email_verified_at']) ?></span>
       <?php else: ?>
         <span class="accountStatusPill">Not verified yet</span>
+        <div style="margin-top:10px;">
+          <button id="btnSendVerificationEmail" type="button" class="btnSecondary" data-loading-text="Sending...">
+            Send verification email
+          </button>
+        </div>
       <?php endif; ?>
     </div>
 
@@ -139,6 +144,37 @@ require __DIR__ . '/../includes/layout.php';
 
   nameInput.addEventListener('input', () => {
     usernameInput.value = localGenerate(nameInput.value);
+  });
+})();
+
+(function () {
+  const btn = document.getElementById('btnSendVerificationEmail');
+  if (!btn) return;
+
+  btn.addEventListener('click', async function () {
+    const fd = new FormData();
+    fd.append('csrf_token', window.__APP__?.csrf || '');
+
+    try {
+      const res = await fetch(window.__APP__.api + '/send_verification_email.php', {
+        method: 'POST',
+        body: fd,
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' }
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        window.DTToast?.error(data?.error || `Failed to send verification email. (${res.status})`) || console.warn(data?.error || `Failed to send verification email. (${res.status})`);
+        return;
+      }
+      window.DTToast?.success(data?.message || 'Verification email sent.') || console.log(data?.message || 'Verification email sent.');
+    } catch {
+      window.DTToast?.error('Failed to send verification email (network error).') || console.warn('Failed to send verification email (network error).');
+    } finally {
+      if (window.DTButtonLoading?.stop) {
+        window.DTButtonLoading.stop(btn);
+      }
+    }
   });
 })();
 

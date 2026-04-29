@@ -101,6 +101,7 @@ require_once __DIR__ . "/../core/db.php";
 require_once __DIR__ . "/../core/workflow.php";
 require_once __DIR__ . "/../core/user_identity.php";
 require_once __DIR__ . "/../core/org_permissions.php";
+require_once __DIR__ . "/email_verification.php";
 require_once __DIR__ . "/constants.php";
 
 
