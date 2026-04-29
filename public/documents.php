@@ -2927,6 +2927,7 @@ $end   = min($totalPages, $page + 2);
           <span class="mini" style="opacity:.75;">Sends an email notice to selected recipient(s) after forwarding.</span>
         </span>
       </label>
+      <div id="f_notify_email_hint" class="mini" style="margin-top:6px; color:#b45309; display:none;"></div>
     </div>
 
     <div class="modalFooter">

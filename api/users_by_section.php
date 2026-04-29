@@ -15,7 +15,7 @@ if ($sectionId <= 0) {
 // NOTE: adjust column names if your users table differs.
 // You mentioned users(full_name,...)
 $stmt = $conn->prepare("
-  SELECT id, full_name, is_chief
+  SELECT id, full_name, is_chief, " . (email_verified_at_column_exists($conn) ? "email_verified_at" : "NULL") . " AS email_verified_at
   FROM users
   WHERE section_id = ?
     AND is_active = 1
@@ -31,6 +31,7 @@ while ($row = $res->fetch_assoc()) {
     "id" => (int)$row["id"],
     "name" => (string)$row["full_name"],
     "is_chief" => ((int)($row["is_chief"] ?? 0) === 1),
+    "email_verified" => !empty($row["email_verified_at"]),
   ];
 }
 

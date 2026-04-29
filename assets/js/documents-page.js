@@ -93,6 +93,7 @@
   const btnForwardCancel = document.getElementById("btnForwardCancel");
   const elForwardRemarks = document.getElementById("d_forward_remarks");
   const cbNotifyEmail = document.getElementById("f_notify_email");
+  const notifyEmailHint = document.getElementById("f_notify_email_hint");
   const releaseModal = document.getElementById("releaseModal");
   const releaseModalBackdrop = document.getElementById("releaseModalBackdrop");
   const releaseModalClose = document.getElementById("releaseModalClose");
@@ -1564,6 +1565,39 @@
     elRecipientsPreview.textContent = `Recipients: ${labels.join(", ")}${more > 0 ? ` (+${more} more)` : ""}`;
   }
 
+  function selectedUnverifiedRecipientLabels() {
+    return getAllRecipientBoxes()
+      .filter((b) => b.checked && String(b.dataset.emailVerified || "0") !== "1")
+      .map((b) => {
+        const label = b.closest("label")?.querySelector("span");
+        return (label?.innerText || `#${b.value}`).replace(/\s+/g, " ").trim();
+      });
+  }
+
+  function updateNotifyEmailAvailability() {
+    if (!cbNotifyEmail) return;
+    const unverified = selectedUnverifiedRecipientLabels();
+    const blocked = unverified.length > 0;
+
+    if (blocked) {
+      cbNotifyEmail.checked = false;
+      cbNotifyEmail.disabled = true;
+      if (notifyEmailHint) {
+        notifyEmailHint.style.display = "";
+        const names = unverified.slice(0, 2).join(", ");
+        const more = unverified.length - Math.min(unverified.length, 2);
+        notifyEmailHint.textContent = `Email notify is disabled. Recipient email must be verified first: ${names}${more > 0 ? ` (+${more} more)` : ""}.`;
+      }
+      return;
+    }
+
+    cbNotifyEmail.disabled = false;
+    if (notifyEmailHint) {
+      notifyEmailHint.style.display = "none";
+      notifyEmailHint.textContent = "";
+    }
+  }
+
   function updateForwardModeUI() {
     if (!elForwardModeWrap || !cbReceiveOnly || !elReceiveOnlyHint) return;
 
@@ -1607,15 +1641,17 @@
       elUserList.innerHTML = data.map((u) => {
         const id = Number(u.id || 0);
         const name = (u.name || "").toString();
+        const isVerified = Number(u.email_verified ? 1 : 0);
         return `
           <label class="userChk" style="display:flex; gap:8px; align-items:flex-start; padding:6px 4px; cursor:pointer;">
-            <input type="checkbox" class="f_user_cb" value="${id}" style="margin-top:2px;">
-            <span>${esc(name)} <span style="opacity:.6;">(#${id})</span></span>
+            <input type="checkbox" class="f_user_cb" value="${id}" data-email-verified="${isVerified}" style="margin-top:2px;">
+            <span>${esc(name)} <span style="opacity:.6;">(#${id})</span>${isVerified === 1 ? "" : ` <span style="color:#b45309; font-weight:700;">(email not verified)</span>`}</span>
           </label>
         `;
       }).join("");
 
       updateRecipientsPreview();
+      updateNotifyEmailAvailability();
     } catch {
       resetUsersUI("Failed to load users");
     }
@@ -1637,6 +1673,7 @@
     if (e.target && e.target.classList.contains("f_user_cb")) {
       updateRecipientsPreview();
       updateForwardModeUI();
+      updateNotifyEmailAvailability();
     }
   });
 
@@ -1644,12 +1681,14 @@
     getAllRecipientBoxes().forEach((b) => { b.checked = true; });
     updateRecipientsPreview();
     updateForwardModeUI();
+    updateNotifyEmailAvailability();
   });
 
   btnUserClear?.addEventListener("click", () => {
     getAllRecipientBoxes().forEach((b) => { b.checked = false; });
     updateRecipientsPreview();
     updateForwardModeUI();
+    updateNotifyEmailAvailability();
   });
 
   function openRecipientsModal({ docId, countHint }) {
@@ -3068,7 +3107,8 @@
     }
 
     form.append("remarks", (elForwardRemarks?.value || "").toString().trim());
-    form.append("notify_email", cbNotifyEmail?.checked ? "1" : "0");
+    const blockedNotify = selectedUnverifiedRecipientLabels().length > 0;
+    form.append("notify_email", (!blockedNotify && cbNotifyEmail?.checked) ? "1" : "0");
     form.append("csrf_token", window.__CSRF__ || "");
 
     try {

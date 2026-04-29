@@ -136,8 +136,9 @@ try {
   $types = "i" . str_repeat("i", count($recipients));
   $params = array_merge([$toSectionId], $recipients);
 
+  $hasEmailVerifiedAt = email_verified_at_column_exists($conn);
   $sql = "
-    SELECT id, full_name, email
+    SELECT id, full_name, email, " . ($hasEmailVerifiedAt ? "email_verified_at" : "NULL") . " AS email_verified_at
     FROM users
     WHERE section_id = ?
       AND is_active = 1
@@ -152,10 +153,15 @@ try {
   $found = [];
   $recipientInfo = [];
   $recipientEmails = [];
+  $recipientUnverified = [];
   while ($r = $res->fetch_assoc()) {
     $rid = (int)$r["id"];
     $found[] = $rid;
     $recipientInfo[$rid] = (string)($r["full_name"] ?? ("User #" . $rid));
+    $isVerified = !$hasEmailVerifiedAt || !empty($r["email_verified_at"]);
+    if (!$isVerified) {
+      $recipientUnverified[$rid] = (string)($r["full_name"] ?? ("User #" . $rid));
+    }
     $mail = trim((string)($r["email"] ?? ""));
     if ($mail !== '') {
       $recipientEmails[$rid] = $mail;
@@ -205,6 +211,23 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
     $conn->rollback();
     http_response_code(400);
     echo json_encode(["ok" => false, "error" => "You cannot forward a document to yourself."]);
+    exit;
+  }
+
+  if ($notifyEmail && !empty($recipientUnverified)) {
+    $unverifiedNames = array_values(array_unique(array_filter(array_map(
+      static fn($n) => trim((string)$n),
+      $recipientUnverified
+    ))));
+    $conn->rollback();
+    http_response_code(422);
+    echo json_encode([
+      "ok" => false,
+      "error" => count($unverifiedNames) > 0
+        ? "Email notify requires verified recipient emails. Unverified: " . implode(", ", $unverifiedNames) . "."
+        : "Email notify requires verified recipient emails.",
+      "code" => "EMAIL_NOTIFY_UNVERIFIED_RECIPIENT",
+    ]);
     exit;
   }
 
