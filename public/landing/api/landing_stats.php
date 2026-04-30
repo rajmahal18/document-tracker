@@ -195,15 +195,6 @@ function pdo_from_env_or_constants(): ?PDO
     $pass = $params['pass'];
     $port = $params['port'];
 
-    $GLOBALS['landing_stats_db_debug'] = [
-        'app_env' => app_env_value() !== '' ? app_env_value() : 'unset',
-        'source' => (string)($params['source'] ?? 'env_or_constants'),
-        'host' => (string)($host ?? ''),
-        'db_name' => (string)($name ?? ''),
-        'db_user' => (string)($user ?? ''),
-        'port' => (string)($port ?? ''),
-    ];
-
     if (!$host || !$name || !$user) {
         return null;
     }
@@ -284,7 +275,6 @@ try {
         json_response([
             'ok' => false,
             'error' => 'Database connection was not found. Check api/landing_stats.php config candidates or DB_* environment variables.',
-            'debug' => $GLOBALS['landing_stats_db_debug'] ?? null,
         ], 500);
     }
 
@@ -322,7 +312,6 @@ try {
         'ok' => true,
         'documents' => count_rows($pdo, $documentTable, $documentColumns),
         'users' => count_rows($pdo, $userTable, $userColumns, true),
-        'debug' => $GLOBALS['landing_stats_db_debug'] ?? null,
         'source' => [
             'documents_table' => $documentTable,
             'users_table' => $userTable,
@@ -332,6 +321,5 @@ try {
     json_response([
         'ok' => false,
         'error' => $error->getMessage(),
-        'debug' => $GLOBALS['landing_stats_db_debug'] ?? null,
     ], 500);
 }
