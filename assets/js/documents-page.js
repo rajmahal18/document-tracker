@@ -1017,6 +1017,10 @@
     const myRole = (ctx.myRole || "user").toString().toLowerCase();
     const isPrivileged = myRole === "admin" || myRole === "records";
     const docStatus = (currentPayload?.current_status || "ACTIVE").toString().toUpperCase();
+    const flatAttachmentRecipientInProgress = (
+      !currentBranchMode
+      && Number(currentPayload?.flat_attachment_recipient_in_progress || 0) === 1
+    );
 
     let canAttach = false;
     if (docStatus === "ACTIVE") {
@@ -1030,6 +1034,7 @@
       } else {
         canAttach = !!(
           isPrivileged
+          || flatAttachmentRecipientInProgress
           || Number(currentPayload?.my_has_actionable_role || 0) === 1
           || Number(currentPayload?.attachment_forward_can_attach || 0) === 1
         );
@@ -2794,16 +2799,32 @@
     const isStatusAdmin = myRole === "admin";
     const flatActionableByMe = Number(payload.my_has_actionable_role || 0) === 1;
     const flatLifecycleByMe = Number(payload.my_can_change_lifecycle || 0) === 1;
+    const flatAttachmentSenderWaiting = Number(payload.flat_attachment_sender_waiting || 0) === 1;
+    const flatAttachmentRecipientPendingReceive = Number(payload.flat_attachment_recipient_pending_receive || 0) === 1;
+    const flatAttachmentRecipientInProgress = Number(payload.flat_attachment_recipient_in_progress || 0) === 1;
+    const flatAttachmentRecipientCompleted = Number(payload.flat_attachment_recipient_completed || 0) === 1;
+    const flatAttachmentTaskExclusive = (
+      !currentBranchMode
+      && (
+        flatAttachmentSenderWaiting
+        || flatAttachmentRecipientPendingReceive
+        || flatAttachmentRecipientInProgress
+        || flatAttachmentRecipientCompleted
+      )
+    );
 
     const myOpenRouteId = Number.parseInt(payload.my_open_route_id || "0", 10) || 0;
 
-    const canAckReceived = (!currentBranchMode && (
+    const canAckReceivedBase = (!currentBranchMode && (
       myOpenRouteId > 0 ||
       (inTransit && (
       (openToUserId > 0 && myUserId > 0 && openToUserId === myUserId) ||
       (openToUserId === 0 && isChief && openToSectionId > 0 && mySectionId > 0 && openToSectionId === mySectionId)
       ))
     ));
+    const canAckReceived = flatAttachmentRecipientPendingReceive
+      ? true
+      : (!flatAttachmentTaskExclusive && canAckReceivedBase);
 
     const canAckReceivedPrivileged = (!currentBranchMode && inTransit && openToSectionId > 0 && mySectionId > 0 && openToSectionId === mySectionId);
 
@@ -2814,8 +2835,12 @@
       canAttach = docStatus === "ACTIVE" && isPrivileged;
       canForward = false;
     } else {
-      canAttach = docStatus === "ACTIVE" && (isPrivileged || flatActionableByMe || Number(payload.attachment_forward_can_attach || 0) === 1);
-      canForward = docStatus === "ACTIVE" && flatActionableByMe;
+      canAttach = docStatus === "ACTIVE" && (
+        isPrivileged
+        || flatAttachmentRecipientInProgress
+        || (!flatAttachmentTaskExclusive && (flatActionableByMe || Number(payload.attachment_forward_can_attach || 0) === 1))
+      );
+      canForward = !flatAttachmentTaskExclusive && docStatus === "ACTIVE" && flatActionableByMe;
     }
 
     const flatAttachmentTaskLock = !!(
@@ -2826,6 +2851,7 @@
     currentCanForward = canForward && !flatAttachmentTaskLock;
     currentCanAttachmentForward = !!(
       !currentBranchMode
+      && !flatAttachmentTaskExclusive
       && docStatus === "ACTIVE"
       && flatActionableByMe
       && !inTransit
@@ -2869,8 +2895,17 @@
       btnAckReceived.style.display = canAckReceived ? "" : "none";
     }
     if (!currentBranchMode && btnAttachmentTaskDone) {
-      const canTaskDoneFlat = !!(Number(payload.attachment_forward_can_mark_done || 0) === 1 && docStatus === "ACTIVE");
+      const canTaskDoneFlat = !!(
+        flatAttachmentRecipientInProgress
+        && Number(payload.attachment_forward_can_mark_done || 0) === 1
+        && docStatus === "ACTIVE"
+      );
       btnAttachmentTaskDone.style.display = canTaskDoneFlat ? "" : "none";
+    }
+
+    if (!currentBranchMode && flatAttachmentTaskExclusive) {
+      syncToggleLabels();
+      return;
     }
 
     if (docStatus === "ARCHIVED") {

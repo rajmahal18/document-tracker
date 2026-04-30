@@ -2414,6 +2414,58 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
                 $attachmentForwardTaskSummary = workflow_get_attachment_forward_task_summary($conn, (int)$d["id"], $myUserId, 0, 0);
               }
             }
+
+            $flatAttachmentTaskStatus = strtoupper((string)($flatAttachmentForwardMeta["attachment_forward_task_status"] ?? ""));
+            $flatAttachmentIsSender = (
+              !$hasRealBranches
+              && (int)($flatAttachmentForwardMeta["attachment_forward_source_branch"] ?? 0) === 1
+            );
+            $flatAttachmentIsRecipient = (
+              !$hasRealBranches
+              && (int)($flatAttachmentForwardMeta["attachment_forward_recipient_branch"] ?? 0) === 1
+            );
+            $flatAttachmentSenderWaiting = $flatAttachmentIsSender
+              && (int)($flatAttachmentForwardMeta["attachment_forward_open_task_count"] ?? 0) > 0;
+            $flatAttachmentRecipientPendingReceive = $flatAttachmentIsRecipient
+              && $flatAttachmentTaskStatus === "PENDING_RECEIVE";
+            $flatAttachmentRecipientInProgress = $flatAttachmentIsRecipient
+              && $flatAttachmentTaskStatus === "IN_PROGRESS";
+            $flatAttachmentRecipientCompleted = $flatAttachmentIsRecipient
+              && !$flatAttachmentRecipientPendingReceive
+              && !$flatAttachmentRecipientInProgress
+              && (int)($flatAttachmentForwardMeta["attachment_forward_open_task_count"] ?? 0) === 0;
+
+            if (!$hasRealBranches) {
+              if ($flatAttachmentRecipientPendingReceive) {
+                $myHasOpenInbound = true;
+                $myHasActionableRole = false;
+                $myCanChangeLifecycle = false;
+                $myStatusLabel = "INCOMING";
+                $myStatusChipClass = "chip action";
+                $rowToneClass = "rowToneIncoming";
+              } elseif ($flatAttachmentRecipientInProgress) {
+                $myHasOpenInbound = false;
+                $myHasActionableRole = false;
+                $myCanChangeLifecycle = false;
+                $myStatusLabel = "PENDING";
+                $myStatusChipClass = "chip overdue";
+                $rowToneClass = "rowTonePending";
+              } elseif ($flatAttachmentSenderWaiting) {
+                $myHasOpenInbound = false;
+                $myHasActionableRole = false;
+                $myCanChangeLifecycle = false;
+                $myStatusLabel = "PENDING";
+                $myStatusChipClass = "chip overdue";
+                $rowToneClass = "rowTonePending";
+              } elseif ($flatAttachmentRecipientCompleted) {
+                $myHasOpenInbound = false;
+                $myHasActionableRole = false;
+                $myCanChangeLifecycle = false;
+                $myStatusLabel = "COMPLETE";
+                $myStatusChipClass = "chip incoming";
+                $rowToneClass = "rowToneComplete";
+              }
+            }
           ?>
           <tr
             class="rowHover docsRow <?= htmlspecialchars(trim($rowToneClass . " " . $deadlineToneClass . ($isJustCreatedDoc ? " docsRowJustCreated" : ""))) ?>"
@@ -2457,6 +2509,10 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
                 "attachment_forward_source_branch" => (int)($flatAttachmentForwardMeta["attachment_forward_source_branch"] ?? 0),
                 "attachment_forward_task_status" => (string)($flatAttachmentForwardMeta["attachment_forward_task_status"] ?? ""),
                 "attachment_forward_task_summary" => $attachmentForwardTaskSummary,
+                "flat_attachment_sender_waiting" => $flatAttachmentSenderWaiting ? 1 : 0,
+                "flat_attachment_recipient_pending_receive" => $flatAttachmentRecipientPendingReceive ? 1 : 0,
+                "flat_attachment_recipient_in_progress" => $flatAttachmentRecipientInProgress ? 1 : 0,
+                "flat_attachment_recipient_completed" => $flatAttachmentRecipientCompleted ? 1 : 0,
 
                 "in_transit" => !empty($d["open_to_section_id"]) ? 1 : 0,
                 "open_to_section_id" => (int)($d["open_to_section_id"] ?? 0),
