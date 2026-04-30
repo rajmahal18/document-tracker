@@ -125,13 +125,84 @@ function pdo_from_existing_connection(): ?PDO
     return null;
 }
 
+function production_db_config_from_file(): array
+{
+    $root = detect_project_root();
+    $prodConfigFile = $root . '/includes/app_config.production.php';
+    if (!is_file($prodConfigFile)) {
+        return [];
+    }
+
+    $config = require $prodConfigFile;
+    if (!is_array($config)) {
+        return [];
+    }
+
+    return [
+        'host' => isset($config['DB_HOST']) ? (string)$config['DB_HOST'] : null,
+        'name' => isset($config['DB_NAME']) ? (string)$config['DB_NAME'] : null,
+        'user' => isset($config['DB_USER']) ? (string)$config['DB_USER'] : null,
+        'pass' => isset($config['DB_PASS']) ? (string)$config['DB_PASS'] : null,
+        'port' => isset($config['DB_PORT']) ? (string)$config['DB_PORT'] : null,
+    ];
+}
+
+function resolve_db_connection_params(): array
+{
+    $prodConfig = production_db_config_from_file();
+    $useProdConfig = app_env_value() === 'production' || (app_env_value() === '' && !is_local_host());
+
+    $host = null;
+    $name = null;
+    $user = null;
+    $pass = null;
+    $port = null;
+    $source = 'env_or_constants';
+
+    if ($useProdConfig) {
+        $host = $prodConfig['host'] ?? null;
+        $name = $prodConfig['name'] ?? null;
+        $user = $prodConfig['user'] ?? null;
+        $pass = $prodConfig['pass'] ?? null;
+        $port = $prodConfig['port'] ?? null;
+        if ($host || $name || $user) {
+            $source = 'includes/app_config.production.php';
+        }
+    }
+
+    $host = $host ?: (getenv('DB_HOST') ?: (defined('DB_HOST') ? constant('DB_HOST') : null));
+    $name = $name ?: (getenv('DB_NAME') ?: (defined('DB_NAME') ? constant('DB_NAME') : null));
+    $user = $user ?: (getenv('DB_USER') ?: (defined('DB_USER') ? constant('DB_USER') : null));
+    $pass = $pass ?: (getenv('DB_PASS') ?: (defined('DB_PASS') ? constant('DB_PASS') : (defined('DB_PASSWORD') ? constant('DB_PASSWORD') : null)));
+    $port = $port ?: (getenv('DB_PORT') ?: (defined('DB_PORT') ? constant('DB_PORT') : '3306'));
+
+    return [
+        'host' => $host,
+        'name' => $name,
+        'user' => $user,
+        'pass' => $pass,
+        'port' => $port,
+        'source' => $source,
+    ];
+}
+
 function pdo_from_env_or_constants(): ?PDO
 {
-    $host = getenv('DB_HOST') ?: (defined('DB_HOST') ? constant('DB_HOST') : null);
-    $name = getenv('DB_NAME') ?: (defined('DB_NAME') ? constant('DB_NAME') : null);
-    $user = getenv('DB_USER') ?: (defined('DB_USER') ? constant('DB_USER') : null);
-    $pass = getenv('DB_PASS') ?: (defined('DB_PASS') ? constant('DB_PASS') : (defined('DB_PASSWORD') ? constant('DB_PASSWORD') : null));
-    $port = getenv('DB_PORT') ?: (defined('DB_PORT') ? constant('DB_PORT') : '3306');
+    $params = resolve_db_connection_params();
+    $host = $params['host'];
+    $name = $params['name'];
+    $user = $params['user'];
+    $pass = $params['pass'];
+    $port = $params['port'];
+
+    $GLOBALS['landing_stats_db_debug'] = [
+        'app_env' => app_env_value() !== '' ? app_env_value() : 'unset',
+        'source' => (string)($params['source'] ?? 'env_or_constants'),
+        'host' => (string)($host ?? ''),
+        'db_name' => (string)($name ?? ''),
+        'db_user' => (string)($user ?? ''),
+        'port' => (string)($port ?? ''),
+    ];
 
     if (!$host || !$name || !$user) {
         return null;
@@ -213,6 +284,7 @@ try {
         json_response([
             'ok' => false,
             'error' => 'Database connection was not found. Check api/landing_stats.php config candidates or DB_* environment variables.',
+            'debug' => $GLOBALS['landing_stats_db_debug'] ?? null,
         ], 500);
     }
 
@@ -250,6 +322,7 @@ try {
         'ok' => true,
         'documents' => count_rows($pdo, $documentTable, $documentColumns),
         'users' => count_rows($pdo, $userTable, $userColumns, true),
+        'debug' => $GLOBALS['landing_stats_db_debug'] ?? null,
         'source' => [
             'documents_table' => $documentTable,
             'users_table' => $userTable,
@@ -259,5 +332,6 @@ try {
     json_response([
         'ok' => false,
         'error' => $error->getMessage(),
+        'debug' => $GLOBALS['landing_stats_db_debug'] ?? null,
     ], 500);
 }
