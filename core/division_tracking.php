@@ -302,14 +302,6 @@ function ensure_division_tracking_tables(mysqli $conn): void
     CONSTRAINT fk_doc_division_tracking_division FOREIGN KEY (division_id) REFERENCES divisions(id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
-  // Allow forced duplicate tracking numbers at application level.
-  // We keep one-row-per-document-per-division uniqueness, but drop the global
-  // (division_id, tracking_no) unique index so duplicates can be intentionally saved.
-  $res = $conn->query("SHOW INDEX FROM document_division_tracking WHERE Key_name = 'uq_doc_division_tracking_no'");
-  if ($res && $res->num_rows > 0) {
-    $conn->query("ALTER TABLE document_division_tracking DROP INDEX uq_doc_division_tracking_no");
-  }
-
   $conn->query("CREATE TABLE IF NOT EXISTS division_tracking_slip_user_order (
     division_id INT NOT NULL,
     user_id INT NOT NULL,
