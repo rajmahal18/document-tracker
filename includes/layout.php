@@ -110,11 +110,11 @@ $pageTitle = $pageTitle ?? "Document Tracker";
         <span class="navGroupCaret" aria-hidden="true">&gt;</span>
       </button>
       <div class="navGroupItems" id="navDocsItems" hidden>
-        <a href="https://mpwbarmm.com/ppd/admin/indexdocs_cside_funded1.php" class="navSubLink">
+        <a href="http://13.214.52.254/indexdocs_cside_funded1.php" class="navSubLink">
           <span class="navIcon">&#8250;</span>
           <span class="navText">Funded</span>
         </a>
-        <a href="https://mpwbarmm.com/ppd/admin/viewdocs.php" class="navSubLink">
+        <a href="http://13.214.52.254/viewdocs.php" class="navSubLink">
           <span class="navIcon">&#8250;</span>
           <span class="navText">Legacy Documents</span>
         </a>
