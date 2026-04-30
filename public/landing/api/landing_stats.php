@@ -50,6 +50,42 @@ function detect_project_root(): string
     return dirname(__DIR__, 3);
 }
 
+function app_env_value(): string
+{
+    $env = (string) (getenv('APP_ENV') ?: '');
+    return strtolower(trim($env));
+}
+
+function is_local_host(): bool
+{
+    $host = strtolower((string)($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? ''));
+    if ($host !== '' && str_contains($host, ':')) {
+        $host = explode(':', $host, 2)[0];
+    }
+
+    if (in_array($host, ['localhost', '127.0.0.1', '::1'], true)) {
+        return true;
+    }
+
+    $addr = (string)($_SERVER['SERVER_ADDR'] ?? '');
+    return in_array($addr, ['127.0.0.1', '::1'], true);
+}
+
+function load_production_config_fallback(string $root): void
+{
+    $prodConfig = $root . '/includes/app_config.production.php';
+    if (!is_file($prodConfig)) {
+        return;
+    }
+
+    $env = app_env_value();
+    $shouldForceProdConfig = ($env === 'production') || ($env === '' && !is_local_host());
+
+    if ($shouldForceProdConfig) {
+        require_once $prodConfig;
+    }
+}
+
 function load_project_config(): void
 {
     $root = detect_project_root();
@@ -72,6 +108,10 @@ function load_project_config(): void
     foreach ($candidateFiles as $file) {
         require_if_exists($file);
     }
+
+    // Production safety net:
+    // if APP_ENV is production (or not set on non-local host), enforce production overrides.
+    load_production_config_fallback($root);
 }
 
 function pdo_from_existing_connection(): ?PDO
