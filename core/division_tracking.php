@@ -302,6 +302,14 @@ function ensure_division_tracking_tables(mysqli $conn): void
     CONSTRAINT fk_doc_division_tracking_division FOREIGN KEY (division_id) REFERENCES divisions(id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+  // Allow forced duplicate tracking numbers at application level.
+  // We keep one-row-per-document-per-division uniqueness, but drop the global
+  // (division_id, tracking_no) unique index so duplicates can be intentionally saved.
+  $res = $conn->query("SHOW INDEX FROM document_division_tracking WHERE Key_name = 'uq_doc_division_tracking_no'");
+  if ($res && $res->num_rows > 0) {
+    $conn->query("ALTER TABLE document_division_tracking DROP INDEX uq_doc_division_tracking_no");
+  }
+
   $conn->query("CREATE TABLE IF NOT EXISTS division_tracking_slip_user_order (
     division_id INT NOT NULL,
     user_id INT NOT NULL,
@@ -530,7 +538,13 @@ function preview_next_division_tracking_number(mysqli $conn, int $divisionId, ?D
   return sprintf('%s %s%02d', $meta['code'], $now->format('mdy'), $next);
 }
 
-function parse_and_validate_division_tracking_no(mysqli $conn, int $divisionId, string $trackingNo, ?int $excludeDocumentId = null): array
+function parse_and_validate_division_tracking_no(
+  mysqli $conn,
+  int $divisionId,
+  string $trackingNo,
+  ?int $excludeDocumentId = null,
+  bool $allowDuplicate = false
+): array
 {
   ensure_division_tracking_tables($conn);
   $meta = get_division_meta($conn, $divisionId);
@@ -564,7 +578,7 @@ function parse_and_validate_division_tracking_no(mysqli $conn, int $divisionId, 
   $stmt = $conn->prepare($sql);
   $stmt->bind_param($types, ...$params);
   $stmt->execute();
-  if ($stmt->get_result()->fetch_assoc()) {
+  if (!$allowDuplicate && $stmt->get_result()->fetch_assoc()) {
     throw new RuntimeException('Division tracking number already exists for this division.');
   }
 
@@ -575,9 +589,17 @@ function parse_and_validate_division_tracking_no(mysqli $conn, int $divisionId, 
   ];
 }
 
-function upsert_document_division_tracking(mysqli $conn, int $documentId, int $divisionId, string $trackingNo, int $actorUserId, bool $isManual = false): void
+function upsert_document_division_tracking(
+  mysqli $conn,
+  int $documentId,
+  int $divisionId,
+  string $trackingNo,
+  int $actorUserId,
+  bool $isManual = false,
+  bool $allowDuplicate = false
+): void
 {
-  $parsed = parse_and_validate_division_tracking_no($conn, $divisionId, $trackingNo, $documentId);
+  $parsed = parse_and_validate_division_tracking_no($conn, $divisionId, $trackingNo, $documentId, $allowDuplicate);
   $stmt = $conn->prepare("INSERT INTO document_division_tracking
     (document_id, division_id, tracking_no, tracking_date, sequence_no, is_manual, created_by_user_id, updated_by_user_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)

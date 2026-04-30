@@ -751,6 +751,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   $transmittalMode = (string)($_POST['transmittal_mode'] ?? 'attach');
   $divisionSlipMode = (string)($_POST['division_slip_mode'] ?? 'attach');
   $divisionTrackingInput = trim((string)($_POST['division_tracking_no'] ?? ''));
+  $forceDuplicateDivisionTracking = ((string)($_POST['force_duplicate_division_tracking'] ?? '') === '1');
   $divisionSlipReceivedRaw = trim((string)($_POST['division_slip_received_datetime'] ?? ''));
   $divisionSlipReceivedDatetime = format_optional_slip_received_datetime($divisionSlipReceivedRaw);
   if ($divisionTrackingInput === '' && $hasOwnDivisionSlip) {
@@ -850,7 +851,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             $myDivisionId,
             $divisionTrackingInput,
             $userId,
-            strtoupper(trim($divisionTrackingInput)) !== strtoupper(trim((string)($editDocument["division_tracking_no"] ?? "")))
+            strtoupper(trim($divisionTrackingInput)) !== strtoupper(trim((string)($editDocument["division_tracking_no"] ?? ""))),
+            $forceDuplicateDivisionTracking
           );
         }
         $resolvedProjectIds = resolve_project_ids_for_document($conn, $projectIds, $projectCodes);
@@ -988,7 +990,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             $myDivisionId,
             $divisionTrackingInput,
             $userId,
-            strtoupper(trim($divisionTrackingInput)) !== strtoupper(trim($ownDivisionTrackingPreview))
+            strtoupper(trim($divisionTrackingInput)) !== strtoupper(trim($ownDivisionTrackingPreview)),
+            $forceDuplicateDivisionTracking
           );
         }
         $resolvedProjectIds = resolve_project_ids_for_document($conn, $projectIds, $projectCodes);
@@ -1727,6 +1730,10 @@ require __DIR__ . "/../includes/layout.php";
               placeholder="<?= htmlspecialchars($ownDivisionTrackingPreview) ?>"
             >
             <div class="mini">Format: <?= htmlspecialchars($myDivisionCode) ?> MMDDYYNN.</div>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-weight:700;">
+              <input type="checkbox" name="force_duplicate_division_tracking" value="1" <?= (($_POST["force_duplicate_division_tracking"] ?? "") === "1") ? "checked" : "" ?>>
+              Force allow duplicate tracking number
+            </label>
           </div>
         <?php endif; ?>
       </div>
@@ -1861,6 +1868,10 @@ require __DIR__ . "/../includes/layout.php";
             <label style="font-weight:800;display:block;margin-bottom:6px;">Own Division Tracking Number</label>
             <input type="text" name="division_tracking_no" value="<?= htmlspecialchars($_POST["division_tracking_no"] ?? $ownDivisionTrackingPreview) ?>" placeholder="<?= htmlspecialchars($ownDivisionTrackingPreview) ?>">
             <div class="mini" style="margin-top:6px;">Format: <?= htmlspecialchars($myDivisionCode) ?> MMDDYYNN. Auto-filled but editable.</div>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-weight:700;">
+              <input type="checkbox" name="force_duplicate_division_tracking" value="1" <?= (($_POST["force_duplicate_division_tracking"] ?? "") === "1") ? "checked" : "" ?>>
+              Force allow duplicate tracking number
+            </label>
           </div>
 
           <div id="divisionSlipReceivedWrap" style="margin-top:12px; display:none; gap:6px;">
