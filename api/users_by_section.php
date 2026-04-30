@@ -15,7 +15,8 @@ if ($sectionId <= 0) {
 // NOTE: adjust column names if your users table differs.
 // You mentioned users(full_name,...)
 $stmt = $conn->prepare("
-  SELECT id, full_name, is_chief, " . (email_verified_at_column_exists($conn) ? "email_verified_at" : "NULL") . " AS email_verified_at
+  SELECT id, full_name, is_chief, " . (email_verified_at_column_exists($conn) ? "email_verified_at" : "NULL") . " AS email_verified_at, "
+    . (db_column_exists($conn, 'users', 'profile_photo_url') ? "profile_photo_url" : "NULL") . " AS profile_photo_url
   FROM users
   WHERE section_id = ?
     AND is_active = 1
@@ -32,6 +33,7 @@ while ($row = $res->fetch_assoc()) {
     "name" => (string)$row["full_name"],
     "is_chief" => ((int)($row["is_chief"] ?? 0) === 1),
     "email_verified" => !empty($row["email_verified_at"]),
+    "profile_photo_url" => app_profile_photo_url((string)($row["profile_photo_url"] ?? "")),
   ];
 }
 

@@ -95,18 +95,24 @@
 .docsAddBtn,
 .docsClearFilters,
 .pagerBtn {
-  border-radius: 999px;
+  min-height: 36px;
+  border-radius: 8px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+  border: 1px solid transparent;
+  box-shadow: none;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
 }
 
 .btnPrimary,
-.btnSecondary,
 .btnTertiary,
 .authBtn {
   background: #0b3a66;
   color: #fff;
-  border: 0;
+  border-color: #0b3a66;
 }
 
 .btnPrimary,
@@ -114,42 +120,35 @@
 .btnGreen,
 .btnGhost,
 .btnTertiary {
-  padding: 10px 12px;
+  padding: 0 12px;
 }
 
 .btnSecondary {
-  height: 40px;
-  padding: 0 14px;
-  font-weight: 700;
+  background: transparent;
+  border-color: #0b3a66;
+  color: #0b3a66;
   white-space: nowrap;
 }
 
 .btnGhost {
-  background: var(--app-surface-strong, #fff);
-  border: 1px solid #cfd6dd;
+  background: transparent;
+  border-color: #cfd6dd;
   color: #0b3a66;
-  font-weight: 900;
+  font-weight: 800;
 }
 
 .btnComp {
   background: #e87722;
   color: #fff;
-  font-weight: 700;
-  border: 0;
-  box-shadow: 0 10px 22px rgba(232, 119, 34, 0.2);
+  font-weight: 800;
+  border-color: #e87722;
 }
 
 .btnGreen {
   background: #16a34a;
   color: #fff;
-  font-weight: 700;
-  border: 0;
-}
-
-.btnPrimary,
-.btnSecondary,
-.btnComp {
-  box-shadow: 0 8px 18px rgba(11, 58, 102, 0.1);
+  font-weight: 800;
+  border-color: #16a34a;
 }
 
 .btnPrimary:hover,
@@ -157,14 +156,17 @@
 .btnTertiary:hover,
 .authBtn:hover {
   background: #082b4d;
+  border-color: #082b4d;
 }
 
 .btnComp:hover {
   background: #d96b1a;
+  border-color: #d96b1a;
 }
 
 .btnGreen:hover {
   background: #15803d;
+  border-color: #15803d;
 }
 
 .btnGhost:hover,
@@ -173,6 +175,16 @@
 .ackSummaryTab:hover,
 .branchPill:hover {
   transform: translateY(-1px);
+}
+
+.btnSecondary:hover {
+  background: rgba(11, 58, 102, 0.08);
+  border-color: #0b3a66;
+}
+
+.btnGhost:hover {
+  background: rgba(11, 58, 102, 0.05);
+  border-color: #bfc8d2;
 }
 
 button.dtBtnLoading,
@@ -578,7 +590,7 @@ button .dtBtnLoadingText {
   padding: 10px 0 0;
   border-top: 0;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   align-items: center;
   background: transparent;
@@ -588,8 +600,14 @@ button .dtBtnLoadingText {
 .drawerActions > button {
   min-width: 0;
   justify-content: center;
-  min-height: 40px;
-  border-radius: 13px;
+  min-height: 36px;
+  border-radius: 8px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: none;
+  border: 1px solid transparent;
+  letter-spacing: 0.01em;
 }
 
 button[id] {
@@ -687,6 +705,148 @@ button[id]::before {
 
 #btnToggleAttachmentForward {
   --btn-icon-mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill='black' d='M8 6a4 4 0 0 1 8 0v8a6 6 0 0 1-12 0V7h2v7a4 4 0 0 0 8 0V6a2 2 0 0 0-4 0v8a1 1 0 1 0 2 0V7h2v7a3 3 0 1 1-6 0z'/%3E%3C/svg%3E");
+}
+
+#btnToggleAttachmentForward {
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+#btnEditPendingRemarks {
+  font-size: 11px;
+}
+
+#btnToggleForward,
+#btnAckReceived,
+#btnAttachmentTaskDone {
+  background: #0b3a66;
+  border-color: #0b3a66;
+  color: #fff;
+}
+
+#btnToggleAttachmentForward,
+#btnEditPendingRemarks,
+#btnUndoEndHere {
+  background: transparent;
+  border-color: #0b3a66;
+  color: #0b3a66;
+}
+
+#btnRelease {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #fff;
+}
+
+#btnArchive {
+  background: transparent;
+  border-color: #e87722;
+  color: #c25c13;
+}
+
+#btnEndHere {
+  background: transparent;
+  border-color: rgba(180, 35, 24, 0.55);
+  color: #b42318;
+}
+
+#btnToggleForward:hover,
+#btnAckReceived:hover,
+#btnAttachmentTaskDone:hover {
+  background: #082b4d;
+  border-color: #082b4d;
+}
+
+#btnToggleAttachmentForward:hover,
+#btnEditPendingRemarks:hover,
+#btnUndoEndHere:hover {
+  background: rgba(11, 58, 102, 0.08);
+}
+
+#btnRelease:hover {
+  background: #15803d;
+  border-color: #15803d;
+}
+
+#btnArchive:hover {
+  background: rgba(232, 119, 34, 0.11);
+}
+
+#btnEndHere:hover {
+  background: rgba(180, 35, 24, 0.09);
+}
+
+#btnViewDocument {
+  min-height: 36px;
+  border-radius: 8px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: none;
+  background: #0b3a66;
+  border: 1px solid #0b3a66;
+  color: #fff;
+}
+
+#btnViewDocument:hover {
+  background: #082b4d;
+  border-color: #082b4d;
+}
+
+#btnProjectManageToggle {
+  min-height: 36px;
+  border-radius: 8px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: none;
+  background: transparent;
+  border: 1px solid #0b3a66;
+  color: #0b3a66;
+}
+
+#btnProjectManageToggle:hover {
+  background: rgba(11, 58, 102, 0.08);
+}
+
+#btnToggleForward { order: 1; }
+#btnToggleAttachmentForward { order: 2; }
+#btnEditPendingRemarks { order: 3; }
+#btnAckReceived { order: 4; }
+#btnAttachmentTaskDone { order: 5; }
+#btnRelease { order: 6; }
+#btnArchive { order: 7; }
+#btnEndHere { order: 8; }
+#btnUndoEndHere { order: 9; }
+
+#drawerAttachmentForwardHint {
+  margin-top: 8px !important;
+  padding: 8px 10px !important;
+  border-radius: 10px !important;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+#drawerAttachmentForwardHint a {
+  font-weight: 900;
+}
+
+#drawerActionGuide {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(37, 99, 235, 0.22);
+  background: rgba(239, 246, 255, 0.9);
+  color: #1e3a8a;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+#drawerActionGuide a {
+  color: inherit;
+  text-decoration: underline;
+  font-weight: 900;
 }
 
 #btnAckReceived,
@@ -899,7 +1059,7 @@ button[id]::before {
 
 .drawerSectionActions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 8px;
   margin: 6px 0 12px;
 }
@@ -907,7 +1067,37 @@ button[id]::before {
 .drawerSectionActions > button {
   min-width: 0;
   justify-content: center;
-  border-radius: 12px;
+  min-height: 36px;
+  border-radius: 8px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: none;
+  border: 1px solid transparent;
+  letter-spacing: 0.01em;
+}
+
+#btnRegenerateDivisionSlip {
+  background: transparent;
+  border-color: #0b3a66;
+  color: #0b3a66;
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+#btnToggleUpload {
+  background: #0b3a66;
+  border-color: #0b3a66;
+  color: #fff;
+}
+
+#btnRegenerateDivisionSlip:hover {
+  background: rgba(11, 58, 102, 0.08);
+}
+
+#btnToggleUpload:hover {
+  background: #082b4d;
+  border-color: #082b4d;
 }
 
 .attachmentTaskProgress {
@@ -1618,7 +1808,7 @@ button[id]::before {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.45);
-  z-index: 1500;
+  z-index: 2400;
 }
 
 .attDialog {
@@ -1631,7 +1821,7 @@ button[id]::before {
   background: var(--app-surface, #fff);
   border-radius: 14px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
-  z-index: 1510;
+  z-index: 2410;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1720,6 +1910,123 @@ button[id]::before {
 
 .collapsed {
   display: none;
+}
+
+.recipientOption {
+  display: grid;
+  grid-template-columns: 18px 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.12s ease;
+}
+
+.recipientOption + .recipientOption {
+  margin-top: 8px;
+}
+
+.recipientOption:hover {
+  border-color: rgba(11, 58, 102, 0.35);
+  background: #f8fbff;
+  transform: translateY(-1px);
+}
+
+.recipientOption input.f_user_cb {
+  margin: 0;
+}
+
+.recipientAvatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: linear-gradient(145deg, #e2e8f0, #f8fafc);
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 900;
+  color: #334155;
+}
+
+.recipientAvatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.recipientAvatar > span {
+  display: inline-flex;
+}
+
+.recipientMeta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.recipientNameRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.recipientName {
+  font-size: 12px;
+  font-weight: 900;
+  color: #0f172a;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recipientSub {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.recipientRoleTag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.10);
+  border: 1px solid rgba(37, 99, 235, 0.24);
+  color: #1e3a8a;
+  font-size: 10px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.recipientWarnTag {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 18px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(249, 115, 22, 0.10);
+  border: 1px solid rgba(249, 115, 22, 0.24);
+  color: #9a3412;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.recipientOption.isSelected {
+  border-color: rgba(11, 58, 102, 0.42);
+  background: #eff6ff;
+  box-shadow: inset 0 0 0 1px rgba(11, 58, 102, 0.07);
 }
 
 /* ===== Pager ===== */
@@ -1878,7 +2185,7 @@ button[id]::before {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.45);
-  z-index: 1500;
+  z-index: 2400;
 }
 
 .modalCard {
@@ -1890,7 +2197,7 @@ button[id]::before {
   background: var(--app-surface, #fff);
   border-radius: 18px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
-  z-index: 1510;
+  z-index: 2410;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2760,16 +3067,104 @@ body[data-theme="dark"] .attBody {
 body[data-theme="dark"] .btnGhost,
 body[data-theme="dark"] .btnSecondary,
 body[data-theme="dark"] .pagerBtn {
-  background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(160, 181, 205, 0.24);
+  background: transparent;
+  border-color: rgba(160, 181, 205, 0.36);
   color: #e8f2ff;
 }
 
 body[data-theme="dark"] .btnGhost:hover,
 body[data-theme="dark"] .btnSecondary:hover,
 body[data-theme="dark"] .pagerBtn:hover {
-  background: rgba(125, 183, 255, 0.14);
+  background: rgba(125, 183, 255, 0.12);
   border-color: rgba(125, 183, 255, 0.38);
+}
+
+body[data-theme="dark"] #btnRegenerateDivisionSlip {
+  background: transparent;
+  border-color: rgba(125, 183, 255, 0.56);
+  color: #cae6ff;
+}
+
+body[data-theme="dark"] #btnRegenerateDivisionSlip:hover {
+  background: rgba(125, 183, 255, 0.12);
+}
+
+body[data-theme="dark"] #btnToggleUpload {
+  background: #1f5e99;
+  border-color: #1f5e99;
+  color: #f4f9ff;
+}
+
+body[data-theme="dark"] #btnToggleUpload:hover {
+  background: #1a4f83;
+  border-color: #1a4f83;
+}
+
+body[data-theme="dark"] #btnToggleForward,
+body[data-theme="dark"] #btnAckReceived,
+body[data-theme="dark"] #btnAttachmentTaskDone {
+  background: #1f5e99;
+  border-color: #1f5e99;
+  color: #f4f9ff;
+}
+
+body[data-theme="dark"] #btnToggleAttachmentForward,
+body[data-theme="dark"] #btnEditPendingRemarks,
+body[data-theme="dark"] #btnUndoEndHere {
+  background: transparent;
+  border-color: rgba(125, 183, 255, 0.56);
+  color: #cae6ff;
+}
+
+body[data-theme="dark"] #btnRelease {
+  background: #1d8f49;
+  border-color: #1d8f49;
+  color: #ebfff3;
+}
+
+body[data-theme="dark"] #btnArchive {
+  background: transparent;
+  border-color: rgba(242, 168, 95, 0.58);
+  color: #ffd4af;
+}
+
+body[data-theme="dark"] #btnEndHere {
+  background: transparent;
+  border-color: rgba(248, 113, 113, 0.55);
+  color: #fecaca;
+}
+
+body[data-theme="dark"] #btnViewDocument {
+  background: #1f5e99;
+  border-color: #1f5e99;
+  color: #f4f9ff;
+}
+
+body[data-theme="dark"] #btnViewDocument:hover {
+  background: #1a4f83;
+  border-color: #1a4f83;
+}
+
+body[data-theme="dark"] #btnProjectManageToggle {
+  background: transparent;
+  border-color: rgba(125, 183, 255, 0.56);
+  color: #cae6ff;
+}
+
+body[data-theme="dark"] #btnProjectManageToggle:hover {
+  background: rgba(125, 183, 255, 0.12);
+}
+
+body[data-theme="dark"] #btnToggleAttachmentForward:hover,
+body[data-theme="dark"] #btnEditPendingRemarks:hover,
+body[data-theme="dark"] #btnUndoEndHere:hover {
+  background: rgba(125, 183, 255, 0.12);
+}
+
+body[data-theme="dark"] #drawerActionGuide {
+  border-color: rgba(125, 183, 255, 0.38);
+  background: rgba(20, 40, 60, 0.72);
+  color: #cae6ff;
 }
 
 body[data-theme="dark"] .forwardModalBody > label,
@@ -2795,6 +3190,48 @@ body[data-theme="dark"] #forwardModeWrap label,
 body[data-theme="dark"] .attachmentForwardRow label,
 body[data-theme="dark"] .forwardDeadlineWrap label {
   color: #edf5ff !important;
+}
+
+body[data-theme="dark"] .recipientOption {
+  background: rgba(12, 27, 42, 0.72);
+  border-color: rgba(160, 181, 205, 0.24);
+}
+
+body[data-theme="dark"] .recipientOption:hover {
+  background: rgba(20, 40, 60, 0.78);
+  border-color: rgba(125, 183, 255, 0.44);
+}
+
+body[data-theme="dark"] .recipientName {
+  color: #edf5ff;
+}
+
+body[data-theme="dark"] .recipientSub {
+  color: #9fb4cb;
+}
+
+body[data-theme="dark"] .recipientAvatar {
+  background: linear-gradient(145deg, #102133, #1a3248);
+  border-color: rgba(160, 181, 205, 0.28);
+  color: #d8e7f8;
+}
+
+body[data-theme="dark"] .recipientRoleTag {
+  background: rgba(56, 189, 248, 0.16);
+  border-color: rgba(56, 189, 248, 0.36);
+  color: #d2efff;
+}
+
+body[data-theme="dark"] .recipientWarnTag {
+  background: rgba(249, 115, 22, 0.20);
+  border-color: rgba(251, 146, 60, 0.42);
+  color: #ffd8b1;
+}
+
+body[data-theme="dark"] .recipientOption.isSelected {
+  background: rgba(27, 55, 84, 0.75);
+  border-color: rgba(125, 183, 255, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(125, 183, 255, 0.18);
 }
 
 body[data-theme="dark"] #f_user_list div,
@@ -2928,9 +3365,12 @@ body[data-theme="dark"] .forwardDeadlineWrap {
     display: none;
   }
 
-  .drawerSectionActions,
+  .drawerSectionActions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .drawerActions {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .attachmentTaskRow {

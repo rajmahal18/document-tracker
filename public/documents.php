@@ -1371,6 +1371,7 @@ if ($docIdsOnPage !== []) {
     }
 
     $canSeeRemark = $isPrivileged
+      || in_array((string)($payload['kind'] ?? ''), ['holder_progress_note_added', 'holder_progress_note_updated', 'holder_progress_note_cleared'], true)
       || (int)($remarkRow['actor_user_id'] ?? 0) === $myUserId
       || (int)($remarkRow['actor_section_id'] ?? 0) === $mySectionId
       || (int)($remarkRow['from_section_id'] ?? 0) === $mySectionId
@@ -2757,7 +2758,7 @@ $end   = min($totalPages, $page + 2);
       <div class="k">Correction</div>
       <div class="v"><button type="button" class="btnSecondary" id="btnEditDocumentDetails">Edit details</button></div>
     </div>
-    <div class="kv"><div class="k">Full Document</div><div class="v"><button type="button" class="btnComp" id="btnViewDocument">View document</button></div></div>
+    <div class="kv"><div class="k">Full Document</div><div class="v"><button type="button" class="btnComp" id="btnViewDocument" data-no-loading>View document</button></div></div>
     <div class="drawerRow" id="rowPpdSlip" style="display:none;">
       <div class="k" id="rowPpdSlipLabel"><?= htmlspecialchars($ownDivisionSlipLabel !== "" ? $ownDivisionSlipLabel : "Division Tracking Slip") ?></div>
       <div class="v" style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
@@ -2779,11 +2780,10 @@ $end   = min($totalPages, $page + 2);
 
       <div class="drawerSectionActions">
         <button type="button" class="btnSecondary" id="btnRegenerateDivisionSlip" style="display:none;">Generate latest slip</button>
-        <button type="button" class="btnSecondary" id="btnToggleAttachments">View all</button>
         <button type="button" class="btnSecondary" id="btnToggleUpload">Add attachment</button>
       </div>
 
-      <div id="d_attachments" class="attachList mini collapsed"></div>
+      <div id="d_attachments" class="attachList mini"></div>
 
       <form id="attachForm" class="attachForm collapsed" enctype="multipart/form-data">
         <input type="file" id="attachFile" name="file" required accept=".pdf,.jpg,.jpeg,.png" />
@@ -2810,38 +2810,10 @@ $end   = min($totalPages, $page + 2);
   </div>
 
   <div class="drawerActionsWrap">
-    <details class="drawerPendingRemarks" id="drawerPendingRemarks" style="display:none;">
-      <summary class="drawerPendingSummary">
-        <span>
-          <span class="drawerPendingRemarksEyebrow">Pending route only</span>
-          <span class="drawerPendingRemarksTitle" id="d_pending_route_title">Pending remarks</span>
-        </span>
-        <span class="drawerPendingRemarksBadge" id="d_pending_route_badge">Editable</span>
-      </summary>
-      <div class="drawerPendingRemarksHead">
-        <div>
-          <div class="drawerPendingRemarksEyebrow">Pending route only</div>
-          <label for="d_pending_route_remarks" class="drawerPendingRemarksTitle">Pending remarks</label>
-        </div>
-      </div>
-
-      <div class="drawerPendingRemarksPreview" id="d_pending_route_preview">No pending remarks yet.</div>
-      <div class="drawerPendingRemarksHint" id="d_pending_route_hint">This stays editable until the recipient receives the route.</div>
-
-      <div class="drawerPendingRemarksComposer" id="d_pending_route_composer" style="display:none;">
-        <textarea id="d_pending_route_remarks" class="search drawerActionRemarksInput" rows="3" placeholder="Add a clear note for the pending recipient"></textarea>
-      </div>
-
-      <div class="drawerPendingRemarksActions">
-        <button type="button" class="btnSecondary" id="btnEditPendingRemarks">Add pending remarks</button>
-        <button type="button" class="btnSecondary" id="btnCancelPendingRemarks" style="display:none;">Cancel</button>
-        <button type="button" class="btnComp" id="btnSavePendingRemarks" style="display:none;">Save pending remarks</button>
-      </div>
-    </details>
-
     <div class="drawerActions">
+      <button type="button" class="btnSecondary" id="btnEditPendingRemarks" style="display:none;">Add pending remarks</button>
       <button type="button" class="btnSecondary" id="btnToggleForward">Forward</button>
-      <button type="button" class="btnSecondary" id="btnToggleAttachmentForward" style="display:none;">Forward by attachment</button>
+      <button type="button" class="btnSecondary" id="btnToggleAttachmentForward" style="display:none;">Forward attach</button>
 
       <button id="btnAckReceived" class="btnGreen" type="button" style="display:none;">Received</button>
       <button id="btnAttachmentTaskDone" class="btnComp" type="button" style="display:none;">Task done</button>
@@ -2852,6 +2824,7 @@ $end   = min($totalPages, $page + 2);
     </div>
     <div id="drawerAttachmentForwardHint" class="mini" style="display:none; margin-top:10px; padding:10px 12px; border-radius:12px; background:#eff6ff; border:1px solid rgba(37,99,235,.16); color:#1e3a8a;"></div>
     <div id="drawerAttachmentForwardStatus" class="mini" style="display:none; margin-top:10px; padding:12px; border-radius:12px; background:#f8fafc; border:1px solid rgba(15,23,42,.08); color:#334155;"></div>
+    <div id="drawerActionGuide" class="mini"><a href="<?= htmlspecialchars(PUBLIC_PATH . '/which_button_should_i_click.php', ENT_QUOTES, 'UTF-8') ?>">Which button should I click?</a></div>
   </div>
 </aside>
 
@@ -3054,6 +3027,35 @@ $end   = min($totalPages, $page + 2);
     <div class="modalFooter">
       <button id="btnEndHereCancel" type="button" class="btnSecondary">Cancel</button>
       <button id="btnEndHereConfirm" type="button" class="btnComp">End lifecycle</button>
+    </div>
+  </div>
+</div>
+
+<div id="pendingRemarksModal" class="modalWrap" aria-hidden="true">
+  <div id="pendingRemarksModalBackdrop" class="modalBackdrop"></div>
+  <div class="modalCard forwardModalCard">
+    <div class="modalHeader">
+      <div>
+        <div class="drawerPendingRemarksEyebrow" id="d_pending_route_eyebrow">Pending route only</div>
+        <h3 id="d_pending_route_title">Pending remarks</h3>
+      </div>
+      <button id="pendingRemarksModalClose" class="modalClose" type="button">x</button>
+    </div>
+
+    <div class="modalBody forwardModalBody">
+      <div class="drawerPendingRemarksPreview" id="d_pending_route_preview">No pending remarks yet.</div>
+      <div class="drawerPendingRemarksHint" id="d_pending_route_hint">This stays editable until the recipient receives the route.</div>
+
+      <div class="drawerActionRemarks" id="d_pending_route_composer">
+        <label for="d_pending_route_remarks" class="drawerActionRemarksLabel">Remarks</label>
+        <textarea id="d_pending_route_remarks" class="search drawerActionRemarksInput" rows="3" placeholder="Add a clear note"></textarea>
+      </div>
+    </div>
+
+    <div class="modalFooter">
+      <span class="drawerPendingRemarksBadge" id="d_pending_route_badge">Editable</span>
+      <button type="button" class="btnSecondary" id="btnCancelPendingRemarks">Cancel</button>
+      <button type="button" class="btnComp" id="btnSavePendingRemarks">Save pending remarks</button>
     </div>
   </div>
 </div>

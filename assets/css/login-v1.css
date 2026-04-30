@@ -1,0 +1,99 @@
+/* Login V1.0 page-specific polish */
+.loginV1Grid {
+  align-items: start;
+  gap: 24px;
+}
+
+.loginV1Main {
+  padding: 26px;
+}
+
+.loginV1Header h2 {
+  margin: 6px 0 4px;
+  font-size: clamp(30px, 4.2vw, 38px);
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+}
+
+.loginV1Eyebrow {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #0b5ea8;
+}
+
+.loginV1Sub {
+  margin: 0 0 4px;
+  color: #475467;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.loginV1Notice {
+  max-width: 100%;
+  border-radius: 12px;
+  margin-bottom: 16px;
+}
+
+.loginV1Error {
+  max-width: 100%;
+  border-radius: 12px;
+  background: #fef3f2;
+  border: 1px solid #fecdca;
+  color: #b42318;
+}
+
+.loginV1CapsHint {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 800;
+  color: #b42318;
+}
+
+.loginV1InlineMeta {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.loginV1Aside {
+  display: grid;
+  gap: 12px;
+}
+
+.loginV1Support strong {
+  color: #0b3a66;
+}
+
+.loginV1Aside ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.loginV1Aside li + li {
+  margin-top: 6px;
+}
+
+@media (max-width: 980px) {
+  .loginV1Grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .loginV1Main {
+    padding: 18px 16px;
+  }
+
+  .loginV1Header h2 {
+    font-size: clamp(24px, 7vw, 30px);
+  }
+
+  .loginV1InlineMeta {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

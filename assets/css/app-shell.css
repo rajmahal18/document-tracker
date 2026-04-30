@@ -126,9 +126,9 @@ input::placeholder {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 0;
+  background: transparent;
+  border: 0;
   flex: 0 0 48px;
 }
 
@@ -262,10 +262,10 @@ input::placeholder {
 .appDrawerBrand img {
   width: 42px;
   height: 42px;
-  border-radius: 12px;
+  border-radius: 0;
   object-fit: contain;
-  background: rgba(11, 58, 102, 0.08);
-  padding: 4px;
+  background: transparent;
+  padding: 0;
 }
 
 .appDrawerBrand strong,
@@ -499,7 +499,7 @@ body.desktop-rail-collapsed .page { padding-left: 0 !important; }
 /* dark mode fixes */
 body[data-theme="dark"] .topbar,
 body[data-theme="dark"] .appTopbar { background: linear-gradient(180deg, #0d2136, #08131d); }
-body[data-theme="dark"] .appBrandLogoLink { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.1); }
+body[data-theme="dark"] .appBrandLogoLink { background: transparent; border-color: transparent; }
 body[data-theme="dark"] .appBrandTextLink h1 { color: #f5f9ff; }
 body[data-theme="dark"] .appBrandTextLink .brandSubtitle,
 body[data-theme="dark"] .appDrawerBrand span,
@@ -667,7 +667,7 @@ body[data-theme="dark"] a:not(.appSideNav a):not(.mobileScanFab):not(.docsAddBtn
   .appTopbar.topbar { padding: calc(8px + env(safe-area-inset-top)) 10px 8px; }
   .appTopbarMain { min-height: 54px; gap: 10px; }
   .appBrandHeaderLink { gap: 10px; }
-  .appBrandLogoLink { width: 42px; height: 42px; border-radius: 12px; flex-basis: 42px; }
+  .appBrandLogoLink { width: 42px; height: 42px; border-radius: 0; flex-basis: 42px; }
   .appBrandLogoLink img { width: 32px; height: 32px; }
 
   .appSideNav {

@@ -100,17 +100,7 @@
   function shouldAutoLoadOnClick(el) {
     if (!isButtonLike(el)) return false;
     if (el.hasAttribute('data-loading')) return true;
-    if ((el.id || '').toLowerCase().startsWith('btn')) return true;
-    if (
-      el.classList.contains('btnPrimary') ||
-      el.classList.contains('btnComp') ||
-      el.classList.contains('btnGreen') ||
-      el.classList.contains('authBtn') ||
-      el.classList.contains('adminPrimary') ||
-      el.classList.contains('adminDanger')
-    ) {
-      return true;
-    }
+    if (el.hasAttribute('data-loading-text')) return true;
     return false;
   }
 

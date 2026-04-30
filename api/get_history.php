@@ -733,6 +733,9 @@ try {
     if (in_array(($payload["kind"] ?? ""), ["attachment_forwarded", "attachment_forward_task_done"], true)) {
       $eventKey = (string)$payload["kind"];
     }
+    if (in_array(($payload["kind"] ?? ""), ["holder_progress_note_added", "holder_progress_note_updated", "holder_progress_note_cleared"], true)) {
+      $eventKey = (string)$payload["kind"];
+    }
 
     $routeKind = strtoupper(trim((string)($payload["route_kind"] ?? "")));
     $isReferenceEvent = (
@@ -968,6 +971,18 @@ try {
         if ($file !== '') {
           $title .= ": {$file}";
         }
+        break;
+
+      case "holder_progress_note_added":
+        $title = "{$actor} added work-in-progress remarks";
+        break;
+
+      case "holder_progress_note_updated":
+        $title = "{$actor} updated work-in-progress remarks";
+        break;
+
+      case "holder_progress_note_cleared":
+        $title = "{$actor} cleared work-in-progress remarks";
         break;
 
       case "updated":

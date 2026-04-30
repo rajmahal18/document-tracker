@@ -11,6 +11,8 @@ if (is_logged_in()) {
 }
 
 $pageTitle = "Login - Document Tracker";
+$pageStyles = [asset_url("assets/css/login-v1.css")];
+$pageScripts = [asset_url("assets/js/login-v1.js")];
 $error = "";
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
@@ -28,16 +30,20 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 require __DIR__ . "/../includes/layout.php";
 ?>
 
-<div class="grid">
-  <section class="card">
-    <h2>Document Tracking System</h2>
+<div class="grid loginV1Grid">
+  <section class="card loginV1Main">
+    <div class="loginV1Header">
+      <p class="loginV1Eyebrow">MPW Document Tracker</p>
+      <h2>Secure Login Portal</h2>
+      <p class="loginV1Sub">Use your authorized account to access routing, timeline, and document movement tools.</p>
+    </div>
 
-    <div class="notice">
-      Authorized personnel only. All activities in this system are logged.
+    <div class="notice loginV1Notice">
+      Authorized personnel only. All activities in this system are logged and monitored.
     </div>
 
     <?php if ($error): ?>
-      <div class="notice" style="background:#f8d7da;border:1px solid #f5c2c7;">
+      <div class="notice loginV1Error">
         <?= htmlspecialchars($error) ?>
       </div>
     <?php endif; ?>
@@ -68,6 +74,7 @@ require __DIR__ . "/../includes/layout.php";
           autocomplete="current-password"
           required
         >
+        <p id="capsHint" class="loginV1CapsHint" hidden>Caps Lock appears to be on.</p>
       </div>
 
       <div class="authRow">
@@ -87,12 +94,26 @@ require __DIR__ . "/../includes/layout.php";
         Need access? You can request an account
         <button type="button" class="linkButton" onclick="openAccessModal()">here</button>
       </p>
+
+      <div class="loginV1InlineMeta">
+        <span class="badge">Official Use Only</span>
+        <span class="muted">Version 1.0</span>
+      </div>
     </form>
   </section>
 
-  <aside class="aside">
+  <aside class="aside loginV1Aside">
     <div class="asideBox">
-      <p class="asideTitle">Reminders</p>
+      <p class="asideTitle">What you can do after login</p>
+      <ul>
+        <li>Track document ownership and current holder in real time.</li>
+        <li>Review timeline actions, remarks, and routing history.</li>
+        <li>Forward, release, archive, and manage supporting attachments.</li>
+      </ul>
+    </div>
+
+    <div class="asideBox">
+      <p class="asideTitle">Security reminders</p>
       <ul>
         <li>Do not share your login credentials.</li>
         <li>Always logout after use on shared computers.</li>
@@ -100,9 +121,13 @@ require __DIR__ . "/../includes/layout.php";
       </ul>
     </div>
 
-    <div class="asideMeta">
-      <span class="badge">Official Use Only</span>
-      <span class="muted">v0.1</span>
+    <div class="asideBox loginV1Support">
+      <p class="asideTitle">Need help?</p>
+      <ul>
+        <li>Use <strong>Forgot password</strong> if you cannot sign in.</li>
+        <li>Use <strong>Request access</strong> if you still have no account.</li>
+        <li>Contact your division system admin for urgent access issues.</li>
+      </ul>
     </div>
   </aside>
 </div>

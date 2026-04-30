@@ -310,10 +310,13 @@ require __DIR__ . '/../includes/layout.php';
 .adminBadge.warn { background:#fff7ed; color:#c2410c; }
 .adminBadge.neutral { background:#eef2ff; color:#3730a3; }
 .adminRowActions { display:flex; gap:8px; flex-wrap:wrap; }
-.adminRowActions button, .adminToolbar button, .adminToolbar a { min-height:38px; border-radius:12px; }
-.adminDanger { background:#991b1b !important; border-color:#991b1b !important; color:#fff !important; }
-.adminGhost { background:#fff; border:1px solid #dbe2ea; color:#0f172a; }
-.adminPrimary { background:#0f172a; border:1px solid #0f172a; color:#fff; }
+.adminRowActions button, .adminToolbar button, .adminToolbar a { min-height:36px; border-radius:8px; padding:0 12px; font-size:.8rem; font-weight:800; box-shadow:none; }
+.adminDanger { background:#b42318 !important; border:1px solid #b42318 !important; color:#fff !important; }
+.adminGhost { background:transparent; border:1px solid #cfd6dd; color:#0b3a66; }
+.adminPrimary { background:#0b3a66; border:1px solid #0b3a66; color:#fff; }
+.adminPrimary:hover { background:#082b4d; border-color:#082b4d; }
+.adminDanger:hover { background:#912018 !important; border-color:#912018 !important; }
+.adminGhost:hover { background:rgba(11,58,102,.08); border-color:#0b3a66; }
 .adminModalWrap[hidden] { display:none !important; }
 .adminModalWrap { position:fixed; inset:0; z-index:11000; }
 .adminModalBackdrop { position:absolute; inset:0; background:rgba(15,23,42,.42); }
@@ -340,7 +343,7 @@ require __DIR__ . '/../includes/layout.php';
 .adminCalendarPickerHead { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px; }
 .adminCalendarPickerTitle { font-weight:900; color:#0f172a; }
 .adminCalendarPickerNav { display:flex; gap:8px; }
-.adminCalendarPickerNav button { min-height:30px; border-radius:999px; padding:0 10px; }
+.adminCalendarPickerNav button { min-height:30px; border-radius:8px; padding:0 10px; }
 .adminCalendarWeekdays,
 .adminCalendarDays { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); gap:6px; }
 .adminCalendarWeekdays span { text-align:center; font-size:.72rem; font-weight:900; color:#64748b; text-transform:uppercase; letter-spacing:.04em; }

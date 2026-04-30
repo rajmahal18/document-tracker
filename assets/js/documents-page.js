@@ -47,7 +47,11 @@
   const elDestinationText = document.getElementById("d_destination_text");
   const elLastHolder = document.getElementById("d_last_holder");
 
-  const elPendingRemarksWrap = document.getElementById("drawerPendingRemarks");
+  const pendingRemarksModal = document.getElementById("pendingRemarksModal");
+  const pendingRemarksModalBackdrop = document.getElementById("pendingRemarksModalBackdrop");
+  const pendingRemarksModalClose = document.getElementById("pendingRemarksModalClose");
+  const elPendingRemarksWrap = pendingRemarksModal;
+  const elPendingRemarksEyebrow = document.getElementById("d_pending_route_eyebrow");
   const elPendingRemarksTitle = document.getElementById("d_pending_route_title");
   const elPendingRemarksBadge = document.getElementById("d_pending_route_badge");
   const elPendingRemarksPreview = document.getElementById("d_pending_route_preview");
@@ -75,7 +79,6 @@
   const btnPpdSlipPrint = document.getElementById("btnPpdSlipPrint");
   let currentPpdSlipAttId = 0;
 
-  const btnToggleAttachments = document.getElementById("btnToggleAttachments");
   const btnToggleUpload = document.getElementById("btnToggleUpload");
   const btnRegenerateDivisionSlip = document.getElementById("btnRegenerateDivisionSlip");
   const btnToggleForward = document.getElementById("btnToggleForward");
@@ -450,14 +453,15 @@
   }
 
   function setPendingRemarksEditing(isEditing) {
-    if (!elPendingRemarksComposer || !btnCancelPendingRemarks || !btnSavePendingRemarks || !btnEditPendingRemarks) return;
-    elPendingRemarksComposer.style.display = isEditing ? "" : "none";
-    btnCancelPendingRemarks.style.display = isEditing ? "" : "none";
-    btnSavePendingRemarks.style.display = isEditing ? "" : "none";
-    btnEditPendingRemarks.style.display = isEditing ? "none" : "";
+    if (!pendingRemarksModal || !btnEditPendingRemarks) return;
     if (isEditing) {
+      pendingRemarksModal.classList.add("open");
+      pendingRemarksModal.setAttribute("aria-hidden", "false");
       setTimeout(() => elPendingRemarksInput?.focus(), 0);
+      return;
     }
+    pendingRemarksModal.classList.remove("open");
+    pendingRemarksModal.setAttribute("aria-hidden", "true");
   }
 
   function renderPendingRemarksState(state) {
@@ -466,7 +470,7 @@
     if (!elPendingRemarksWrap || !elPendingRemarksPreview || !elPendingRemarksHint || !btnEditPendingRemarks) return;
 
     const editable = !!state?.editable;
-    elPendingRemarksWrap.style.display = editable ? "" : "none";
+    btnEditPendingRemarks.style.display = editable ? "" : "none";
 
     if (!editable) {
       setPendingRemarksEditing(false);
@@ -475,15 +479,24 @@
 
     const remarks = (state?.remarks || "").toString().trim();
     const hasRemark = !!remarks;
+    const mode = (state?.mode || "pending_route").toString();
+    const isHolderMode = mode === "holder_progress";
+    if (elPendingRemarksEyebrow) {
+      elPendingRemarksEyebrow.textContent = isHolderMode ? "With you now" : "Pending route only";
+    }
 
     if (elPendingRemarksTitle) {
-      elPendingRemarksTitle.textContent = hasRemark ? "Pending remarks" : "Add pending remarks";
+      elPendingRemarksTitle.textContent = isHolderMode
+        ? (hasRemark ? "Work-in-progress remarks" : "Add work-in-progress remarks")
+        : (hasRemark ? "Pending remarks" : "Add pending remarks");
     }
     if (elPendingRemarksBadge) {
       elPendingRemarksBadge.textContent = state?.just_saved ? "Updated" : "Editable";
     }
 
-    elPendingRemarksPreview.textContent = hasRemark ? remarks : "No pending remarks yet.";
+    elPendingRemarksPreview.textContent = hasRemark
+      ? remarks
+      : (isHolderMode ? "No work-in-progress remarks yet." : "No pending remarks yet.");
     elPendingRemarksPreview.classList.toggle("isEmpty", !hasRemark);
     elPendingRemarksPreview.classList.toggle("isChanged", !!state?.just_saved);
     elPendingRemarksHint.textContent = state?.helper_text || "This stays editable until the recipient receives the route.";
@@ -494,11 +507,13 @@
       elPendingRemarksInput.value = remarks;
     }
 
-    setPendingRemarksEditing(false);
+    if (!pendingRemarksModal?.classList.contains("open")) {
+      setPendingRemarksEditing(false);
+    }
   }
 
   async function loadPendingRouteRemarks(docId, forcedBranchId = 0) {
-    if (!elPendingRemarksWrap || !docId) return;
+    if (!btnEditPendingRemarks || !docId) return;
 
     const qs = appendActingPrincipal(new URLSearchParams({ document_id: String(docId) }), currentPayload);
     const branchId = Number(forcedBranchId || currentPendingRemarksBranchId() || 0);
@@ -735,6 +750,9 @@
       pending_remarks_added: "Pending Remarks Added",
       pending_remarks_updated: "Pending Remarks Updated",
       pending_remarks_cleared: "Pending Remarks Cleared",
+      holder_progress_note_added: "Remark Added",
+      holder_progress_note_updated: "Remark Updated",
+      holder_progress_note_cleared: "Remark Cleared",
       branch_ended_here: "Lifecycle Ended",
       branch_end_here_undone: "Lifecycle Reopened",
       document_ended_here: "Lifecycle Ended",
@@ -760,6 +778,9 @@
       pending_remarks_added: "N",
       pending_remarks_updated: "N",
       pending_remarks_cleared: "N",
+      holder_progress_note_added: "N",
+      holder_progress_note_updated: "N",
+      holder_progress_note_cleared: "N",
       branch_ended_here: "E",
       branch_end_here_undone: "U",
       document_ended_here: "E",
@@ -824,9 +845,6 @@
   }
 
   function syncToggleLabels() {
-    if (btnToggleAttachments && elAttachments) {
-      btnToggleAttachments.textContent = isCollapsed(elAttachments) ? "View all" : "Hide";
-    }
     if (btnToggleUpload && attachForm) {
       btnToggleUpload.textContent = isCollapsed(attachForm) ? "Add attachment" : "Hide upload";
     }
@@ -1388,7 +1406,7 @@
       : !!(openTaskCount > 0 && Number(currentPayload?.my_has_actionable_role || 0) === 1);
 
     if (btnToggleAttachmentForward) {
-      btnToggleAttachmentForward.textContent = openTaskCount > 0 ? "Forward another attachment" : "Forward by attachment";
+      btnToggleAttachmentForward.textContent = openTaskCount > 0 ? "Forward another file" : "Forward attach";
     }
 
     if (drawerAttachmentForwardHint) {
@@ -1396,8 +1414,8 @@
         drawerAttachmentForwardHint.style.display = "";
         drawerAttachmentForwardHint.textContent = "Normal forward is locked until all attachment-forward tasks are marked done. You may still forward another attachment from this lane.";
       } else if (canAttachmentForward) {
-        drawerAttachmentForwardHint.style.display = "";
-        drawerAttachmentForwardHint.textContent = "Need selective routing? Use Forward by attachment so the document stays with you while specific files are sent out as task lanes.";
+        drawerAttachmentForwardHint.style.display = "none";
+        drawerAttachmentForwardHint.textContent = "";
       } else {
         drawerAttachmentForwardHint.style.display = "none";
         drawerAttachmentForwardHint.textContent = "";
@@ -1533,6 +1551,14 @@
     return Array.from(elUserList.querySelectorAll("input.f_user_cb"));
   }
 
+  function syncRecipientOptionStates() {
+    getAllRecipientBoxes().forEach((b) => {
+      const row = b.closest(".recipientOption");
+      if (!row) return;
+      row.classList.toggle("isSelected", !!b.checked);
+    });
+  }
+
   function getSelectedRecipientIds() {
     return getAllRecipientBoxes()
       .filter((b) => b.checked)
@@ -1557,7 +1583,7 @@
     }
 
     const labels = selectedBoxes.slice(0, 3).map((b) => {
-      const text = b.closest("label")?.innerText?.trim() || `#${b.value}`;
+      const text = (b.dataset.userName || "").toString().trim() || `#${b.value}`;
       return text.replace(/\s+/g, " ");
     });
 
@@ -1568,10 +1594,7 @@
   function selectedUnverifiedRecipientLabels() {
     return getAllRecipientBoxes()
       .filter((b) => b.checked && String(b.dataset.emailVerified || "0") !== "1")
-      .map((b) => {
-        const label = b.closest("label")?.querySelector("span");
-        return (label?.innerText || `#${b.value}`).replace(/\s+/g, " ").trim();
-      });
+      .map((b) => ((b.dataset.userName || `#${b.value}`).toString().replace(/\s+/g, " ").trim()));
   }
 
   function updateNotifyEmailAvailability() {
@@ -1640,16 +1663,34 @@
 
       elUserList.innerHTML = data.map((u) => {
         const id = Number(u.id || 0);
-        const name = (u.name || "").toString();
+        const name = clean(u.name) || `User #${id}`;
+        const initials = actorInitials(name);
+        const photoUrl = clean(u.profile_photo_url || "");
         const isVerified = Number(u.email_verified ? 1 : 0);
+        const chiefTag = Number(u.is_chief ? 1 : 0) === 1 ? `<span class="recipientRoleTag">Chief</span>` : "";
+        const verifyTag = isVerified === 1
+          ? ""
+          : `<span class="recipientWarnTag">Email not verified</span>`;
         return `
-          <label class="userChk" style="display:flex; gap:8px; align-items:flex-start; padding:6px 4px; cursor:pointer;">
-            <input type="checkbox" class="f_user_cb" value="${id}" data-email-verified="${isVerified}" style="margin-top:2px;">
-            <span>${esc(name)} <span style="opacity:.6;">(#${id})</span>${isVerified === 1 ? "" : ` <span style="color:#b45309; font-weight:700;">(email not verified)</span>`}</span>
+          <label class="recipientOption">
+            <input type="checkbox" class="f_user_cb" value="${id}" data-email-verified="${isVerified}" data-user-name="${esc(name)}">
+            <span class="recipientAvatar" aria-hidden="true">
+              ${photoUrl ? `<img src="${esc(photoUrl)}" alt="" loading="lazy" decoding="async" onerror="this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='inline-flex';">` : ""}
+              <span${photoUrl ? ` style="display:none;"` : ""}>${esc(initials)}</span>
+            </span>
+            <span class="recipientMeta">
+              <span class="recipientNameRow">
+                <span class="recipientName">${esc(name)}</span>
+                ${chiefTag}
+              </span>
+              <span class="recipientSub">#${id}</span>
+              ${verifyTag}
+            </span>
           </label>
         `;
       }).join("");
 
+      syncRecipientOptionStates();
       updateRecipientsPreview();
       updateNotifyEmailAvailability();
     } catch {
@@ -1671,6 +1712,7 @@
 
   elUserList?.addEventListener("change", (e) => {
     if (e.target && e.target.classList.contains("f_user_cb")) {
+      syncRecipientOptionStates();
       updateRecipientsPreview();
       updateForwardModeUI();
       updateNotifyEmailAvailability();
@@ -1679,6 +1721,7 @@
 
   btnUserSelectAll?.addEventListener("click", () => {
     getAllRecipientBoxes().forEach((b) => { b.checked = true; });
+    syncRecipientOptionStates();
     updateRecipientsPreview();
     updateForwardModeUI();
     updateNotifyEmailAvailability();
@@ -1686,6 +1729,7 @@
 
   btnUserClear?.addEventListener("click", () => {
     getAllRecipientBoxes().forEach((b) => { b.checked = false; });
+    syncRecipientOptionStates();
     updateRecipientsPreview();
     updateForwardModeUI();
     updateNotifyEmailAvailability();
@@ -1820,6 +1864,7 @@
     if (e.key === "Escape") {
       if (attModal?.classList.contains("open")) return closeAttachmentModal();
       if (recModal?.classList.contains("open")) return closeRecipientsModal();
+      if (pendingRemarksModal?.classList.contains("open")) return setPendingRemarksEditing(false);
       if (releaseModal?.classList.contains("open")) return closeReleaseModal();
       if (forwardModal?.classList.contains("open")) return closeForwardModal();
       if (drawer?.classList.contains("open")) closeDrawer();
@@ -2347,7 +2392,11 @@
         latest,
         storageKey,
       };
-    });
+    }).filter((group) => clean(group.key).toLowerCase() !== "general");
+
+    if (!normalizedGroups.length) {
+      return renderEventsView(timelineItems);
+    }
 
     return `
       <div class="tGrouped">
@@ -2630,7 +2679,7 @@
 
   function openDrawer(payload) {
     currentPayload = payload || null;
-    setCollapsed(elAttachments, true);
+    setCollapsed(elAttachments, false);
     setCollapsed(attachForm, true);
     closeForwardModal();
     closeAttachmentForwardModal();
@@ -2789,7 +2838,6 @@
       btnRegenerateDivisionSlip.style.display = canRegenerateSlip ? "" : "none";
       btnRegenerateDivisionSlip.dataset.docId = canRegenerateSlip ? String(payload.id || "") : "";
     }
-    if (btnToggleAttachments) btnToggleAttachments.style.display = "";
     updateForwardUI();
 
     if (attachFile) attachFile.value = "";
@@ -3187,22 +3235,32 @@
       });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.ok) {
-        window.DTToast?.error(data?.error || `Failed to save pending remarks. (${res.status})`) || console.warn(data?.error || `Failed to save pending remarks. (${res.status})`);
+        window.DTToast?.error(data?.error || `Failed to save remarks. (${res.status})`) || console.warn(data?.error || `Failed to save remarks. (${res.status})`);
         return;
       }
 
-      const helperText = data?.change_type === "pending_remarks_cleared"
-        ? "Pending remarks cleared. The timeline keeps the change trail."
-        : "Pending remarks saved. The timeline keeps the change trail until the route is received.";
+      const mode = (data?.mode || currentPendingRemarksState?.mode || "pending_route").toString();
+      const isHolderMode = mode === "holder_progress";
+      const isCleared = /_cleared$/.test((data?.change_type || "").toString());
+      const helperText = isHolderMode
+        ? (isCleared
+          ? "Work-in-progress remarks cleared. The timeline keeps the change trail."
+          : "Work-in-progress remarks saved. The timeline keeps the change trail while the document stays with you.")
+        : (isCleared
+          ? "Pending remarks cleared. The timeline keeps the change trail."
+          : "Pending remarks saved. The timeline keeps the change trail until the route is received.");
 
       const nextState = {
         ...(currentPendingRemarksState || {}),
         editable: true,
         route_id: Number(data?.route_id || routeId || 0),
         branch_id: Number(data?.branch_id || branchId || 0),
+        mode,
         remarks: (data?.remarks || "").toString(),
         has_remark: !!data?.has_remark,
-        button_label: !!data?.has_remark ? "Edit pending remarks" : "Add pending remarks",
+        button_label: isHolderMode
+          ? (!!data?.has_remark ? "Edit remarks" : "Add remarks")
+          : (!!data?.has_remark ? "Edit pending remarks" : "Add pending remarks"),
         helper_text: helperText,
         just_saved: true,
       };
@@ -3227,9 +3285,12 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
         loadTimeline(docId, branchId, { preserveSelection: true });
       }
 
-      window.DTToast?.success(data?.change_type === "pending_remarks_cleared" ? "Pending remarks cleared." : "Pending remarks saved.") || console.log("Pending remarks saved.");
+      const toastMsg = isHolderMode
+        ? (isCleared ? "Work-in-progress remarks cleared." : "Work-in-progress remarks saved.")
+        : (isCleared ? "Pending remarks cleared." : "Pending remarks saved.");
+      window.DTToast?.success(toastMsg) || console.log(toastMsg);
     } catch {
-      window.DTToast?.error("Failed to save pending remarks (network error).") || console.warn("Failed to save pending remarks (network error).");
+      window.DTToast?.error("Failed to save remarks (network error).") || console.warn("Failed to save remarks (network error).");
     } finally {
       if (btnSavePendingRemarks) btnSavePendingRemarks.disabled = false;
     }
@@ -3283,12 +3344,6 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
       setTimeout(() => openDrawer(payload), 0);
     }
   }
-
-  btnToggleAttachments?.addEventListener("click", () => {
-    if (!elAttachments) return;
-    elAttachments.classList.toggle("collapsed");
-    syncToggleLabels();
-  });
 
   btnToggleUpload?.addEventListener("click", () => {
     if (!attachForm) return;
@@ -3678,6 +3733,8 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
   btnAttachmentTaskDoneCancel?.addEventListener("click", closeAttachmentTaskDoneModal);
   attachmentTaskDoneModalBackdrop?.addEventListener("click", closeAttachmentTaskDoneModal);
   btnAttachmentTaskDoneConfirm?.addEventListener("click", submitAttachmentTaskDone);
+  pendingRemarksModalClose?.addEventListener("click", () => setPendingRemarksEditing(false));
+  pendingRemarksModalBackdrop?.addEventListener("click", () => setPendingRemarksEditing(false));
   btnEditPendingRemarks?.addEventListener("click", () => setPendingRemarksEditing(true));
   btnCancelPendingRemarks?.addEventListener("click", () => {
     if (elPendingRemarksInput) {
