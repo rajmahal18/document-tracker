@@ -1,0 +1,223 @@
+<?php
+/**
+ * Landing page live metrics endpoint.
+ *
+ * Place this file at /api/landing_stats.php in the PHP document tracker web root.
+ * In this Vite landing repo, keep it in public/api/landing_stats.php so it is copied
+ * into dist/api/landing_stats.php during npm run build.
+ */
+
+declare(strict_types=1);
+
+header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+
+function json_response(array $payload, int $statusCode = 200): void
+{
+    http_response_code($statusCode);
+    echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+function require_if_exists(string $path): void
+{
+    if (is_file($path)) {
+        require_once $path;
+    }
+}
+
+function detect_project_root(): string
+{
+    $dir = __DIR__;
+
+    for ($i = 0; $i < 8; $i++) {
+        $hasConfig = is_file($dir . '/includes/app_config.php');
+        $hasDb = is_file($dir . '/core/db.php');
+
+        if ($hasConfig || $hasDb) {
+            return $dir;
+        }
+
+        $parent = dirname($dir);
+        if ($parent === $dir) {
+            break;
+        }
+        $dir = $parent;
+    }
+
+    // Fallback for expected repo layout: /public/landing/api
+    return dirname(__DIR__, 3);
+}
+
+function load_project_config(): void
+{
+    $root = detect_project_root();
+
+    $candidateFiles = [
+        $root . '/includes/app_config.php',
+        $root . '/core/db.php',
+        $root . '/includes/bootstrap.php',
+        $root . '/config/database.php',
+        $root . '/config/db.php',
+        $root . '/includes/database.php',
+        $root . '/includes/db.php',
+        $root . '/db.php',
+        $root . '/db_connect.php',
+        $root . '/database.php',
+        $root . '/connection.php',
+        $root . '/config.php',
+    ];
+
+    foreach ($candidateFiles as $file) {
+        require_if_exists($file);
+    }
+}
+
+function pdo_from_existing_connection(): ?PDO
+{
+    foreach (['pdo', 'db', 'dbh', 'conn', 'connection'] as $name) {
+        if (isset($GLOBALS[$name]) && $GLOBALS[$name] instanceof PDO) {
+            return $GLOBALS[$name];
+        }
+    }
+
+    return null;
+}
+
+function pdo_from_env_or_constants(): ?PDO
+{
+    $host = getenv('DB_HOST') ?: (defined('DB_HOST') ? constant('DB_HOST') : null);
+    $name = getenv('DB_NAME') ?: (defined('DB_NAME') ? constant('DB_NAME') : null);
+    $user = getenv('DB_USER') ?: (defined('DB_USER') ? constant('DB_USER') : null);
+    $pass = getenv('DB_PASS') ?: (defined('DB_PASS') ? constant('DB_PASS') : (defined('DB_PASSWORD') ? constant('DB_PASSWORD') : null));
+    $port = getenv('DB_PORT') ?: (defined('DB_PORT') ? constant('DB_PORT') : '3306');
+
+    if (!$host || !$name || !$user) {
+        return null;
+    }
+
+    return new PDO(
+        "mysql:host={$host};port={$port};dbname={$name};charset=utf8mb4",
+        (string) $user,
+        (string) ($pass ?? ''),
+        [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        ]
+    );
+}
+
+function quote_identifier(string $identifier): string
+{
+    return '`' . str_replace('`', '``', $identifier) . '`';
+}
+
+function table_exists(PDO $pdo, string $table): bool
+{
+    $stmt = $pdo->prepare('SHOW TABLES LIKE ?');
+    $stmt->execute([$table]);
+    return (bool) $stmt->fetchColumn();
+}
+
+function first_existing_table(PDO $pdo, array $candidates): ?string
+{
+    foreach ($candidates as $table) {
+        if (table_exists($pdo, $table)) {
+            return $table;
+        }
+    }
+
+    return null;
+}
+
+function table_columns(PDO $pdo, string $table): array
+{
+    $stmt = $pdo->query('SHOW COLUMNS FROM ' . quote_identifier($table));
+    return array_map(static fn ($row) => $row['Field'], $stmt->fetchAll());
+}
+
+function count_rows(PDO $pdo, string $table, array $columns, bool $preferActive = false): int
+{
+    $where = [];
+
+    if (in_array('deleted_at', $columns, true)) {
+        $where[] = 'deleted_at IS NULL';
+    }
+
+    if ($preferActive) {
+        if (in_array('is_active', $columns, true)) {
+            $where[] = '(is_active = 1 OR is_active = "1")';
+        } elseif (in_array('active', $columns, true)) {
+            $where[] = '(active = 1 OR active = "1")';
+        } elseif (in_array('status', $columns, true)) {
+            $where[] = "LOWER(status) NOT IN ('inactive', 'disabled', 'deleted', 'archived')";
+        }
+    }
+
+    $sql = 'SELECT COUNT(*) FROM ' . quote_identifier($table);
+
+    if ($where) {
+        $sql .= ' WHERE ' . implode(' AND ', $where);
+    }
+
+    return (int) $pdo->query($sql)->fetchColumn();
+}
+
+try {
+    load_project_config();
+
+    $pdo = pdo_from_existing_connection() ?: pdo_from_env_or_constants();
+
+    if (!$pdo) {
+        json_response([
+            'ok' => false,
+            'error' => 'Database connection was not found. Check api/landing_stats.php config candidates or DB_* environment variables.',
+        ], 500);
+    }
+
+    $documentTable = first_existing_table($pdo, [
+        'documents',
+        'document',
+        'docs',
+        'tbl_documents',
+        'document_records',
+    ]);
+
+    $userTable = first_existing_table($pdo, [
+        'users',
+        'user',
+        'tbl_users',
+        'system_users',
+        'accounts',
+    ]);
+
+    if (!$documentTable || !$userTable) {
+        json_response([
+            'ok' => false,
+            'error' => 'Required documents/users tables were not found.',
+            'detected' => [
+                'documents_table' => $documentTable,
+                'users_table' => $userTable,
+            ],
+        ], 500);
+    }
+
+    $documentColumns = table_columns($pdo, $documentTable);
+    $userColumns = table_columns($pdo, $userTable);
+
+    json_response([
+        'ok' => true,
+        'documents' => count_rows($pdo, $documentTable, $documentColumns),
+        'users' => count_rows($pdo, $userTable, $userColumns, true),
+        'source' => [
+            'documents_table' => $documentTable,
+            'users_table' => $userTable,
+        ],
+    ]);
+} catch (Throwable $error) {
+    json_response([
+        'ok' => false,
+        'error' => $error->getMessage(),
+    ], 500);
+}
