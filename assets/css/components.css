@@ -1736,6 +1736,45 @@ button[id]::before {
   font-weight: 700;
 }
 
+html[data-theme="light"] #d_timeline .tActorName,
+html[data-theme="light"] #d_timeline .tAction,
+html[data-theme="light"] #d_timeline .tRemark,
+html[data-theme="light"] #d_timeline .tGroupTitle,
+html[data-theme="light"] #d_timeline .tLineTitle,
+body[data-theme="light"] #d_timeline .tActorName,
+body[data-theme="light"] #d_timeline .tAction,
+body[data-theme="light"] #d_timeline .tRemark,
+body[data-theme="light"] #d_timeline .tGroupTitle,
+body[data-theme="light"] #d_timeline .tLineTitle,
+body:not([data-theme]) #d_timeline .tActorName,
+body:not([data-theme]) #d_timeline .tAction,
+body:not([data-theme]) #d_timeline .tRemark,
+body:not([data-theme]) #d_timeline .tGroupTitle,
+body:not([data-theme]) #d_timeline .tLineTitle {
+  color: #101828;
+}
+
+html[data-theme="light"] #d_timeline .tMeta,
+html[data-theme="light"] #d_timeline .tGroupSub,
+html[data-theme="light"] #d_timeline .tLineLeft,
+html[data-theme="light"] #d_timeline .tLineMove,
+body[data-theme="light"] #d_timeline .tMeta,
+body[data-theme="light"] #d_timeline .tGroupSub,
+body[data-theme="light"] #d_timeline .tLineLeft,
+body[data-theme="light"] #d_timeline .tLineMove,
+body:not([data-theme]) #d_timeline .tMeta,
+body:not([data-theme]) #d_timeline .tGroupSub,
+body:not([data-theme]) #d_timeline .tLineLeft,
+body:not([data-theme]) #d_timeline .tLineMove {
+  color: #667085;
+}
+
+html[data-theme="light"] #d_timeline .tLineNote,
+body[data-theme="light"] #d_timeline .tLineNote,
+body:not([data-theme]) #d_timeline .tLineNote {
+  color: #334155;
+}
+
 /* ===== Attachments / modal ===== */
 .attachList {
   border: 1px solid rgba(0, 0, 0, 0.08);
