@@ -497,6 +497,7 @@ try {
       'total' => 0,
       'received_count' => 0,
       'pending_count' => 0,
+      'is_reference_summary' => false,
       'show_names' => true,
       'received_users' => [],
       'pending_users' => [],
@@ -537,6 +538,8 @@ try {
     }
 
     $summary['scope_branch_ids'] = array_values(array_unique(array_filter(array_map('intval', $summary['scope_branch_ids']), static fn($id) => $id > 0)));
+    $summary['is_reference_summary'] = $summary['total'] > 0
+      && count(array_filter(array_merge($summary['received_users'], $summary['pending_users']), static fn($row) => (int)($row['is_reference'] ?? 0) === 1)) === $summary['total'];
     $ackSummaryCache[$cacheKey] = $summary['total'] > 0 ? $summary : null;
     return $ackSummaryCache[$cacheKey];
   };
@@ -600,6 +603,7 @@ try {
       "total" => 0,
       "received_count" => 0,
       "pending_count" => 0,
+      "is_reference_summary" => false,
       "show_names" => true,
       "received_users" => [],
       "pending_users" => [],
@@ -632,6 +636,8 @@ try {
       }
     }
 
+    $summary["is_reference_summary"] = $summary["total"] > 0
+      && count(array_filter(array_merge($summary["received_users"], $summary["pending_users"]), static fn($row) => (int)($row["is_reference"] ?? 0) === 1)) === $summary["total"];
     $ackSummaryCache[$cacheKey] = $summary["total"] > 0 ? $summary : null;
     return $ackSummaryCache[$cacheKey];
   };
@@ -873,20 +879,20 @@ try {
       case "sent":
         $title = "{$actor} sent the document";
         if ($isReferenceEvent) {
-          $title = "{$actor} sent the document for reference";
+          $title = "{$actor} shared this document visibility";
         }
         if ($branchSplitCount > 1) {
-          $title .= " to {$branchSplitCount} recipients";
+          $title .= " to {$branchSplitCount} users";
         }
         break;
 
       case "forwarded":
         $title = "{$actor} forwarded the document";
         if ($isReferenceEvent) {
-          $title = "{$actor} forwarded the document for reference";
+          $title = "{$actor} shared this document visibility";
         }
         if ($branchSplitCount > 1) {
-          $title .= " to {$branchSplitCount} recipients";
+          $title .= " to {$branchSplitCount} users";
         }
         break;
 
@@ -927,7 +933,7 @@ try {
       case "received":
         $title = "{$actor} received the document";
         if ($isReferenceEvent) {
-          $title = "{$actor} acknowledged a reference copy";
+          $title = "{$actor} acknowledged the shared visibility";
         }
         break;
 
@@ -1219,14 +1225,14 @@ try {
         case 'received':
           $title = "{$safeDivision} received the document";
           if ($isReferenceEvent) {
-            $title = "{$safeDivision} acknowledged a reference copy";
+            $title = "{$safeDivision} acknowledged the shared visibility";
           }
           break;
         case 'sent':
         case 'forwarded':
           $title = "{$safeDivision} forwarded the document";
           if ($isReferenceEvent) {
-            $title = "{$safeDivision} forwarded the document for reference";
+            $title = "{$safeDivision} shared document visibility";
           }
           break;
         case 'attachment_forwarded':

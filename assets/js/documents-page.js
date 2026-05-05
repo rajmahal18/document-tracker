@@ -85,6 +85,12 @@
   const btnToggleAttachmentForward = document.getElementById("btnToggleAttachmentForward");
   const btnAttachmentTaskDone = document.getElementById("btnAttachmentTaskDone");
 
+  const forwardPickerModal = document.getElementById("forwardPickerModal");
+  const forwardPickerModalBackdrop = document.getElementById("forwardPickerModalBackdrop");
+  const forwardPickerModalClose = document.getElementById("forwardPickerModalClose");
+  const btnOpenForwardRouteModal = document.getElementById("btnOpenForwardRouteModal");
+  const btnOpenShareVisibilityModal = document.getElementById("btnOpenShareVisibilityModal");
+
   const forwardDeadlineGrid = document.getElementById("forwardDeadlineGrid");
   const forwardDocumentDeadlineWrap = document.getElementById("forwardDocumentDeadlineWrap");
   const inputForwardDocumentDeadline = document.getElementById("f_document_deadline");
@@ -97,6 +103,19 @@
   const elForwardRemarks = document.getElementById("d_forward_remarks");
   const cbNotifyEmail = document.getElementById("f_notify_email");
   const notifyEmailHint = document.getElementById("f_notify_email_hint");
+  const shareVisibilityModal = document.getElementById("shareVisibilityModal");
+  const shareVisibilityModalBackdrop = document.getElementById("shareVisibilityModalBackdrop");
+  const shareVisibilityModalClose = document.getElementById("shareVisibilityModalClose");
+  const selShareTo = document.getElementById("sv_to_section");
+  const elShareUserList = document.getElementById("sv_user_list");
+  const btnSvUserSelectAll = document.getElementById("btnSvUserSelectAll");
+  const btnSvUserClear = document.getElementById("btnSvUserClear");
+  const elShareRecipientsPreview = document.getElementById("shareRecipientsPreview");
+  const elShareRemarks = document.getElementById("d_share_remarks");
+  const cbShareNotifyEmail = document.getElementById("sv_notify_email");
+  const shareNotifyEmailHint = document.getElementById("sv_notify_email_hint");
+  const btnShareVisibilityCancel = document.getElementById("btnShareVisibilityCancel");
+  const btnShareVisibilitySend = document.getElementById("btnShareVisibilitySend");
   const releaseModal = document.getElementById("releaseModal");
   const releaseModalBackdrop = document.getElementById("releaseModalBackdrop");
   const releaseModalClose = document.getElementById("releaseModalClose");
@@ -851,6 +870,25 @@
     if (btnToggleForward) {
       btnToggleForward.textContent = "Forward";
     }
+    if (btnAckReceived) {
+      btnAckReceived.textContent = currentAckLabel();
+    }
+  }
+
+  function currentAckLabel() {
+    if (currentBranchMode) {
+      const branch = getSelectedBranch();
+      if (branch && Number(branch.my_pending_route_id || 0) > 0 && Number(branch.is_reference || 0) === 1) {
+        return "Acknowledge";
+      }
+    } else if (
+      Number(currentPayload?.my_has_open_inbound || 0) === 1
+      && Number(currentPayload?.is_for_reference || 0) === 1
+      && Number(currentPayload?.my_has_actionable_role || 0) !== 1
+    ) {
+      return "Acknowledge";
+    }
+    return "Received";
   }
 
   function setDrawerTab(tabName = "overview") {
@@ -1210,6 +1248,7 @@
         Number(branch.my_pending_route_id || 0) > 0 &&
         (currentPayload?.current_status || "ACTIVE").toString().toUpperCase() === "ACTIVE"
       );
+      btnAckReceived.textContent = currentAckLabel();
       btnAckReceived.style.display = canReceive ? "" : "none";
     }
     if (btnAttachmentTaskDone) {
@@ -1449,7 +1488,10 @@
       if (inputForwardDocumentDeadline) inputForwardDocumentDeadline.value = "";
       if (inputForwardPersonalDeadline) inputForwardPersonalDeadline.value = "";
       if (elForwardRemarks) elForwardRemarks.value = "";
+      if (elShareRemarks) elShareRemarks.value = "";
       closeForwardModal();
+      closeForwardPickerModal();
+      closeShareVisibilityModal();
     }
     if (!currentCanAttachmentForward) {
       if (elAttachmentForwardRemarks) elAttachmentForwardRemarks.value = "";
@@ -1535,7 +1577,8 @@
       html += `</optgroup>`;
     });
 
-    selForwardTo.innerHTML = html;
+    if (selForwardTo) selForwardTo.innerHTML = html;
+    if (selShareTo) selShareTo.innerHTML = html;
   }
   loadSectionsOptions();
 
@@ -1649,6 +1692,131 @@
       : "Recipient will receive the normal actionable lane if allowed by workflow rules.";
   }
 
+  function getAllShareRecipientBoxes() {
+    if (!elShareUserList) return [];
+    return Array.from(elShareUserList.querySelectorAll("input.sv_user_cb"));
+  }
+
+  function resetShareUsersUI(msg = "Select a section to load users...") {
+    if (elShareUserList) elShareUserList.innerHTML = `<div style="opacity:.7;">${esc(msg)}</div>`;
+    if (elShareRecipientsPreview) elShareRecipientsPreview.textContent = "Recipients: -";
+  }
+
+  function getSelectedShareRecipientIds() {
+    return getAllShareRecipientBoxes()
+      .filter((b) => b.checked)
+      .map((b) => Number.parseInt(b.value || "0", 10))
+      .filter((n) => Number.isFinite(n) && n > 0);
+  }
+
+  function updateShareRecipientsPreview() {
+    if (!elShareRecipientsPreview) return;
+    const allBoxes = getAllShareRecipientBoxes();
+    const selectedBoxes = allBoxes.filter((b) => b.checked);
+
+    if (allBoxes.length === 0 || selectedBoxes.length === 0) {
+      elShareRecipientsPreview.textContent = "Recipients: -";
+      return;
+    }
+
+    if (selectedBoxes.length === allBoxes.length) {
+      elShareRecipientsPreview.textContent = `Recipients: All selected (${allBoxes.length})`;
+      return;
+    }
+
+    const labels = selectedBoxes.slice(0, 3).map((b) => {
+      const text = (b.dataset.userName || "").toString().trim() || `#${b.value}`;
+      return text.replace(/\s+/g, " ");
+    });
+
+    const more = selectedBoxes.length - labels.length;
+    elShareRecipientsPreview.textContent = `Recipients: ${labels.join(", ")}${more > 0 ? ` (+${more} more)` : ""}`;
+  }
+
+  function selectedUnverifiedShareRecipientLabels() {
+    return getAllShareRecipientBoxes()
+      .filter((b) => b.checked && String(b.dataset.emailVerified || "0") !== "1")
+      .map((b) => ((b.dataset.userName || `#${b.value}`).toString().replace(/\s+/g, " ").trim()));
+  }
+
+  function updateShareNotifyEmailAvailability() {
+    if (!cbShareNotifyEmail) return;
+    const unverified = selectedUnverifiedShareRecipientLabels();
+    const blocked = unverified.length > 0;
+
+    if (blocked) {
+      cbShareNotifyEmail.checked = false;
+      cbShareNotifyEmail.disabled = true;
+      if (shareNotifyEmailHint) {
+        shareNotifyEmailHint.style.display = "";
+        const names = unverified.slice(0, 2).join(", ");
+        const more = unverified.length - Math.min(unverified.length, 2);
+        shareNotifyEmailHint.textContent = `Email notify is disabled. Recipient email must be verified first: ${names}${more > 0 ? ` (+${more} more)` : ""}.`;
+      }
+      return;
+    }
+
+    cbShareNotifyEmail.disabled = false;
+    if (shareNotifyEmailHint) {
+      shareNotifyEmailHint.style.display = "none";
+      shareNotifyEmailHint.textContent = "";
+    }
+  }
+
+  async function loadShareUsersForSection(sectionId) {
+    if (!elShareUserList) return;
+
+    resetShareUsersUI("Loading users...");
+
+    try {
+      const res = await fetch(`${API}/users_by_section.php?section_id=${encodeURIComponent(sectionId)}`, {
+        headers: { Accept: "application/json" }
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !Array.isArray(data) || data.length === 0) {
+        resetShareUsersUI("- No users found -");
+        return;
+      }
+
+      elShareUserList.innerHTML = data.map((u) => {
+        const id = Number(u.id || 0);
+        const name = clean(u.name) || `User #${id}`;
+        const initials = actorInitials(name);
+        const photoUrl = clean(u.profile_photo_url || "");
+        const isVerified = Number(u.email_verified ? 1 : 0);
+        const chiefTag = Number(u.is_chief ? 1 : 0) === 1 ? `<span class="recipientRoleTag">Chief</span>` : "";
+        const verifyTag = isVerified === 1
+          ? ""
+          : `<span class="recipientWarnTag">Email not verified</span>`;
+        return `
+          <label class="recipientOption">
+            <input type="checkbox" class="sv_user_cb" value="${id}" data-email-verified="${isVerified}" data-user-name="${esc(name)}">
+            <span class="recipientAvatar" aria-hidden="true">
+              ${photoUrl ? `<img src="${esc(photoUrl)}" alt="" loading="lazy" decoding="async" onerror="this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='inline-flex';">` : ""}
+              <span${photoUrl ? ` style="display:none;"` : ""}>${esc(initials)}</span>
+            </span>
+            <span class="recipientMeta">
+              <span class="recipientNameRow">
+                <span class="recipientName">${esc(name)}</span>
+                ${chiefTag}
+              </span>
+              <span class="recipientSub">#${id}</span>
+              ${verifyTag}
+            </span>
+          </label>
+        `;
+      }).join("");
+
+      syncRecipientOptionStates(getAllShareRecipientBoxes());
+      updateShareRecipientsPreview();
+      updateShareNotifyEmailAvailability();
+    } catch {
+      resetShareUsersUI("Failed to load users");
+    }
+  }
+
   async function loadUsersForSection(sectionId) {
     if (!elUserList) return;
 
@@ -1715,12 +1883,26 @@
     if (sectionId > 0) loadUsersForSection(sectionId);
   });
 
+  selShareTo?.addEventListener("change", () => {
+    const sectionId = Number.parseInt(selShareTo.value || "0", 10) || 0;
+    resetShareUsersUI();
+    if (sectionId > 0) loadShareUsersForSection(sectionId);
+  });
+
   elUserList?.addEventListener("change", (e) => {
     if (e.target && e.target.classList.contains("f_user_cb")) {
       syncRecipientOptionStates();
       updateRecipientsPreview();
       updateForwardModeUI();
       updateNotifyEmailAvailability();
+    }
+  });
+
+  elShareUserList?.addEventListener("change", (e) => {
+    if (e.target && e.target.classList.contains("sv_user_cb")) {
+      syncRecipientOptionStates(getAllShareRecipientBoxes());
+      updateShareRecipientsPreview();
+      updateShareNotifyEmailAvailability();
     }
   });
 
@@ -1738,6 +1920,20 @@
     updateRecipientsPreview();
     updateForwardModeUI();
     updateNotifyEmailAvailability();
+  });
+
+  btnSvUserSelectAll?.addEventListener("click", () => {
+    getAllShareRecipientBoxes().forEach((b) => { b.checked = true; });
+    syncRecipientOptionStates(getAllShareRecipientBoxes());
+    updateShareRecipientsPreview();
+    updateShareNotifyEmailAvailability();
+  });
+
+  btnSvUserClear?.addEventListener("click", () => {
+    getAllShareRecipientBoxes().forEach((b) => { b.checked = false; });
+    syncRecipientOptionStates(getAllShareRecipientBoxes());
+    updateShareRecipientsPreview();
+    updateShareNotifyEmailAvailability();
   });
 
   function openRecipientsModal({ docId, countHint }) {
@@ -1871,7 +2067,9 @@
       if (recModal?.classList.contains("open")) return closeRecipientsModal();
       if (pendingRemarksModal?.classList.contains("open")) return setPendingRemarksEditing(false);
       if (releaseModal?.classList.contains("open")) return closeReleaseModal();
+      if (shareVisibilityModal?.classList.contains("open")) return closeShareVisibilityModal();
       if (forwardModal?.classList.contains("open")) return closeForwardModal();
+      if (forwardPickerModal?.classList.contains("open")) return closeForwardPickerModal();
       if (drawer?.classList.contains("open")) closeDrawer();
     }
   });
@@ -1998,6 +2196,15 @@
       || (i?.route_kind || "").toString().toUpperCase() === "REFERENCE";
   }
 
+  function timelineActionLabel(i, actionKey) {
+    const key = (actionKey || getKey(i)).toString().toLowerCase();
+    if (isReferenceTimelineEvent(i)) {
+      if (key === "received") return "ACKNOWLEDGED";
+      if (["sent", "forwarded"].includes(key)) return "SHARED";
+    }
+    return prettyAction(key).toUpperCase();
+  }
+
   function ackSummaryListHtml(items, emptyLabel, opts = {}) {
     const rows = Array.isArray(items) ? items : [];
     const compact = !!opts.compact;
@@ -2044,15 +2251,29 @@
     const showNames = summary.show_names === true;
 
     if (totalCount <= 0) return "";
-
     const receivedUsers = Array.isArray(summary.received_users) ? summary.received_users : [];
     const pendingUsers = Array.isArray(summary.pending_users) ? summary.pending_users : [];
+    const allRecipients = [...receivedUsers, ...pendingUsers];
+    const isReferenceSummary = (
+      isReferenceTimelineEvent(i)
+      || summary.is_reference_summary === true
+      || (allRecipients.length > 0 && allRecipients.every((row) => Number(row?.is_reference || 0) === 1))
+      || (allRecipients.length > 0 && allRecipients.some((row) => Number(row?.is_reference || 0) === 1))
+    );
+    const countLabel = isReferenceSummary ? "acknowledged" : "received";
+    const summaryTitle = isReferenceSummary ? "Acknowledgements" : (compact ? "Ack" : "Acknowledgements");
+    const receivedTabLabel = isReferenceSummary ? "Acknowledged" : "Received";
+    const pendingTabLabel = isReferenceSummary ? "Not yet acknowledged" : "Not yet received";
+    const receivedEmpty = isReferenceSummary ? "No one has acknowledged this yet." : "No one has received this yet.";
+    const pendingEmpty = isReferenceSummary ? "Everyone has already acknowledged this." : "Everyone has already received this.";
+    const receivedCountText = isReferenceSummary ? `Acknowledged count: ${receivedCount}` : `Received count: ${receivedCount}`;
+    const pendingCountText = isReferenceSummary ? `Not yet acknowledged count: ${pendingCount}` : `Not yet received count: ${pendingCount}`;
 
     return `
       <div class="ackSummary ${compact ? "ackSummary--compact" : ""}" data-ack-summary-root="1">
         <div class="ackSummaryHead">
-          <div class="ackSummaryTitle">${compact ? "Ack" : "Acknowledgements"}</div>
-          <div class="ackSummaryCounts">${receivedCount}/${totalCount} received</div>
+          <div class="ackSummaryTitle">${summaryTitle}</div>
+          <div class="ackSummaryCounts">${receivedCount}/${totalCount} ${countLabel}</div>
         </div>
 
         <div class="ackSummaryTabs">
@@ -2062,7 +2283,7 @@
             data-ack-tab="received"
             aria-expanded="false"
           >
-            Received (${receivedCount})
+            ${receivedTabLabel} (${receivedCount})
           </button>
           <button
             type="button"
@@ -2070,22 +2291,22 @@
             data-ack-tab="pending"
             aria-expanded="false"
           >
-            Not yet received (${pendingCount})
+            ${pendingTabLabel} (${pendingCount})
           </button>
         </div>
 
         <div class="ackSummaryPanels">
           <div class="ackSummaryPanel" data-ack-panel="received">
             ${showNames
-              ? ackSummaryListHtml(receivedUsers, "No one has received this yet.", { compact })
-              : `<div class="ackSummaryEmpty">Received count: ${receivedCount}</div>`
+              ? ackSummaryListHtml(receivedUsers, receivedEmpty, { compact })
+              : `<div class="ackSummaryEmpty">${receivedCountText}</div>`
             }
           </div>
 
           <div class="ackSummaryPanel" data-ack-panel="pending">
             ${showNames
-              ? ackSummaryListHtml(pendingUsers, "Everyone has already received this.", { compact })
-              : `<div class="ackSummaryEmpty">Not yet received count: ${pendingCount}</div>`
+              ? ackSummaryListHtml(pendingUsers, pendingEmpty, { compact })
+              : `<div class="ackSummaryEmpty">${pendingCountText}</div>`
             }
           </div>
         </div>
@@ -2324,7 +2545,7 @@
                   <div class="tRight">
                     ${isCurrent ? `<span class="tBadge">LATEST</span>` : ``}
                     ${isReferenceEvent ? `<span class="tBadge">FOR REFERENCE</span>` : ``}
-                    <div class="tAction">${esc(prettyAction(actionKey).toUpperCase())}</div>
+                    <div class="tAction">${esc(timelineActionLabel(i, actionKey))}</div>
                   </div>
                 </div>
 
@@ -2497,7 +2718,7 @@
                           ${renderTimelineActorAvatar(i, "tActorAvatarSm")}
                           <span class="tLineTime">${esc(fmt(i.acted_at))}</span>
                         </div>
-                        <span class="tLineTag">${esc(prettyAction(actionKey).toUpperCase())}</span>
+                        <span class="tLineTag">${esc(timelineActionLabel(i, actionKey))}</span>
                         ${isReferenceEvent ? `<span class="tLineTag">FOR REFERENCE</span>` : ``}
                       </div>
 
@@ -2870,10 +3091,11 @@
     if (attachNote) attachNote.value = "";
     if (attachType) attachType.value = "1";
     if (selForwardTo) selForwardTo.value = "";
+    if (selShareTo) selShareTo.value = "";
     if (inputForwardDocumentDeadline) inputForwardDocumentDeadline.value = "";
     if (inputForwardPersonalDeadline) inputForwardPersonalDeadline.value = "";
     resetUsersUI();
-    updateForwardModeUI();
+    resetShareUsersUI();
 
     if (btnAckReceived) btnAckReceived.style.display = "none";
     if (btnEndHere) btnEndHere.style.display = "none";
@@ -2892,6 +3114,7 @@
     }
 
     if (!currentBranchMode && btnAckReceived) {
+      btnAckReceived.textContent = currentAckLabel();
       btnAckReceived.style.display = canAckReceived ? "" : "none";
     }
     if (!currentBranchMode && btnAttachmentTaskDone) {
@@ -2934,6 +3157,7 @@
 
     if (isPrivileged) {
       if (!currentBranchMode && canAckReceivedPrivileged && btnAckReceived) {
+        btnAckReceived.textContent = currentAckLabel();
         btnAckReceived.style.display = "";
       }
       if ((isStatusAdmin || (!currentBranchMode && flatActionableByMe)) && btnRelease) btnRelease.style.display = "";
@@ -2945,7 +3169,10 @@
 
     if (!currentBranchMode) {
       if (inTransit) {
-        if (canAckReceived && btnAckReceived) btnAckReceived.style.display = "";
+        if (canAckReceived && btnAckReceived) {
+          btnAckReceived.textContent = currentAckLabel();
+          btnAckReceived.style.display = "";
+        }
         syncToggleLabels();
         return;
       }
@@ -2982,7 +3209,9 @@
     if (elBranchMeta) elBranchMeta.textContent = "";
     closeEndHereModal();
     closeReleaseModal();
+    closeForwardPickerModal();
     closeForwardModal();
+    closeShareVisibilityModal();
   }
 
   async function updateStatus(newStatus, options = {}) {
@@ -3161,6 +3390,10 @@
     }
 
     const selected = getSelectedRecipientIds();
+    if (selected.length !== 1) {
+      window.DTToast?.warning("Forward document needs exactly one recipient. Use Share visibility for multiple recipients or for-reference sharing.") || console.warn("Forward document needs exactly one recipient.");
+      return;
+    }
     const form = appendActingPrincipal(new FormData(), currentPayload);
     form.append("document_id", docId);
     const branch = currentBranchMode ? getSelectedBranch() : null;
@@ -3171,14 +3404,8 @@
     if (currentBranchMode && Number(branch?.id || 0) > 0) form.append("branch_id", String(Number(branch.id || 0)));
     form.append("to_section_id", String(toSectionId));
 
-    if (selected.length === 1) {
-      form.append("to_user_id", String(selected[0]));
-    } else if (selected.length > 1) {
-      selected.forEach((id) => form.append("to_user_ids[]", String(id)));
-    }
-
-    const receiveOnly = selected.length > 1 || !!cbReceiveOnly?.checked;
-    form.append("receive_only", receiveOnly ? "1" : "0");
+    form.append("to_user_id", String(selected[0]));
+    form.append("receive_only", "0");
 
     if (inputForwardPersonalDeadline && inputForwardPersonalDeadline.value) {
       form.append("personal_deadline_at", inputForwardPersonalDeadline.value);
@@ -3242,6 +3469,93 @@
       setTimeout(() => location.reload(), 900);
     } catch {
       window.DTToast?.error("Failed to forward (network error).") || console.warn("Failed to forward (network error).");
+    }
+  }
+
+  async function shareVisibilityDoc() {
+    const docId = elId?.value;
+    const branchBeforeShare = currentBranchMode ? getSelectedBranch() : null;
+    if (!docId) return;
+
+    const toSectionId = Number.parseInt(selShareTo?.value || "0", 10) || 0;
+    if (toSectionId <= 0) {
+      window.DTToast?.warning("Please select a destination section.") || console.warn("Please select a destination section.");
+      return;
+    }
+
+    const selected = getSelectedShareRecipientIds();
+    if (selected.length === 0) {
+      window.DTToast?.warning("Please select at least one visibility recipient.") || console.warn("Please select at least one visibility recipient.");
+      return;
+    }
+
+    const form = appendActingPrincipal(new FormData(), currentPayload);
+    form.append("document_id", docId);
+    const branch = currentBranchMode ? getSelectedBranch() : null;
+    const routeId = currentBranchMode
+      ? (Number.parseInt(branch?.my_pending_route_id || "0", 10) || 0)
+      : (Number.parseInt(currentPayload?.open_route_id || "0", 10) || 0);
+    if (routeId > 0) form.append("route_id", String(routeId));
+    if (currentBranchMode && Number(branch?.id || 0) > 0) form.append("branch_id", String(Number(branch.id || 0)));
+    form.append("to_section_id", String(toSectionId));
+
+    if (selected.length === 1) {
+      form.append("to_user_id", String(selected[0]));
+    } else {
+      selected.forEach((id) => form.append("to_user_ids[]", String(id)));
+    }
+
+    form.append("receive_only", "1");
+    form.append("remarks", (elShareRemarks?.value || "").toString().trim());
+    const blockedNotify = selectedUnverifiedShareRecipientLabels().length > 0;
+    form.append("notify_email", (!blockedNotify && cbShareNotifyEmail?.checked) ? "1" : "0");
+    form.append("csrf_token", window.__CSRF__ || "");
+
+    try {
+      const res = await fetch(`${API}/forward.php`, {
+        method: "POST",
+        body: form,
+        headers: { Accept: "application/json" }
+      });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        window.DTToast?.error(data?.error || `Failed to share visibility. (${res.status})`) || console.warn(data?.error || `Failed to share visibility. (${res.status})`);
+        return;
+      }
+
+      if (cbShareNotifyEmail?.checked) {
+        const emailNotify = data?.email_notify || {};
+        const sentCount = Number(emailNotify?.sent || 0);
+        const failedCount = Number(emailNotify?.failed || 0);
+        const skippedCount = Number(emailNotify?.skipped || 0);
+
+        if (failedCount > 0 || skippedCount > 0) {
+          const firstFailure = Array.isArray(emailNotify?.failures) && emailNotify.failures.length > 0
+            ? String(emailNotify.failures[0]?.reason || "").trim()
+            : "";
+          const details = [
+            sentCount > 0 ? `${sentCount} sent` : "",
+            failedCount > 0 ? `${failedCount} failed` : "",
+            skippedCount > 0 ? `${skippedCount} skipped` : "",
+          ].filter(Boolean).join(", ");
+          const msg = `Visibility shared, but email notice had issues (${details}).` + (firstFailure ? ` ${firstFailure}` : "");
+          window.DTToast?.warning(msg) || console.warn(msg);
+        } else if (sentCount > 0) {
+          const msg = `Visibility shared. Email notice sent to ${sentCount} recipient(s).`;
+          window.DTToast?.success(msg) || console.log(msg);
+        }
+      }
+
+      if (currentBranchMode && Number(branchBeforeShare?.id || 0) > 0) {
+        savePreferredBranchId(docId, Number(branchBeforeShare.id || 0));
+        saveDrawerRestoreState(docId, Number(branchBeforeShare.id || 0));
+      } else {
+        saveDrawerRestoreState(docId, 0);
+      }
+      setTimeout(() => location.reload(), 900);
+    } catch {
+      window.DTToast?.error("Failed to share visibility (network error).") || console.warn("Failed to share visibility (network error).");
     }
   }
 
@@ -3386,8 +3700,22 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
     syncToggleLabels();
   });
 
+  function openForwardPickerModal() {
+    if (!currentCanForward || !forwardPickerModal) return;
+    forwardPickerModal.classList.add("open");
+    forwardPickerModal.setAttribute("aria-hidden", "false");
+    btnOpenForwardRouteModal?.focus();
+  }
+
+  function closeForwardPickerModal() {
+    if (!forwardPickerModal) return;
+    forwardPickerModal.classList.remove("open");
+    forwardPickerModal.setAttribute("aria-hidden", "true");
+  }
+
   function openForwardModal() {
     if (!currentCanForward || !forwardModal) return;
+    closeForwardPickerModal();
     updateForwardUI();
     const isInitialRouting = Number(currentPayload?.is_initial_routing || 0) === 1;
     if (inputForwardDocumentDeadline) {
@@ -3398,6 +3726,24 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
     forwardModal.classList.add("open");
     forwardModal.setAttribute("aria-hidden", "false");
     selForwardTo?.focus();
+  }
+
+  function openShareVisibilityModal() {
+    if (!currentCanForward || !shareVisibilityModal) return;
+    closeForwardPickerModal();
+    if (selShareTo) selShareTo.value = "";
+    if (elShareRemarks) elShareRemarks.value = "";
+    if (cbShareNotifyEmail) cbShareNotifyEmail.checked = false;
+    resetShareUsersUI();
+    shareVisibilityModal.classList.add("open");
+    shareVisibilityModal.setAttribute("aria-hidden", "false");
+    selShareTo?.focus();
+  }
+
+  function closeShareVisibilityModal() {
+    if (!shareVisibilityModal) return;
+    shareVisibilityModal.classList.remove("open");
+    shareVisibilityModal.setAttribute("aria-hidden", "true");
   }
 
   function openReleaseModal() {
@@ -3730,14 +4076,21 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
     }
   }
 
-  btnToggleForward?.addEventListener("click", openForwardModal);
+  btnToggleForward?.addEventListener("click", openForwardPickerModal);
+  btnOpenForwardRouteModal?.addEventListener("click", openForwardModal);
+  btnOpenShareVisibilityModal?.addEventListener("click", openShareVisibilityModal);
   drawerTabs.forEach((tab) => {
     tab.addEventListener("click", () => setDrawerTab(tab.dataset.drawerTab || "overview"));
   });
   btnToggleAttachmentForward?.addEventListener("click", openAttachmentForwardModal);
+  forwardPickerModalClose?.addEventListener("click", closeForwardPickerModal);
+  forwardPickerModalBackdrop?.addEventListener("click", closeForwardPickerModal);
   forwardModalClose?.addEventListener("click", closeForwardModal);
   btnForwardCancel?.addEventListener("click", closeForwardModal);
   forwardModalBackdrop?.addEventListener("click", closeForwardModal);
+  shareVisibilityModalClose?.addEventListener("click", closeShareVisibilityModal);
+  btnShareVisibilityCancel?.addEventListener("click", closeShareVisibilityModal);
+  shareVisibilityModalBackdrop?.addEventListener("click", closeShareVisibilityModal);
   attachmentForwardModalClose?.addEventListener("click", closeAttachmentForwardModal);
   btnAttachmentForwardCancel?.addEventListener("click", closeAttachmentForwardModal);
   attachmentForwardModalBackdrop?.addEventListener("click", closeAttachmentForwardModal);
@@ -3789,6 +4142,7 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
   });
   btnArchive?.addEventListener("click", () => updateStatus((btnArchive.dataset.nextStatus || "ARCHIVED").toUpperCase()));
   btnForward?.addEventListener("click", forwardDoc);
+  btnShareVisibilitySend?.addEventListener("click", shareVisibilityDoc);
   btnAttachUpload?.addEventListener("click", uploadAttachment);
 
   async function regenerateDivisionSlip(triggerButton) {

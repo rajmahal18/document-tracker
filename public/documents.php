@@ -10,11 +10,17 @@ require_login();
 /* -------------------------
  * Assistant mode bootstrap
  * ------------------------- */
+$sessionRole = (string)($_SESSION["role"] ?? "user");
+$isAdminUser = ($sessionRole === "admin");
 $assistantPrincipals = [];
 $assistantModeEnabled = false;
+$adminModeEnabled = false;
 $activeAssistantPrincipal = null;
 $requestedDocumentsTab = strtolower(trim((string)($_GET['view'] ?? 'my')));
-if ($requestedDocumentsTab !== 'assistant') {
+if (!in_array($requestedDocumentsTab, ['my', 'assistant', 'admin'], true)) {
+  $requestedDocumentsTab = 'my';
+}
+if ($requestedDocumentsTab === 'admin' && !$isAdminUser) {
   $requestedDocumentsTab = 'my';
 }
 $requestedActingPrincipalUserId = (int)($_GET['acting_principal_user_id'] ?? 0);
@@ -41,6 +47,10 @@ if ($assistantPrincipals !== [] && $requestedDocumentsTab === 'assistant') {
   if ($activeAssistantPrincipal !== null) {
     $assistantModeEnabled = true;
   }
+}
+
+if ($requestedDocumentsTab === 'admin' && $isAdminUser) {
+  $adminModeEnabled = true;
 }
 
 /* ✅ Division-aware sections */
@@ -90,6 +100,7 @@ require __DIR__ . "/../includes/layout.php";
     ownDivisionSlipLabel: "<?= htmlspecialchars($ownDivisionSlipLabel) ?>",
     branchMode: <?= $branchMode ? "true" : "false" ?>,
     assistantMode: <?= $assistantModeEnabled ? 'true' : 'false' ?>,
+    adminMode: <?= $adminModeEnabled ? 'true' : 'false' ?>,
     actingPrincipalUserId: <?= (int)($activeAssistantPrincipal['id'] ?? 0) ?>,
     actingPrincipalName: "<?= htmlspecialchars((string)($activeAssistantPrincipal['full_name'] ?? '')) ?>"
   };
@@ -135,7 +146,7 @@ $perPage = 15;   // ✅ fixed, unchangeable
 
 $offset = ($page - 1) * $perPage;
 
-$role        = (string)($_SESSION["role"] ?? "user");
+$role        = $sessionRole;
 $actualUserId = (int)($_SESSION["user_id"] ?? 0);
 $actualSectionId = (int)($_SESSION["section_id"] ?? 0);
 $actualIsChief = ((int)($_SESSION["is_chief"] ?? 0) === 1);
@@ -144,7 +155,7 @@ $mySectionId = $assistantModeEnabled ? (int)($activeAssistantPrincipal['section_
 $isChief     = $assistantModeEnabled ? in_array((string)($activeAssistantPrincipal['authority_role'] ?? ''), ['director','division_head','section_head'], true) : $actualIsChief;
 
 $assistantOwnPageIsolationSql = "";
-if (!$assistantModeEnabled && $actualUserId > 0 && $assistantPrincipals !== []) {
+if (!$assistantModeEnabled && !$adminModeEnabled && $actualUserId > 0 && $assistantPrincipals !== []) {
   $actualUid = (int)$actualUserId;
   $assistantOwnPageIsolationSql = "NOT (
     EXISTS (
@@ -174,12 +185,19 @@ if (!in_array($sort, $allowedSorts, true)) {
   $sort = "";
 }
 
+$allowedQuicks = $adminModeEnabled
+  ? ["", "active", "overdue", "released", "archived"]
+  : ["", "incoming", "pending", "completed", "overdue", "released", "archived", "active", "released_today"];
+if (!in_array($quick, $allowedQuicks, true)) {
+  $quick = "";
+}
+
 /**
  * ✅ VISIBILITY RULE
  * Branch mode = creator + explicit user visibility + direct route involvement.
  * Legacy mode = previous section-aware fallback.
  */
-$isPrivileged = ($role === "admin");
+$isPrivileged = $adminModeEnabled;
 $isPrivilegedInt = $isPrivileged ? 1 : 0;
 if (!$isPrivileged) {
   if ($myUserId <= 0) {
@@ -539,7 +557,7 @@ $personalDeadlineJoinSql = "";
 $effectiveDeadlineOrderExpr = "TIMESTAMP(DATE(d.deadline_at), '23:59:59')";
 $effectiveDeadlineFilterExpr = "TIMESTAMP(DATE(d.deadline_at), '23:59:59')";
 
-if ($routePersonalDeadlineEnabled) {
+if ($routePersonalDeadlineEnabled && !$adminModeEnabled) {
   $effectiveDeadlineOrderExpr = "TIMESTAMP(DATE(COALESCE(rpd_me.personal_deadline_at, d.deadline_at)), '23:59:59')";
   $personalDeadlineSelectSql = "rpd_me.personal_deadline_at AS my_personal_deadline_at";
 
@@ -629,22 +647,34 @@ if ($routePersonalDeadlineEnabled) {
 // Quick filters (from cards / queue pills)
 // -------------------------
 if ($quick !== "") {
-  if ($quick === "incoming") {
-    $where[] = "d.current_status = 'ACTIVE' AND ({$myHasOpenInboundPredicate})";
-  } elseif ($quick === "pending") {
-    $where[] = "d.current_status = 'ACTIVE' AND ({$myHasActionableRolePredicate})";
-  } elseif ($quick === "completed") {
-    $where[] = "({$myCompletePredicate})";
-  } elseif ($quick === "overdue") {
-    $where[] = "d.current_status = 'ACTIVE' AND {$effectiveDeadlineFilterExpr} IS NOT NULL AND {$effectiveDeadlineFilterExpr} < NOW()";
-  } elseif ($quick === "released") {
-    $where[] = "d.current_status = 'RELEASED'";
-  } elseif ($quick === "archived") {
-    $where[] = "d.current_status = 'ARCHIVED'";
-  } elseif ($quick === "active") {
-    $where[] = "d.current_status = 'ACTIVE'";
-  } elseif ($quick === "released_today") {
-    $where[] = "d.current_status = 'RELEASED' AND DATE(d.updated_at) = CURDATE()";
+  if ($adminModeEnabled) {
+    if ($quick === "active") {
+      $where[] = "d.current_status = 'ACTIVE'";
+    } elseif ($quick === "overdue") {
+      $where[] = "d.current_status = 'ACTIVE' AND {$effectiveDeadlineFilterExpr} IS NOT NULL AND {$effectiveDeadlineFilterExpr} < NOW()";
+    } elseif ($quick === "released") {
+      $where[] = "d.current_status = 'RELEASED'";
+    } elseif ($quick === "archived") {
+      $where[] = "d.current_status = 'ARCHIVED'";
+    }
+  } else {
+    if ($quick === "incoming") {
+      $where[] = "d.current_status = 'ACTIVE' AND ({$myHasOpenInboundPredicate})";
+    } elseif ($quick === "pending") {
+      $where[] = "d.current_status = 'ACTIVE' AND ({$myHasActionableRolePredicate})";
+    } elseif ($quick === "completed") {
+      $where[] = "({$myCompletePredicate})";
+    } elseif ($quick === "overdue") {
+      $where[] = "d.current_status = 'ACTIVE' AND {$effectiveDeadlineFilterExpr} IS NOT NULL AND {$effectiveDeadlineFilterExpr} < NOW()";
+    } elseif ($quick === "released") {
+      $where[] = "d.current_status = 'RELEASED'";
+    } elseif ($quick === "archived") {
+      $where[] = "d.current_status = 'ARCHIVED'";
+    } elseif ($quick === "active") {
+      $where[] = "d.current_status = 'ACTIVE'";
+    } elseif ($quick === "released_today") {
+      $where[] = "d.current_status = 'RELEASED' AND DATE(d.updated_at) = CURDATE()";
+    }
   }
 }
 
@@ -1233,7 +1263,26 @@ $sql = "
 
 if ($where) $sql .= " WHERE " . implode(" AND ", $where);
 
-$orderBySql = "
+$orderBySql = $adminModeEnabled
+  ? "
+  ORDER BY
+    CASE
+      WHEN d.current_status = 'ACTIVE'
+       AND effective_deadline_at IS NOT NULL
+       AND effective_deadline_at < NOW()
+      THEN 0
+      WHEN d.current_status = 'ACTIVE' THEN 1
+      WHEN d.current_status = 'RELEASED' THEN 2
+      WHEN d.current_status = 'ARCHIVED' THEN 3
+      ELSE 4
+    END ASC,
+    CASE WHEN effective_deadline_at IS NULL THEN 1 ELSE 0 END ASC,
+    effective_deadline_at ASC,
+    d.updated_at DESC,
+    d.document_date DESC,
+    d.id DESC
+"
+  : "
   ORDER BY
     CASE
       WHEN d.current_status = 'ACTIVE'
@@ -1287,7 +1336,21 @@ if ($sort === "newest") {
     ORDER BY d.document_date ASC, d.id ASC
   ";
 } elseif ($sort === "urgent") {
-  $orderBySql = "
+  $orderBySql = $adminModeEnabled
+    ? "
+    ORDER BY
+      CASE WHEN effective_deadline_at IS NULL THEN 1 ELSE 0 END ASC,
+      effective_deadline_at ASC,
+      CASE
+        WHEN d.current_status = 'ACTIVE' THEN 0
+        WHEN d.current_status = 'RELEASED' THEN 1
+        WHEN d.current_status = 'ARCHIVED' THEN 2
+        ELSE 3
+      END ASC,
+      d.updated_at DESC,
+      d.id DESC
+  "
+    : "
     ORDER BY
       CASE WHEN effective_deadline_at IS NULL THEN 1 ELSE 0 END ASC,
       effective_deadline_at ASC,
@@ -1298,7 +1361,21 @@ if ($sort === "newest") {
       d.id DESC
   ";
 } elseif ($sort === "overdue_longest") {
-  $orderBySql = "
+  $orderBySql = $adminModeEnabled
+    ? "
+    ORDER BY
+      CASE WHEN effective_deadline_at IS NOT NULL AND effective_deadline_at < NOW() THEN 0 ELSE 1 END ASC,
+      effective_deadline_at ASC,
+      CASE
+        WHEN d.current_status = 'ACTIVE' THEN 0
+        WHEN d.current_status = 'RELEASED' THEN 1
+        WHEN d.current_status = 'ARCHIVED' THEN 2
+        ELSE 3
+      END ASC,
+      d.updated_at DESC,
+      d.id DESC
+  "
+    : "
     ORDER BY
       CASE WHEN effective_deadline_at IS NOT NULL AND effective_deadline_at < NOW() THEN 0 ELSE 1 END ASC,
       effective_deadline_at ASC,
@@ -1502,7 +1579,19 @@ if ($assistantOwnPageIsolationSql !== "") {
   $statWhere[] = $assistantOwnPageIsolationSql;
 }
 
-$statSql = "
+$statSql = $adminModeEnabled
+  ? "
+  SELECT
+    0 AS incoming,
+    0 AS pending,
+    0 AS completed,
+    SUM(d.current_status = 'ACTIVE' AND {$effectiveDeadlineFilterExpr} IS NOT NULL AND {$effectiveDeadlineFilterExpr} < NOW()) AS overdue,
+    SUM(d.current_status = 'RELEASED') AS released,
+    SUM(d.current_status = 'ARCHIVED') AS archived,
+    SUM(d.current_status = 'ACTIVE') AS active
+  FROM documents d
+"
+  : "
   SELECT
     SUM(d.current_status = 'ACTIVE' AND ({$myHasOpenInboundPredicate})) AS incoming,
     SUM(d.current_status = 'ACTIVE' AND ({$myHasActionableRolePredicate})) AS pending,
@@ -1662,6 +1751,15 @@ function documentsUrl(array $overrides = []): string {
   return PUBLIC_PATH . '/documents.php?' . http_build_query($q);
 }
 
+$currentDocumentsView = $adminModeEnabled ? 'admin' : ($assistantModeEnabled ? 'assistant' : 'my');
+$documentsEyebrow = $adminModeEnabled
+  ? 'Admin queue'
+  : ($assistantModeEnabled ? 'Assistant queue' : 'My work queue');
+$documentsTitle = $adminModeEnabled
+  ? 'Admin Mode Documents'
+  : ($assistantModeEnabled ? 'Assistant Mode Documents' : 'My Documents');
+$documentsSortLabel = $adminModeEnabled ? 'Queue sort' : 'Sort order';
+
 $workingCalendar = dt_work_calendar($conn);
 $calendarDayLabels = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'Sat', 7 => 'Sun'];
 $calendarWorkdays = array_values(array_filter(array_map('intval', (array)($workingCalendar['workdays'] ?? [1, 2, 3, 4, 5])), static fn($day) => $day >= 1 && $day <= 7));
@@ -1774,12 +1872,29 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
 <?php $hasActiveFilters = ($search !== "" || $statusGet !== "" || $date_from !== "" || $date_to !== "" || $quick !== "" || ($sort !== "" && $sort !== "workflow")); ?>
 <style>
 .docsViewTabs{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px}.docsViewTab{padding:10px 14px;border-radius:12px;border:1px solid rgba(15,23,42,.12);background:#fff;color:#0f172a;text-decoration:none;font-weight:700}.docsViewTab.isActive{background:#0f172a;color:#fff}.docsAssistantBar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 16px;padding:14px;border:1px solid rgba(15,23,42,.08);border-radius:16px;background:#fff}.docsAssistantIdentity{display:flex;align-items:center;gap:10px;min-width:min(100%,360px)}.docsAssistantField{display:block;min-width:0}.docsAssistantBar label,.docsAssistantFieldLabel{display:block;font-size:12px;font-weight:800;color:#475569;margin-bottom:6px}.docsAssistantBar select{width:min(100%,260px);padding:10px 12px;border-radius:12px;border:1px solid rgba(15,23,42,.12);background:#fff}.docsAssistantHint{font-size:12px;color:#64748b;min-width:220px;flex:1}@media(max-width:640px){.docsAssistantBar{align-items:stretch}.docsAssistantIdentity{width:100%}.docsAssistantField{flex:1}.docsAssistantBar select{width:100%;min-width:0}.docsAssistantHint{min-width:100%}}
+.forwardModalCard{width:min(100%,760px);max-width:calc(100vw - 24px);max-height:min(88vh,820px);box-sizing:border-box;overflow:hidden}
+.forwardModalBody{display:grid;gap:12px;overflow-x:hidden}
+.modalHeader{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.modalHeader h3{margin:0;font-size:30px;line-height:1.05;color:#0f172a}
+.modalClose{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:12px;border:1px solid rgba(15,23,42,.12);background:#fff;color:#475569;font-size:24px;line-height:1;flex:0 0 auto}
+.modalClose:hover{background:#f8fafc;color:#0f172a}
+.sendTypeModal{width:min(100%,560px)}
+.sendTypeBody{display:grid;gap:10px;padding-top:6px}
+.sendTypeOption{display:grid;gap:4px;width:100%;padding:16px 18px;border:1px solid #cbd5e1;border-radius:16px;background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);color:#123b6d;text-align:left;box-sizing:border-box}
+.sendTypeOption strong{font-size:18px;line-height:1.15}
+.sendTypeOption span{font-size:13px;line-height:1.45;color:#64748b}
+.sendTypeOption:hover{border-color:#2f5f98;background:linear-gradient(180deg,#f8fbff 0%,#eef5ff 100%)}
+.shareSectionLabel{font-size:12px;font-weight:900}
+@media(max-width:640px){.forwardModalCard{max-width:calc(100vw - 16px);max-height:min(92vh,900px)}.modalHeader{gap:10px}.modalHeader h3{font-size:24px}.modalClose{width:34px;height:34px;border-radius:10px}.sendTypeOption{padding:14px}.sendTypeOption strong{font-size:16px}}
 </style>
 <div class="docsPageShell">
   <div class="docsViewTabs" aria-label="Documents view tabs">
-    <a class="docsViewTab <?= !$assistantModeEnabled ? 'isActive' : '' ?>" href="<?= htmlspecialchars(documentsUrl(['view' => 'my', 'acting_principal_user_id' => null, 'page' => 1])) ?>">My documents</a>
+    <a class="docsViewTab <?= $currentDocumentsView === 'my' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(documentsUrl(['view' => 'my', 'acting_principal_user_id' => null, 'page' => 1])) ?>">My documents</a>
     <?php if ($assistantPrincipals !== []): ?>
-      <a class="docsViewTab <?= $assistantModeEnabled ? 'isActive' : '' ?>" href="<?= htmlspecialchars(documentsUrl(['view' => 'assistant', 'acting_principal_user_id' => (int)($activeAssistantPrincipal['id'] ?? $assistantPrincipals[0]['id'] ?? 0), 'page' => 1])) ?>">Assistant mode</a>
+      <a class="docsViewTab <?= $currentDocumentsView === 'assistant' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(documentsUrl(['view' => 'assistant', 'acting_principal_user_id' => (int)($activeAssistantPrincipal['id'] ?? $assistantPrincipals[0]['id'] ?? 0), 'page' => 1])) ?>">Assistant mode</a>
+    <?php endif; ?>
+    <?php if ($isAdminUser): ?>
+      <a class="docsViewTab <?= $currentDocumentsView === 'admin' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(documentsUrl(['view' => 'admin', 'acting_principal_user_id' => null, 'page' => 1])) ?>">Admin mode</a>
     <?php endif; ?>
   </div>
   <?php if ($assistantModeEnabled): ?>
@@ -1820,12 +1935,12 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
 
   <section class="docsHero" id="docsOverview">
     <div class="docsHeroCopy">
-      <div class="docsEyebrow"><?= $assistantModeEnabled ? "Assistant queue" : "My work queue" ?></div>
-      <h1 class="docsTitle"><?= $assistantModeEnabled ? "Assistant Mode Documents" : "Document List" ?></h1>
+      <div class="docsEyebrow"><?= htmlspecialchars($documentsEyebrow) ?></div>
+      <h1 class="docsTitle"><?= htmlspecialchars($documentsTitle) ?></h1>
     </div>
 
     <div class="docsHeroActions">
-      <?php if ($myAvgText !== ""): ?>
+      <?php if (!$adminModeEnabled && $myAvgText !== ""): ?>
       <div class="docsSummaryPill">
         <span class="docsSummaryValue" style="font-size:16px; margin-bottom:2px;"><?= htmlspecialchars($myAvgText) ?></span>
         <span class="docsSummaryLabel">my avg processing time</span>
@@ -1946,40 +2061,40 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
   </script>
 
   <div class="stats docsStatsGrid" id="docsStats">
-    <a class="statCard statCardLink docsStatCard toneIncoming <?= $quick === 'incoming' ? 'isActive' : '' ?>"
-       href="<?= htmlspecialchars(quickUrl('incoming')) ?>">
+    <a class="statCard statCardLink docsStatCard toneIncoming <?= ($adminModeEnabled ? $quick === 'active' : $quick === 'incoming') ? 'isActive' : '' ?>"
+       href="<?= htmlspecialchars(quickUrl($adminModeEnabled ? 'active' : 'incoming')) ?>">
       <div class="docsStatHeader">
         <div>
-          <div class="statTitle">Incoming</div>
-          <div class="docsStatHint">Waiting for your receive</div>
+          <div class="statTitle"><?= $adminModeEnabled ? 'Active' : 'Incoming' ?></div>
+          <div class="docsStatHint"><?= $adminModeEnabled ? 'All active documents in the system' : 'Waiting for your receive' ?></div>
         </div>
-        <div class="chip action">Receive</div>
+        <div class="chip action"><?= $adminModeEnabled ? 'System' : 'Receive' ?></div>
       </div>
-      <div class="statValue"><?= $stats["incoming"] ?></div>
+      <div class="statValue"><?= $adminModeEnabled ? $stats["active"] : $stats["incoming"] ?></div>
     </a>
 
-    <a class="statCard statCardLink docsStatCard tonePending <?= $quick === 'pending' ? 'isActive' : '' ?>"
-       href="<?= htmlspecialchars(quickUrl('pending')) ?>">
+    <a class="statCard statCardLink docsStatCard tonePending <?= ($adminModeEnabled ? $quick === 'released' : $quick === 'pending') ? 'isActive' : '' ?>"
+       href="<?= htmlspecialchars(quickUrl($adminModeEnabled ? 'released' : 'pending')) ?>">
       <div class="docsStatHeader">
         <div>
-          <div class="statTitle">Pending</div>
-          <div class="docsStatHint">Already with you for action</div>
+          <div class="statTitle"><?= $adminModeEnabled ? 'Closed' : 'Pending' ?></div>
+          <div class="docsStatHint"><?= $adminModeEnabled ? 'Released documents across all queues' : 'Already with you for action' ?></div>
         </div>
-        <div class="chip overdue">Act now</div>
+        <div class="chip overdue"><?= $adminModeEnabled ? 'Released' : 'Act now' ?></div>
       </div>
-      <div class="statValue"><?= $stats["pending"] ?></div>
+      <div class="statValue"><?= $adminModeEnabled ? $stats["released"] : $stats["pending"] ?></div>
     </a>
 
-    <a class="statCard statCardLink docsStatCard toneComplete <?= $quick === 'completed' ? 'isActive' : '' ?>"
-       href="<?= htmlspecialchars(quickUrl('completed')) ?>">
+    <a class="statCard statCardLink docsStatCard toneComplete <?= ($adminModeEnabled ? $quick === 'archived' : $quick === 'completed') ? 'isActive' : '' ?>"
+       href="<?= htmlspecialchars(quickUrl($adminModeEnabled ? 'archived' : 'completed')) ?>">
       <div class="docsStatHeader">
         <div>
-          <div class="statTitle">Completed</div>
-          <div class="docsStatHint">Your part is already done</div>
+          <div class="statTitle"><?= $adminModeEnabled ? 'Archived' : 'Completed' ?></div>
+          <div class="docsStatHint"><?= $adminModeEnabled ? 'Archived records in the system' : 'Your part is already done' ?></div>
         </div>
-        <div class="chip released">Done</div>
+        <div class="chip released"><?= $adminModeEnabled ? 'Records' : 'Done' ?></div>
       </div>
-      <div class="statValue"><?= $stats["completed"] ?></div>
+      <div class="statValue"><?= $adminModeEnabled ? $stats["archived"] : $stats["completed"] ?></div>
     </a>
 
     <a class="statCard statCardLink docsStatCard toneOverdue <?= $quick === 'overdue' ? 'isActive' : '' ?>"
@@ -2008,12 +2123,20 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
 
     <div class="docsQuickFilters" aria-label="Quick filters">
       <a class="docsQuickFilter <?= $quick === '' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('')) ?>">All visible <span><?= (int)$stats['active'] + (int)$stats['released'] + (int)$stats['archived'] ?></span></a>
-      <a class="docsQuickFilter <?= $quick === 'incoming' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('incoming')) ?>">Incoming <span><?= $stats['incoming'] ?></span></a>
-      <a class="docsQuickFilter <?= $quick === 'pending' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('pending')) ?>">Pending <span><?= $stats['pending'] ?></span></a>
-      <a class="docsQuickFilter <?= $quick === 'completed' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('completed')) ?>">Completed <span><?= $stats['completed'] ?></span></a>
+      <?php if ($adminModeEnabled): ?>
+        <a class="docsQuickFilter <?= $quick === 'active' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('active')) ?>">Active <span><?= $stats['active'] ?></span></a>
+        <a class="docsQuickFilter <?= $quick === 'released' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('released')) ?>">Closed <span><?= $stats['released'] ?></span></a>
+        <a class="docsQuickFilter <?= $quick === 'archived' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('archived')) ?>">Archived <span><?= $stats['archived'] ?></span></a>
+      <?php else: ?>
+        <a class="docsQuickFilter <?= $quick === 'incoming' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('incoming')) ?>">Incoming <span><?= $stats['incoming'] ?></span></a>
+        <a class="docsQuickFilter <?= $quick === 'pending' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('pending')) ?>">Pending <span><?= $stats['pending'] ?></span></a>
+        <a class="docsQuickFilter <?= $quick === 'completed' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('completed')) ?>">Completed <span><?= $stats['completed'] ?></span></a>
+      <?php endif; ?>
       <a class="docsQuickFilter <?= $quick === 'overdue' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('overdue')) ?>">Overdue <span><?= $stats['overdue'] ?></span></a>
-      <a class="docsQuickFilter <?= $quick === 'released' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('released')) ?>">Closed <span><?= $stats['released'] ?></span></a>
-      <a class="docsQuickFilter <?= $quick === 'archived' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('archived')) ?>">Archived <span><?= $stats['archived'] ?></span></a>
+      <?php if (!$adminModeEnabled): ?>
+        <a class="docsQuickFilter <?= $quick === 'released' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('released')) ?>">Closed <span><?= $stats['released'] ?></span></a>
+        <a class="docsQuickFilter <?= $quick === 'archived' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('archived')) ?>">Archived <span><?= $stats['archived'] ?></span></a>
+      <?php endif; ?>
     </div>
 
     <div class="docsControlsGrid">
@@ -2033,9 +2156,9 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
         </div>
 
         <div class="control docsSortControl">
-          <label>Sort</label>
+          <label><?= htmlspecialchars($documentsSortLabel) ?></label>
           <select class="select" name="sort">
-            <option value="workflow" <?= ($sort === "" || $sort === "workflow") ? "selected" : "" ?>>My work priority</option>
+            <option value="workflow" <?= ($sort === "" || $sort === "workflow") ? "selected" : "" ?>><?= $adminModeEnabled ? 'Status then deadline' : 'My work priority' ?></option>
             <option value="urgent" <?= $sort === "urgent" ? "selected" : "" ?>>Nearest effective deadline</option>
             <option value="overdue_longest" <?= $sort === "overdue_longest" ? "selected" : "" ?>>Overdue first</option>
             <option value="newest" <?= $sort === "newest" ? "selected" : "" ?>>Newest document date</option>
@@ -2918,17 +3041,7 @@ $end   = min($totalPages, $page + 2);
         Recipients: —
       </div>
 
-      <div id="forwardModeWrap" style="margin-top:12px; padding:10px; border:1px solid rgba(0,0,0,.10); border-radius:12px; background:#f8fafc; display:none;">
-        <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer;">
-          <input id="f_receive_only" type="checkbox" style="margin-top:3px;">
-          <span>
-            <span style="display:block; font-size:12px; font-weight:900;">Send as reference only</span>
-            <span class="mini" id="f_receive_only_hint" style="opacity:.75;">
-              Recipient gets a reference copy only. Your current lane stays actionable with you.
-            </span>
-          </span>
-        </label>
-      </div>
+      <div class="mini" style="margin-top:8px; opacity:.75;">Use one recipient for actionable forwarding. For view-only sharing, use Share visibility.</div>
 
       <div class="forwardDeadlineGrid" id="forwardDeadlineGrid" style="display:none;">
         <div id="forwardDocumentDeadlineWrap" class="forwardDeadlineWrap" style="display:none;">
@@ -2962,6 +3075,88 @@ $end   = min($totalPages, $page + 2);
     <div class="modalFooter">
       <button id="btnForwardCancel" type="button" class="btnSecondary">Cancel</button>
       <button id="btnForward" type="button" class="btnComp">Send forward</button>
+    </div>
+  </div>
+</div>
+
+<div id="forwardPickerModal" class="modalWrap" aria-hidden="true">
+  <div id="forwardPickerModalBackdrop" class="modalBackdrop"></div>
+  <div class="modalCard forwardModalCard sendTypeModal">
+    <div class="modalHeader">
+      <div>
+        <h3>Choose send type</h3>
+        <div class="attSub mini">Pick if this should move the workflow or just share view access.</div>
+      </div>
+      <button id="forwardPickerModalClose" class="modalClose" type="button" aria-label="Close">&times;</button>
+    </div>
+
+    <div class="modalBody forwardModalBody sendTypeBody">
+      <button type="button" class="sendTypeOption" id="btnOpenForwardRouteModal">
+        <strong>Forward document</strong>
+        <span>Send one actionable lane to the next recipient.</span>
+      </button>
+      <button type="button" class="sendTypeOption" id="btnOpenShareVisibilityModal">
+        <strong>Share visibility</strong>
+        <span>Send a for-reference copy while the actionable lane stays with you.</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div id="shareVisibilityModal" class="modalWrap" aria-hidden="true">
+  <div id="shareVisibilityModalBackdrop" class="modalBackdrop"></div>
+  <div class="modalCard forwardModalCard">
+    <div class="modalHeader">
+      <div>
+        <h3>Share visibility</h3>
+        <div class="attSub mini">Share a for-reference copy. Your current lane stays actionable with you.</div>
+      </div>
+      <button id="shareVisibilityModalClose" class="modalClose" type="button" aria-label="Close">&times;</button>
+    </div>
+
+    <div class="modalBody forwardModalBody">
+      <label class="shareSectionLabel">Share To</label>
+
+      <select id="sv_to_section" class="select" style="min-width:100%; margin-top:6px;">
+        <option value="">-- Select section --</option>
+      </select>
+
+      <label class="shareSectionLabel" style="margin-top:2px; display:block;">Recipients</label>
+
+      <div class="forwardUserTools" style="display:flex; gap:8px; margin:6px 0 8px;">
+        <button type="button" class="btnSecondary" id="btnSvUserSelectAll" style="padding:6px 10px;">Select all</button>
+        <button type="button" class="btnSecondary" id="btnSvUserClear" style="padding:6px 10px;">Clear</button>
+      </div>
+
+      <div id="sv_user_list" class="userChecklist mini"
+          style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:10px; max-height:220px; overflow:auto;">
+        <div style="opacity:.7;">Select a section to load users...</div>
+      </div>
+
+      <div id="shareRecipientsPreview" class="mini" style="opacity:.75; margin-top:6px;">
+        Recipients: -
+      </div>
+
+      <div class="mini" style="margin-top:8px; opacity:.75;">Recipients will receive this as for reference and will acknowledge once viewed.</div>
+
+      <div class="drawerActionRemarks" style="margin-top:12px;">
+        <label for="d_share_remarks" class="drawerActionRemarksLabel">Share remarks (optional)</label>
+        <textarea id="d_share_remarks" class="search drawerActionRemarksInput" rows="3" placeholder="Add a note for the visibility recipients if needed"></textarea>
+      </div>
+
+      <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer; margin-top:10px;">
+        <input id="sv_notify_email" type="checkbox" style="margin-top:3px;">
+        <span>
+          <span style="display:block; font-size:12px; font-weight:900;">Notify these users through email</span>
+          <span class="mini" style="opacity:.75;">Sends an email notice to selected recipient(s) after sharing visibility.</span>
+        </span>
+      </label>
+      <div id="sv_notify_email_hint" class="mini" style="margin-top:6px; color:#b45309; display:none;"></div>
+    </div>
+
+    <div class="modalFooter">
+      <button id="btnShareVisibilityCancel" type="button" class="btnSecondary">Cancel</button>
+      <button id="btnShareVisibilitySend" type="button" class="btnComp">Share visibility</button>
     </div>
   </div>
 </div>
