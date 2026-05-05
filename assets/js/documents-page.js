@@ -78,6 +78,49 @@
   const btnPpdSlipAttach = document.getElementById("btnPpdSlipAttach");
   const btnPpdSlipPrint = document.getElementById("btnPpdSlipPrint");
   let currentPpdSlipAttId = 0;
+  let currentDivisionSlipTrigger = null;
+  let divisionSlipDuplicateTimer = null;
+  let divisionSlipDuplicateSeq = 0;
+
+  function currentDivisionSlipActionMeta(payload = currentPayload) {
+    const hasExisting = Number(payload?.has_my_division_slip || 0) === 1;
+    return hasExisting
+      ? {
+        actionLabel: "Generate latest slip",
+        successText: "Latest division tracking slip generated."
+      }
+      : {
+        actionLabel: "Generate division slip",
+        successText: "Division tracking slip generated."
+      };
+  }
+
+  function formatSlipDateTimeForInput(raw) {
+    const value = (raw || "").toString().trim();
+    if (!value) return "";
+    const normalized = value.replace(" ", "T");
+    const match = normalized.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+    return match ? `${match[1]}T${match[2]}` : "";
+  }
+
+  function defaultDivisionSlipReceivedBy(payload = currentPayload) {
+    if (actingPrincipalId(payload) > 0 && APP.actualFullName) {
+      return (APP.actualFullName || "").toString().trim();
+    }
+    return (
+      (payload?.my_division_latest_received_by || "").toString().trim()
+      || (APP.actualFullName || "").toString().trim()
+      || ""
+    );
+  }
+
+  function isCurrentDivisionSlipAttachment(note) {
+    const raw = (note || "").toString().trim().toUpperCase();
+    const divisionCode = (APP.myDivisionCode || "").toString().trim().toUpperCase();
+    if (!raw || !divisionCode) return false;
+    if (raw === `AUTO:DIVISION_TRACKING_SLIP:${divisionCode}`) return true;
+    return divisionCode === "PPD" && raw === "AUTO:PPD_TRACKING_SLIP";
+  }
 
   const btnToggleUpload = document.getElementById("btnToggleUpload");
   const btnRegenerateDivisionSlip = document.getElementById("btnRegenerateDivisionSlip");
@@ -116,6 +159,17 @@
   const shareNotifyEmailHint = document.getElementById("sv_notify_email_hint");
   const btnShareVisibilityCancel = document.getElementById("btnShareVisibilityCancel");
   const btnShareVisibilitySend = document.getElementById("btnShareVisibilitySend");
+  const divisionSlipModal = document.getElementById("divisionSlipModal");
+  const divisionSlipModalBackdrop = document.getElementById("divisionSlipModalBackdrop");
+  const divisionSlipModalClose = document.getElementById("divisionSlipModalClose");
+  const divisionSlipModalTitle = document.getElementById("divisionSlipModalTitle");
+  const divisionSlipTrackingNo = document.getElementById("divisionSlipTrackingNo");
+  const divisionSlipTrackingDuplicateHint = document.getElementById("divisionSlipTrackingDuplicateHint");
+  const divisionSlipReceivedBy = document.getElementById("divisionSlipReceivedBy");
+  const divisionSlipReceivedAt = document.getElementById("divisionSlipReceivedAt");
+  const divisionSlipModalHint = document.getElementById("divisionSlipModalHint");
+  const btnDivisionSlipCancel = document.getElementById("btnDivisionSlipCancel");
+  const btnDivisionSlipConfirm = document.getElementById("btnDivisionSlipConfirm");
   const releaseModal = document.getElementById("releaseModal");
   const releaseModalBackdrop = document.getElementById("releaseModalBackdrop");
   const releaseModalClose = document.getElementById("releaseModalClose");
@@ -229,6 +283,87 @@
       target.append("acting_principal_user_id", String(principalId));
     }
     return target;
+  }
+
+  function openDivisionSlipModal(triggerButton = null) {
+    if (!divisionSlipModal || !currentPayload) return;
+    currentDivisionSlipTrigger = triggerButton || null;
+    const slipActionMeta = currentDivisionSlipActionMeta(currentPayload);
+    const currentTrackingNo = (currentPayload.my_division_tracking_no || "").toString().trim();
+    const fallbackTrackingNo = currentTrackingNo || `${(APP.myDivisionCode || "").toString().trim()} `;
+    const defaultReceivedAt = formatSlipDateTimeForInput(currentPayload.my_division_latest_received_at || "");
+
+    if (divisionSlipModalTitle) divisionSlipModalTitle.textContent = slipActionMeta.actionLabel;
+    if (divisionSlipTrackingNo) divisionSlipTrackingNo.value = fallbackTrackingNo.trim();
+    if (divisionSlipReceivedBy) {
+      divisionSlipReceivedBy.value = defaultDivisionSlipReceivedBy(currentPayload);
+      divisionSlipReceivedBy.readOnly = actingPrincipalId(currentPayload) > 0;
+    }
+    if (divisionSlipReceivedAt) divisionSlipReceivedAt.value = defaultReceivedAt;
+    if (divisionSlipModalHint) {
+      const crossDivision = (
+        (currentPayload.origin_division_code || "").toString().trim().toUpperCase() !== ""
+        && (currentPayload.origin_division_code || "").toString().trim().toUpperCase() !== (APP.myDivisionCode || "").toString().trim().toUpperCase()
+      );
+      divisionSlipModalHint.textContent = crossDivision
+        ? "Defaults are based on when this document entered your division."
+        : "Defaults are based on your division's current receipt context.";
+    }
+
+    divisionSlipModal.classList.add("open");
+    divisionSlipModal.setAttribute("aria-hidden", "false");
+    setDivisionSlipDuplicateHint("");
+    checkDivisionSlipTrackingDuplicate();
+    divisionSlipTrackingNo?.focus();
+  }
+
+  function closeDivisionSlipModal() {
+    if (!divisionSlipModal) return;
+    divisionSlipModal.classList.remove("open");
+    divisionSlipModal.setAttribute("aria-hidden", "true");
+    currentDivisionSlipTrigger = null;
+  }
+
+  function setDivisionSlipDuplicateHint(message) {
+    if (!divisionSlipTrackingDuplicateHint) return;
+    divisionSlipTrackingDuplicateHint.textContent = String(message || "");
+    divisionSlipTrackingDuplicateHint.style.display = message ? "block" : "none";
+  }
+
+  async function checkDivisionSlipTrackingDuplicate() {
+    if (!divisionSlipTrackingNo || !currentPayload) return;
+    const trackingNo = (divisionSlipTrackingNo.value || "").toString().trim().toUpperCase();
+    if (!trackingNo) {
+      setDivisionSlipDuplicateHint("");
+      return;
+    }
+
+    const currentSeq = ++divisionSlipDuplicateSeq;
+    try {
+      const qs = appendActingPrincipal(new URLSearchParams({
+        tracking_no: trackingNo,
+        exclude_document_id: String(Number(currentPayload.id || 0))
+      }), currentPayload);
+      const res = await fetch(`${API}/division_tracking_duplicate_lookup.php?${qs.toString()}`, {
+        headers: { Accept: "application/json" },
+        cache: "no-store"
+      });
+      const data = await res.json().catch(() => null);
+      if (currentSeq !== divisionSlipDuplicateSeq) return;
+      if (!res.ok || !data?.ok || !data?.exists) {
+        setDivisionSlipDuplicateHint("");
+        return;
+      }
+
+      const docTracking = String(data.document_tracking_no || "").trim() || `Document #${Number(data.document_id || 0)}`;
+      const subjectShort = String(data.subject_short || "").trim();
+      setDivisionSlipDuplicateHint(
+        `This division tracking number already exists. See: ${docTracking}${subjectShort ? ` (SUBJECT: ${subjectShort})` : ""}`
+      );
+    } catch {
+      if (currentSeq !== divisionSlipDuplicateSeq) return;
+      setDivisionSlipDuplicateHint("");
+    }
   }
 
   function esc(s) {
@@ -2066,6 +2201,7 @@
       if (attModal?.classList.contains("open")) return closeAttachmentModal();
       if (recModal?.classList.contains("open")) return closeRecipientsModal();
       if (pendingRemarksModal?.classList.contains("open")) return setPendingRemarksEditing(false);
+      if (divisionSlipModal?.classList.contains("open")) return closeDivisionSlipModal();
       if (releaseModal?.classList.contains("open")) return closeReleaseModal();
       if (shareVisibilityModal?.classList.contains("open")) return closeShareVisibilityModal();
       if (forwardModal?.classList.contains("open")) return closeForwardModal();
@@ -2144,7 +2280,7 @@
 
       for (const a of items) {
         const note = (a.note || '').toString();
-        if (note === 'AUTO:PPD_TRACKING_SLIP' || (note.startsWith('AUTO:DIVISION_TRACKING_SLIP:') && !note.includes(':SUPERSEDED'))) {
+        if (isCurrentDivisionSlipAttachment(note) && !note.toUpperCase().includes(':SUPERSEDED')) {
           currentPpdSlipAttId = Number(a.id || 0);
           break;
         }
@@ -2924,11 +3060,15 @@
 
     if (rowPpdSlip) {
       const docId = payload.id || "";
+      const slipActionMeta = currentDivisionSlipActionMeta(payload);
       rowPpdSlip.style.display = "none";
       const rowPpdSlipLabel = document.getElementById("rowPpdSlipLabel");
       if (rowPpdSlipLabel && APP.ownDivisionSlipLabel) rowPpdSlipLabel.textContent = APP.ownDivisionSlipLabel;
 
-      if (btnPpdSlipGenerate) btnPpdSlipGenerate.dataset.docId = String(docId || "");
+      if (btnPpdSlipGenerate) {
+        btnPpdSlipGenerate.dataset.docId = String(docId || "");
+        btnPpdSlipGenerate.textContent = slipActionMeta.actionLabel;
+      }
       if (btnPpdSlipAttach) btnPpdSlipAttach.dataset.docId = String(docId || "");
       if (btnPpdSlipPrint) {
         btnPpdSlipPrint.dataset.docId = String(docId || "");
@@ -3082,8 +3222,10 @@
     if (btnToggleUpload) btnToggleUpload.style.display = canAttach ? "" : "none";
     if (btnRegenerateDivisionSlip) {
       const canRegenerateSlip = !!APP.hasOwnDivisionSlip && Number(payload.can_regenerate_division_slip || 0) === 1;
+      const slipActionMeta = currentDivisionSlipActionMeta(payload);
       btnRegenerateDivisionSlip.style.display = canRegenerateSlip ? "" : "none";
       btnRegenerateDivisionSlip.dataset.docId = canRegenerateSlip ? String(payload.id || "") : "";
+      btnRegenerateDivisionSlip.textContent = slipActionMeta.actionLabel;
     }
     updateForwardUI();
 
@@ -3209,6 +3351,7 @@
     if (elBranchMeta) elBranchMeta.textContent = "";
     closeEndHereModal();
     closeReleaseModal();
+    closeDivisionSlipModal();
     closeForwardPickerModal();
     closeForwardModal();
     closeShareVisibilityModal();
@@ -4148,11 +4291,19 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
   async function regenerateDivisionSlip(triggerButton) {
     const docId = triggerButton?.dataset?.docId || elId?.value || "";
     if (!docId) return;
+    const slipActionMeta = currentDivisionSlipActionMeta();
+    const trackingNo = (divisionSlipTrackingNo?.value || "").toString().trim();
+    const receivedBy = (divisionSlipReceivedBy?.value || "").toString().trim();
+    const receivedAt = (divisionSlipReceivedAt?.value || "").toString().trim();
 
     if (triggerButton) triggerButton.disabled = true;
+    if (btnDivisionSlipConfirm) btnDivisionSlipConfirm.disabled = true;
     try {
       const form = appendActingPrincipal(new FormData(), currentPayload);
       form.append("document_id", docId);
+      form.append("division_tracking_no", trackingNo);
+      form.append("received_by_name", receivedBy);
+      form.append("received_datetime", receivedAt);
       form.append("csrf_token", window.__CSRF__ || "");
 
       const res = await fetch(`${API}/division_tracking_slip_generate.php`, {
@@ -4163,30 +4314,52 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
 
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.ok) {
-        window.DTToast?.error(data?.error || `Generate latest slip failed. (${res.status})`) || console.warn(data?.error || `Generate latest slip failed. (${res.status})`);
+        window.DTToast?.error(data?.error || `${slipActionMeta.actionLabel} failed. (${res.status})`) || console.warn(data?.error || `${slipActionMeta.actionLabel} failed. (${res.status})`);
         return;
       }
 
       const attId = Number(data.attachment_id || 0);
+      if (currentPayload && typeof currentPayload === "object") {
+        currentPayload.has_my_division_slip = 1;
+        currentPayload.my_division_tracking_no = (data?.division_tracking_no || trackingNo || currentPayload.my_division_tracking_no || "").toString();
+        currentPayload.my_division_latest_received_by = (data?.received_by_name || receivedBy || currentPayload.my_division_latest_received_by || "").toString();
+        currentPayload.my_division_latest_received_at = (data?.received_datetime_raw || (receivedAt ? receivedAt.replace("T", " ") : "") || currentPayload.my_division_latest_received_at || "").toString();
+      }
       await loadAttachments(docId);
-      window.DTToast?.success("Latest division tracking slip generated.") || console.log("Latest division tracking slip generated.");
+      const nextActionMeta = currentDivisionSlipActionMeta();
+      if (btnPpdSlipGenerate) btnPpdSlipGenerate.textContent = nextActionMeta.actionLabel;
+      if (btnRegenerateDivisionSlip) btnRegenerateDivisionSlip.textContent = nextActionMeta.actionLabel;
+      closeDivisionSlipModal();
+      window.DTToast?.success(data?.message || slipActionMeta.successText) || console.log(data?.message || slipActionMeta.successText);
       if (attId > 0) {
         const principalQs = actingPrincipalId() > 0 ? `&acting_principal_user_id=${actingPrincipalId()}` : "";
         window.open(`${PUBLIC}/view_attachment.php?id=${attId}${principalQs}`, "_blank", "noopener");
       }
     } catch {
-      window.DTToast?.error("Generate latest slip failed.") || console.warn("Generate latest slip failed.");
+      window.DTToast?.error(`${slipActionMeta.actionLabel} failed.`) || console.warn(`${slipActionMeta.actionLabel} failed.`);
     } finally {
       if (triggerButton) triggerButton.disabled = false;
+      if (btnDivisionSlipConfirm) btnDivisionSlipConfirm.disabled = false;
     }
   }
 
   btnPpdSlipGenerate?.addEventListener("click", async () => {
-    await regenerateDivisionSlip(btnPpdSlipGenerate);
+    openDivisionSlipModal(btnPpdSlipGenerate);
   });
 
   btnRegenerateDivisionSlip?.addEventListener("click", async () => {
-    await regenerateDivisionSlip(btnRegenerateDivisionSlip);
+    openDivisionSlipModal(btnRegenerateDivisionSlip);
+  });
+  divisionSlipTrackingNo?.addEventListener("input", () => {
+    if (divisionSlipDuplicateTimer) clearTimeout(divisionSlipDuplicateTimer);
+    divisionSlipDuplicateTimer = window.setTimeout(checkDivisionSlipTrackingDuplicate, 260);
+  });
+  divisionSlipTrackingNo?.addEventListener("blur", checkDivisionSlipTrackingDuplicate);
+  divisionSlipModalClose?.addEventListener("click", closeDivisionSlipModal);
+  divisionSlipModalBackdrop?.addEventListener("click", closeDivisionSlipModal);
+  btnDivisionSlipCancel?.addEventListener("click", closeDivisionSlipModal);
+  btnDivisionSlipConfirm?.addEventListener("click", async () => {
+    await regenerateDivisionSlip(currentDivisionSlipTrigger || btnRegenerateDivisionSlip || btnPpdSlipGenerate);
   });
 
   btnPpdSlipPrint?.addEventListener("click", () => {

@@ -357,6 +357,26 @@ function is_supported_division_tracking_code(?string $code): bool
   return in_array(strtoupper(trim((string)$code)), ['PPD', 'SDD', 'SPD'], true);
 }
 
+function division_tracking_attachment_note(string $divisionCode): string
+{
+  return 'AUTO:DIVISION_TRACKING_SLIP:' . strtoupper(trim($divisionCode));
+}
+
+function division_tracking_attachment_note_matches(?string $note, ?string $divisionCode): bool
+{
+  $note = strtoupper(trim((string)$note));
+  $divisionCode = strtoupper(trim((string)$divisionCode));
+  if ($note === '' || $divisionCode === '') {
+    return false;
+  }
+
+  if ($note === division_tracking_attachment_note($divisionCode)) {
+    return true;
+  }
+
+  return $divisionCode === 'PPD' && $note === 'AUTO:PPD_TRACKING_SLIP';
+}
+
 function get_document_creator_name(mysqli $conn, int $documentId): string
 {
   if ($documentId <= 0) return '';
@@ -634,7 +654,72 @@ function get_document_division_tracking(mysqli $conn, int $documentId, int $divi
   return $row ?: null;
 }
 
-function build_division_slip_flow_rows(mysqli $conn, int $documentId, int $divisionId, string $assistantName = ''): array
+function find_document_by_division_tracking_no(mysqli $conn, int $divisionId, string $trackingNo, int $excludeDocumentId = 0): ?array
+{
+  ensure_division_tracking_tables($conn);
+  $trackingNo = strtoupper(trim($trackingNo));
+  if ($divisionId <= 0 || $trackingNo === '') {
+    return null;
+  }
+
+  $sql = "
+    SELECT
+      d.id AS document_id,
+      COALESCE(NULLIF(TRIM(d.tracking_no), ''), '') AS document_tracking_no,
+      COALESCE(NULLIF(TRIM(d.subject), ''), '') AS subject
+    FROM document_division_tracking ddt
+    JOIN documents d ON d.id = ddt.document_id
+    WHERE ddt.division_id = ?
+      AND UPPER(TRIM(ddt.tracking_no)) = ?
+  ";
+  if ($excludeDocumentId > 0) {
+    $sql .= " AND ddt.document_id <> ?";
+  }
+  $sql .= " LIMIT 1";
+
+  $stmt = $conn->prepare($sql);
+  if ($excludeDocumentId > 0) {
+    $stmt->bind_param('isi', $divisionId, $trackingNo, $excludeDocumentId);
+  } else {
+    $stmt->bind_param('is', $divisionId, $trackingNo);
+  }
+  $stmt->execute();
+  $row = $stmt->get_result()->fetch_assoc();
+  return $row ?: null;
+}
+
+function get_latest_division_route_receipt_meta(mysqli $conn, int $documentId, int $divisionId): array
+{
+  if ($documentId <= 0 || $divisionId <= 0) {
+    return ['received_by' => '', 'received_at' => ''];
+  }
+
+  $stmt = $conn->prepare("
+    SELECT
+      COALESCE(NULLIF(TRIM(ur.full_name), ''), COALESCE(NULLIF(TRIM(ut.full_name), ''), '')) AS received_by_name,
+      r.received_at
+    FROM routes r
+    JOIN sections st ON st.id = r.to_section_id
+    LEFT JOIN users ur ON ur.id = r.received_by_user_id
+    LEFT JOIN users ut ON ut.id = r.to_user_id
+    WHERE r.document_id = ?
+      AND r.cancelled_at IS NULL
+      AND r.received_at IS NOT NULL
+      AND st.division_id = ?
+    ORDER BY r.received_at DESC, r.id DESC
+    LIMIT 1
+  ");
+  $stmt->bind_param('ii', $documentId, $divisionId);
+  $stmt->execute();
+  $row = $stmt->get_result()->fetch_assoc();
+
+  return [
+    'received_by' => trim((string)($row['received_by_name'] ?? '')),
+    'received_at' => trim((string)($row['received_at'] ?? '')),
+  ];
+}
+
+function build_division_slip_flow_rows(mysqli $conn, int $documentId, int $divisionId, string $assistantName = '', array $options = []): array
 {
   if ($documentId <= 0) return [];
 
@@ -649,7 +734,9 @@ function build_division_slip_flow_rows(mysqli $conn, int $documentId, int $divis
       COALESCE(NULLIF(TRIM(ur.full_name), ''), '') AS received_by_name,
       COALESCE(NULLIF(TRIM(ut.full_name), ''), '') AS to_user_name,
       COALESCE(NULLIF(TRIM(sf.name), ''), '') AS from_section_name,
-      COALESCE(NULLIF(TRIM(st.name), ''), '') AS to_section_name
+      COALESCE(NULLIF(TRIM(st.name), ''), '') AS to_section_name,
+      COALESCE(sf.division_id, 0) AS from_division_id,
+      COALESCE(st.division_id, 0) AS to_division_id
     FROM routes r
     LEFT JOIN users us ON us.id = r.sent_by_user_id
     LEFT JOIN users ur ON ur.id = r.received_by_user_id
@@ -664,6 +751,15 @@ function build_division_slip_flow_rows(mysqli $conn, int $documentId, int $divis
   $stmt->bind_param('i', $documentId);
   $stmt->execute();
   $routes = $stmt->get_result()->fetch_all(MYSQLI_ASSOC) ?: [];
+
+  $onlyDivisionOutgoing = array_key_exists('only_division_outgoing', $options)
+    ? (bool)$options['only_division_outgoing']
+    : false;
+  if ($onlyDivisionOutgoing) {
+    $routes = array_values(array_filter($routes, static function (array $route) use ($divisionId): bool {
+      return (int)($route['from_division_id'] ?? 0) === $divisionId;
+    }));
+  }
 
   $tz = new DateTimeZone('Asia/Manila');
   $formatDateTime = static function (?string $raw) use ($tz): string {
@@ -717,17 +813,19 @@ function build_division_slip_flow_rows(mysqli $conn, int $documentId, int $divis
     ];
   };
 
+  $initialReceiveName = trim((string)($options['initial_receive_name'] ?? $assistantName));
+  $initialReceiveDatetime = trim((string)($options['initial_receive_datetime'] ?? ''));
   $rows = [];
   $routeCount = count($routes);
   for ($i = 0; $i < $routeCount; $i++) {
     $left = $i === 0
       ? [
-        'received_datetime' => '',
-        'received_name' => division_tracking_initials_label($assistantName),
+        'received_datetime' => $formatDateTime($initialReceiveDatetime),
+        'received_name' => division_tracking_initials_label($initialReceiveName),
       ]
       : $buildReceiveSide($routes[$i - 1]);
 
-    $right = $buildForwardSide($routes[$i], $i === 0 ? $assistantName : '');
+    $right = $buildForwardSide($routes[$i]);
     $rows[] = array_merge($left, $right);
   }
 

@@ -1725,11 +1725,13 @@ require __DIR__ . "/../includes/layout.php";
             <label>Own Division Tracking Number</label>
             <input
               type="text"
+              id="editDivisionTrackingNo"
               name="division_tracking_no"
               value="<?= htmlspecialchars($_POST["division_tracking_no"] ?? "") ?>"
               placeholder="<?= htmlspecialchars($ownDivisionTrackingPreview) ?>"
             >
             <div class="mini">Format: <?= htmlspecialchars($myDivisionCode) ?> MMDDYYNN.</div>
+            <div id="editDivisionTrackingDuplicateHint" class="mini" style="margin-top:6px; color:#b45309; display:none;"></div>
             <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-weight:700;">
               <input type="checkbox" name="force_duplicate_division_tracking" value="1" <?= (($_POST["force_duplicate_division_tracking"] ?? "") === "1") ? "checked" : "" ?>>
               Force allow duplicate tracking number
@@ -1866,8 +1868,9 @@ require __DIR__ . "/../includes/layout.php";
 
           <div style="margin-top:12px;">
             <label style="font-weight:800;display:block;margin-bottom:6px;">Own Division Tracking Number</label>
-            <input type="text" name="division_tracking_no" value="<?= htmlspecialchars($_POST["division_tracking_no"] ?? $ownDivisionTrackingPreview) ?>" placeholder="<?= htmlspecialchars($ownDivisionTrackingPreview) ?>">
+            <input type="text" id="createDivisionTrackingNo" name="division_tracking_no" value="<?= htmlspecialchars($_POST["division_tracking_no"] ?? $ownDivisionTrackingPreview) ?>" placeholder="<?= htmlspecialchars($ownDivisionTrackingPreview) ?>">
             <div class="mini" style="margin-top:6px;">Format: <?= htmlspecialchars($myDivisionCode) ?> MMDDYYNN. Auto-filled but editable.</div>
+            <div id="createDivisionTrackingDuplicateHint" class="mini" style="margin-top:6px; color:#b45309; display:none;"></div>
             <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-weight:700;">
               <input type="checkbox" name="force_duplicate_division_tracking" value="1" <?= (($_POST["force_duplicate_division_tracking"] ?? "") === "1") ? "checked" : "" ?>>
               Force allow duplicate tracking number
@@ -1955,6 +1958,8 @@ require __DIR__ . "/../includes/layout.php";
     "editMode" => $editMode,
     "hasOwnDivisionSlip" => $hasOwnDivisionSlip,
     "apiPath" => API_PATH,
+    "divisionTrackingLookupUrl" => API_PATH . "/division_tracking_duplicate_lookup.php",
+    "excludeDocumentId" => $editMode ? (int)$editDocumentId : 0,
     "sectionLabels" => $sectionLabelMap,
     "sectionMeta" => $sectionMetaMap,
     "divisionChiefTargets" => $divisionChiefTargets,

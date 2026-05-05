@@ -13,6 +13,8 @@
   const seedDestinationMode = cfg.seedDestinationMode && typeof cfg.seedDestinationMode === "object" ? cfg.seedDestinationMode : {};
   const seedPersonalDeadlineMap = cfg.seedPersonalDeadlineMap && typeof cfg.seedPersonalDeadlineMap === "object" ? cfg.seedPersonalDeadlineMap : {};
   const canSetPersonalDeadline = !!cfg.canSetPersonalDeadline;
+  const divisionTrackingLookupUrl = String(cfg.divisionTrackingLookupUrl || "");
+  const excludeDocumentId = Number(cfg.excludeDocumentId || 0);
 
   const contentTypeSelect = document.getElementById("contentTypeSelect");
   const contentTypeOtherWrap = document.getElementById("contentTypeOtherWrap");
@@ -28,6 +30,10 @@
   const btnSubmitReview = document.getElementById("btnSubmitReview");
   const btnRemoveSavedAttachment = document.getElementById("btnRemoveSavedAttachment");
   const savedAttachmentCard = document.getElementById("savedAttachmentCard");
+  const createDivisionTrackingNoInput = document.getElementById("createDivisionTrackingNo");
+  const createDivisionTrackingDuplicateHint = document.getElementById("createDivisionTrackingDuplicateHint");
+  const editDivisionTrackingNoInput = document.getElementById("editDivisionTrackingNo");
+  const editDivisionTrackingDuplicateHint = document.getElementById("editDivisionTrackingDuplicateHint");
 
   const destinationBuilder = document.querySelector(".destBuilderV2");
   const btnAddAllDivisionChiefs = document.getElementById("btnAddAllDivisionChiefs");
@@ -71,6 +77,8 @@
     });
   });
   syncCreationMode(selectedCreationMode());
+  createDivisionTrackingDuplicateWatcher(createDivisionTrackingNoInput, createDivisionTrackingDuplicateHint);
+  createDivisionTrackingDuplicateWatcher(editDivisionTrackingNoInput, editDivisionTrackingDuplicateHint);
 
   function esc(value) {
     return String(value ?? "").replace(/[&<>"']/g, (c) => ({
@@ -80,6 +88,61 @@
       '"': "&quot;",
       "'": "&#039;"
     }[c]));
+  }
+
+  function setDivisionTrackingDuplicateHint(el, message) {
+    if (!el) return;
+    el.textContent = String(message || "");
+    el.style.display = message ? "block" : "none";
+  }
+
+  function createDivisionTrackingDuplicateWatcher(input, hintEl) {
+    if (!input || !hintEl || !divisionTrackingLookupUrl) return;
+    let timer = null;
+    let seq = 0;
+
+    async function checkNow() {
+      const trackingNo = String(input.value || "").trim().toUpperCase();
+      if (!trackingNo) {
+        setDivisionTrackingDuplicateHint(hintEl, "");
+        return;
+      }
+
+      const currentSeq = ++seq;
+      try {
+        const qs = new URLSearchParams({
+          tracking_no: trackingNo,
+          exclude_document_id: String(excludeDocumentId)
+        });
+        const res = await fetch(`${divisionTrackingLookupUrl}?${qs.toString()}`, {
+          headers: { Accept: "application/json" },
+          cache: "no-store"
+        });
+        const data = await res.json().catch(() => null);
+        if (currentSeq !== seq) return;
+        if (!res.ok || !data?.ok || !data?.exists) {
+          setDivisionTrackingDuplicateHint(hintEl, "");
+          return;
+        }
+
+        const docTracking = String(data.document_tracking_no || "").trim() || `Document #${Number(data.document_id || 0)}`;
+        const subjectShort = String(data.subject_short || "").trim();
+        setDivisionTrackingDuplicateHint(
+          hintEl,
+          `This division tracking number already exists. See: ${docTracking}${subjectShort ? ` (SUBJECT: ${subjectShort})` : ""}`
+        );
+      } catch {
+        if (currentSeq !== seq) return;
+        setDivisionTrackingDuplicateHint(hintEl, "");
+      }
+    }
+
+    input.addEventListener("input", () => {
+      if (timer) clearTimeout(timer);
+      timer = window.setTimeout(checkNow, 260);
+    });
+    input.addEventListener("blur", checkNow);
+    checkNow();
   }
 
   function show(el, on) {

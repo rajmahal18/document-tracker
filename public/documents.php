@@ -80,6 +80,7 @@ $myDivisionId = (int)($myDivisionMeta['id'] ?? 0);
 $myDivisionCode = strtoupper(trim((string)($myDivisionMeta['code'] ?? '')));
 $hasOwnDivisionSlip = is_supported_division_tracking_code($myDivisionCode);
 $ownDivisionSlipLabel = $hasOwnDivisionSlip ? ($myDivisionCode . ' Tracking Slip') : '';
+$myDivisionCodeSql = $conn->real_escape_string($myDivisionCode);
 
 $pageTitle = "Documents - Document Tracker";
 require __DIR__ . "/../includes/layout.php";
@@ -90,6 +91,7 @@ require __DIR__ . "/../includes/layout.php";
 
   window.__CTX__ = {
     actualUserId: <?= (int)($_SESSION["user_id"] ?? 0) ?>,
+    actualFullName: "<?= htmlspecialchars((string)($_SESSION["full_name"] ?? "")) ?>",
     myUserId: <?= $assistantModeEnabled ? (int)($activeAssistantPrincipal['id'] ?? 0) : (int)($_SESSION["user_id"] ?? 0) ?>,
     mySectionId: <?= $assistantModeEnabled ? (int)($activeAssistantPrincipal['section_id'] ?? 0) : (int)($_SESSION["section_id"] ?? 0) ?>,
     myRole: "<?= htmlspecialchars($_SESSION["role"] ?? "user") ?>",
@@ -781,33 +783,76 @@ $sql = "
       ELSE 0
     END AS can_edit_details,
     CASE
-      WHEN {$isPrivilegedInt} = 1
-        OR d.created_by_user_id = {$myUid}
-        OR d.current_holder_section_id = {$mySid}
-        OR EXISTS (
-          SELECT 1
-          FROM routes r_slip
-          WHERE r_slip.document_id = d.id
-            AND r_slip.received_at IS NULL
-            AND r_slip.cancelled_at IS NULL
-            AND (
-              r_slip.to_user_id = {$myUid}
-              OR r_slip.to_section_id = {$mySid}
-            )
-        )
+      WHEN EXISTS (
+        SELECT 1
+        FROM sections s_slip_holder
+        WHERE s_slip_holder.id = d.current_holder_section_id
+          AND s_slip_holder.division_id = {$myDivisionId}
+      )
         OR EXISTS (
           SELECT 1
           FROM document_branches b_slip
+          JOIN sections s_branch_slip ON s_branch_slip.id = b_slip.current_assignee_section_id
           WHERE b_slip.document_id = d.id
             AND b_slip.branch_status = 'ACTIVE'
-            AND (
-              b_slip.current_assignee_user_id = {$myUid}
-              OR b_slip.current_assignee_section_id = {$mySid}
-            )
+            AND b_slip.is_reference = 0
+            AND s_branch_slip.division_id = {$myDivisionId}
         )
       THEN 1
       ELSE 0
     END AS can_regenerate_division_slip,
+    CASE
+      WHEN EXISTS (
+        SELECT 1
+        FROM document_attachments a_divslip
+        WHERE a_divslip.document_id = d.id
+          AND a_divslip.is_deleted = 0
+          AND (
+            a_divslip.note = 'AUTO:DIVISION_TRACKING_SLIP:{$myDivisionCodeSql}'
+            OR ('{$myDivisionCodeSql}' = 'PPD' AND a_divslip.note = 'AUTO:PPD_TRACKING_SLIP')
+          )
+      )
+      THEN 1
+      ELSE 0
+    END AS has_my_division_slip,
+    COALESCE((
+      SELECT ddt_my.tracking_no
+      FROM document_division_tracking ddt_my
+      WHERE ddt_my.document_id = d.id
+        AND ddt_my.division_id = {$myDivisionId}
+      LIMIT 1
+    ), '') AS my_division_tracking_no,
+    COALESCE((
+      SELECT r_div_recv.received_at
+      FROM routes r_div_recv
+      JOIN sections s_div_recv ON s_div_recv.id = r_div_recv.to_section_id
+      WHERE r_div_recv.document_id = d.id
+        AND r_div_recv.cancelled_at IS NULL
+        AND r_div_recv.received_at IS NOT NULL
+        AND s_div_recv.division_id = {$myDivisionId}
+      ORDER BY r_div_recv.received_at DESC, r_div_recv.id DESC
+      LIMIT 1
+    ), '') AS my_division_latest_received_at,
+    COALESCE((
+      SELECT COALESCE(NULLIF(TRIM(u_div_recv.full_name), ''), COALESCE(NULLIF(TRIM(u_div_to.full_name), ''), ''))
+      FROM routes r_div_recv
+      JOIN sections s_div_recv ON s_div_recv.id = r_div_recv.to_section_id
+      LEFT JOIN users u_div_recv ON u_div_recv.id = r_div_recv.received_by_user_id
+      LEFT JOIN users u_div_to ON u_div_to.id = r_div_recv.to_user_id
+      WHERE r_div_recv.document_id = d.id
+        AND r_div_recv.cancelled_at IS NULL
+        AND r_div_recv.received_at IS NOT NULL
+        AND s_div_recv.division_id = {$myDivisionId}
+      ORDER BY r_div_recv.received_at DESC, r_div_recv.id DESC
+      LIMIT 1
+    ), '') AS my_division_latest_received_by,
+    COALESCE((
+      SELECT d_origin.code
+      FROM sections s_origin_div
+      JOIN divisions d_origin ON d_origin.id = s_origin_div.division_id
+      WHERE s_origin_div.id = d.origin_section_id
+      LIMIT 1
+    ), '') AS origin_division_code,
     COALESCE((
       SELECT r_my_open.id
       FROM routes r_my_open
@@ -1874,6 +1919,15 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
 .docsViewTabs{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px}.docsViewTab{padding:10px 14px;border-radius:12px;border:1px solid rgba(15,23,42,.12);background:#fff;color:#0f172a;text-decoration:none;font-weight:700}.docsViewTab.isActive{background:#0f172a;color:#fff}.docsAssistantBar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 16px;padding:14px;border:1px solid rgba(15,23,42,.08);border-radius:16px;background:#fff}.docsAssistantIdentity{display:flex;align-items:center;gap:10px;min-width:min(100%,360px)}.docsAssistantField{display:block;min-width:0}.docsAssistantBar label,.docsAssistantFieldLabel{display:block;font-size:12px;font-weight:800;color:#475569;margin-bottom:6px}.docsAssistantBar select{width:min(100%,260px);padding:10px 12px;border-radius:12px;border:1px solid rgba(15,23,42,.12);background:#fff}.docsAssistantHint{font-size:12px;color:#64748b;min-width:220px;flex:1}@media(max-width:640px){.docsAssistantBar{align-items:stretch}.docsAssistantIdentity{width:100%}.docsAssistantField{flex:1}.docsAssistantBar select{width:100%;min-width:0}.docsAssistantHint{min-width:100%}}
 .forwardModalCard{width:min(100%,760px);max-width:calc(100vw - 24px);max-height:min(88vh,820px);box-sizing:border-box;overflow:hidden}
 .forwardModalBody{display:grid;gap:12px;overflow-x:hidden}
+.forwardCompactToolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.forwardCompactToolbarLabel,.forwardSectionLabel{font-size:12px;font-weight:900;color:#0f172a}
+.forwardCompactToolbarLabel{flex:0 0 auto;white-space:nowrap}
+.forwardCompactToolbar .select{flex:1 1 320px;min-width:260px}
+.forwardUserTools{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.forwardUserTools .btnSecondary{padding:6px 10px;white-space:nowrap}
+.forwardRecipientList{border:1px solid rgba(0,0,0,.12);border-radius:12px;padding:10px;max-height:260px;overflow:auto}
+.forwardRecipientsPreview{opacity:.75}
+.forwardBodyNote{opacity:.75}
 .modalHeader{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
 .modalHeader h3{margin:0;font-size:30px;line-height:1.05;color:#0f172a}
 .modalClose{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:12px;border:1px solid rgba(15,23,42,.12);background:#fff;color:#475569;font-size:24px;line-height:1;flex:0 0 auto}
@@ -1885,7 +1939,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
 .sendTypeOption span{font-size:13px;line-height:1.45;color:#64748b}
 .sendTypeOption:hover{border-color:#2f5f98;background:linear-gradient(180deg,#f8fbff 0%,#eef5ff 100%)}
 .shareSectionLabel{font-size:12px;font-weight:900}
-@media(max-width:640px){.forwardModalCard{max-width:calc(100vw - 16px);max-height:min(92vh,900px)}.modalHeader{gap:10px}.modalHeader h3{font-size:24px}.modalClose{width:34px;height:34px;border-radius:10px}.sendTypeOption{padding:14px}.sendTypeOption strong{font-size:16px}}
+@media(max-width:640px){.forwardModalCard{max-width:calc(100vw - 16px);max-height:min(92vh,900px)}.forwardCompactToolbar{align-items:stretch}.forwardCompactToolbar .select{min-width:0;flex:1 1 100%}.forwardUserTools{width:100%}.forwardUserTools .btnSecondary{flex:1 1 0}.forwardRecipientList{max-height:min(34vh,240px)}.modalHeader{gap:10px}.modalHeader h3{font-size:24px}.modalClose{width:34px;height:34px;border-radius:10px}.sendTypeOption{padding:14px}.sendTypeOption strong{font-size:16px}}
 </style>
 <div class="docsPageShell">
   <div class="docsViewTabs" aria-label="Documents view tabs">
@@ -2649,6 +2703,11 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
                 "open_route_count" => $openCount,
                 "can_edit_details" => (int)($d["can_edit_details"] ?? 0),
                 "can_regenerate_division_slip" => (int)($d["can_regenerate_division_slip"] ?? 0),
+                "has_my_division_slip" => (int)($d["has_my_division_slip"] ?? 0),
+                "my_division_tracking_no" => (string)($d["my_division_tracking_no"] ?? ""),
+                "my_division_latest_received_at" => (string)($d["my_division_latest_received_at"] ?? ""),
+                "my_division_latest_received_by" => (string)($d["my_division_latest_received_by"] ?? ""),
+                "origin_division_code" => (string)($d["origin_division_code"] ?? ""),
 
                 "movement_text" => $movementText,
                 "current_holder_text" => $currentHolderText,
@@ -2941,7 +3000,7 @@ $end   = min($totalPages, $page + 2);
     <div class="drawerRow" id="rowPpdSlip" style="display:none;">
       <div class="k" id="rowPpdSlipLabel"><?= htmlspecialchars($ownDivisionSlipLabel !== "" ? $ownDivisionSlipLabel : "Division Tracking Slip") ?></div>
       <div class="v" style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
-        <button type="button" class="btnSecondary" id="btnPpdSlipGenerate">Generate</button>
+        <button type="button" class="btnSecondary" id="btnPpdSlipGenerate">Generate division slip</button>
         <button type="button" class="btnSecondary" id="btnPpdSlipAttach">Attach</button>
         <button type="button" class="btnComp" id="btnPpdSlipPrint" disabled>Print</button>
       </div>
@@ -2958,7 +3017,7 @@ $end   = min($totalPages, $page + 2);
       </div>
 
       <div class="drawerSectionActions">
-        <button type="button" class="btnSecondary" id="btnRegenerateDivisionSlip" style="display:none;">Generate latest slip</button>
+        <button type="button" class="btnSecondary" id="btnRegenerateDivisionSlip" style="display:none;">Generate division slip</button>
         <button type="button" class="btnSecondary" id="btnToggleUpload">Add attachment</button>
       </div>
 
@@ -3019,29 +3078,30 @@ $end   = min($totalPages, $page + 2);
     </div>
 
     <div class="modalBody forwardModalBody">
-      <label style="font-size:12px; font-weight:900;">Forward To</label>
+      <div class="forwardCompactToolbar">
+        <label for="f_to_section" class="forwardCompactToolbarLabel">Forward To</label>
 
-      <select id="f_to_section" class="select" style="min-width:100%; margin-top:6px;">
-        <option value="">-- Select section --</option>
-      </select>
+        <select id="f_to_section" class="select">
+          <option value="">-- Select section --</option>
+        </select>
 
-      <label style="font-size:12px; font-weight:900; margin-top:14px; display:block;">Recipients</label>
-
-      <div class="forwardUserTools" style="display:flex; gap:8px; margin:6px 0 8px;">
-        <button type="button" class="btnSecondary" id="btnUserSelectAll" style="padding:6px 10px;">Select all</button>
-        <button type="button" class="btnSecondary" id="btnUserClear" style="padding:6px 10px;">Clear</button>
+        <div class="forwardUserTools">
+          <button type="button" class="btnSecondary" id="btnUserSelectAll">Select all</button>
+          <button type="button" class="btnSecondary" id="btnUserClear">Clear</button>
+        </div>
       </div>
 
-      <div id="f_user_list" class="userChecklist mini"
-          style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:10px; max-height:220px; overflow:auto;">
-        <div style="opacity:.7;">Select a section to load users…</div>
-      </div>
+      <label class="forwardSectionLabel">Recipients</label>
 
-      <div id="forwardRecipientsPreview" class="mini" style="opacity:.75; margin-top:6px;">
+      <div id="f_user_list" class="userChecklist mini forwardRecipientList">
+          <div style="opacity:.7;">Select a section to load users…</div>
+        </div>
+
+      <div id="forwardRecipientsPreview" class="mini forwardRecipientsPreview">
         Recipients: —
       </div>
 
-      <div class="mini" style="margin-top:8px; opacity:.75;">Use one recipient for actionable forwarding. For view-only sharing, use Share visibility.</div>
+      <div class="mini forwardBodyNote">Use one recipient for actionable forwarding. For view-only sharing, use Share visibility.</div>
 
       <div class="forwardDeadlineGrid" id="forwardDeadlineGrid" style="display:none;">
         <div id="forwardDocumentDeadlineWrap" class="forwardDeadlineWrap" style="display:none;">
@@ -3157,6 +3217,38 @@ $end   = min($totalPages, $page + 2);
     <div class="modalFooter">
       <button id="btnShareVisibilityCancel" type="button" class="btnSecondary">Cancel</button>
       <button id="btnShareVisibilitySend" type="button" class="btnComp">Share visibility</button>
+    </div>
+  </div>
+</div>
+
+<div id="divisionSlipModal" class="modalWrap" aria-hidden="true">
+  <div id="divisionSlipModalBackdrop" class="modalBackdrop"></div>
+  <div class="modalCard forwardModalCard" style="max-width:620px;">
+    <div class="modalHeader">
+      <div>
+        <h3 id="divisionSlipModalTitle">Generate division slip</h3>
+        <div class="attSub mini">Review the division tracking details before generating this division's slip.</div>
+      </div>
+      <button id="divisionSlipModalClose" class="modalClose" type="button" aria-label="Close">&times;</button>
+    </div>
+
+    <div class="modalBody forwardModalBody">
+      <label for="divisionSlipTrackingNo" style="font-size:12px; font-weight:900;">Division tracking no.</label>
+      <input id="divisionSlipTrackingNo" type="text" class="search" style="width:100%; margin-top:6px;" placeholder="<?= htmlspecialchars($myDivisionCode !== '' ? $myDivisionCode . ' MMDDYYNN' : 'Division tracking number') ?>">
+      <div class="mini" style="margin-top:6px; opacity:.75;">Format: <?= htmlspecialchars($myDivisionCode !== '' ? $myDivisionCode . ' MMDDYYNN' : 'DIVISION MMDDYYNN') ?>. Editable before generate.</div>
+      <div id="divisionSlipTrackingDuplicateHint" class="mini" style="margin-top:6px; color:#b45309; display:none;"></div>
+
+      <label for="divisionSlipReceivedBy" style="font-size:12px; font-weight:900; margin-top:8px;">Received by</label>
+      <input id="divisionSlipReceivedBy" type="text" class="search" style="width:100%; margin-top:6px;" placeholder="Name of receiver">
+
+      <label for="divisionSlipReceivedAt" style="font-size:12px; font-weight:900; margin-top:8px;">Received date and time</label>
+      <input id="divisionSlipReceivedAt" type="datetime-local" class="search" style="width:100%; margin-top:6px;">
+      <div id="divisionSlipModalHint" class="mini" style="margin-top:6px; opacity:.75;">Defaults follow your division's current receipt context.</div>
+    </div>
+
+    <div class="modalFooter">
+      <button id="btnDivisionSlipCancel" type="button" class="btnSecondary">Cancel</button>
+      <button id="btnDivisionSlipConfirm" type="button" class="btnComp">Generate</button>
     </div>
   </div>
 </div>
