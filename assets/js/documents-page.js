@@ -4469,3 +4469,69 @@ document.addEventListener("click", function (e) {
 
   sections.forEach(({ el }) => observer.observe(el));
 })();
+
+(function () {
+  const form = document.querySelector(".docsToolbarSearch");
+  if (!(form instanceof HTMLFormElement)) return;
+
+  const searchInput = form.querySelector('input[name="q"]');
+  const sortSelect = form.querySelector('select[name="sort"]');
+  if (!(searchInput instanceof HTMLInputElement) && !(sortSelect instanceof HTMLSelectElement)) return;
+
+  const SUBMIT_DELAY_MS = 380;
+  let debounceTimer = 0;
+  let isComposing = false;
+  let lastSubmittedValue = searchInput instanceof HTMLInputElement ? searchInput.value : "";
+  let lastSubmittedSort = sortSelect instanceof HTMLSelectElement ? sortSelect.value : "";
+
+  function clearPendingSubmit() {
+    if (debounceTimer) {
+      window.clearTimeout(debounceTimer);
+      debounceTimer = 0;
+    }
+  }
+
+  function submitSearch() {
+    clearPendingSubmit();
+    const nextValue = searchInput instanceof HTMLInputElement ? searchInput.value : "";
+    const nextSort = sortSelect instanceof HTMLSelectElement ? sortSelect.value : "";
+    if (nextValue === lastSubmittedValue && nextSort === lastSubmittedSort) return;
+    lastSubmittedValue = nextValue;
+    lastSubmittedSort = nextSort;
+    form.requestSubmit();
+  }
+
+  if (searchInput instanceof HTMLInputElement) {
+    searchInput.addEventListener("compositionstart", () => {
+      isComposing = true;
+      clearPendingSubmit();
+    });
+
+    searchInput.addEventListener("compositionend", () => {
+      isComposing = false;
+      submitSearch();
+    });
+
+    searchInput.addEventListener("input", () => {
+      if (isComposing) return;
+      clearPendingSubmit();
+      debounceTimer = window.setTimeout(submitSearch, SUBMIT_DELAY_MS);
+    });
+
+    searchInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      submitSearch();
+    });
+  }
+
+  if (sortSelect instanceof HTMLSelectElement) {
+    sortSelect.addEventListener("change", submitSearch);
+  }
+
+  form.addEventListener("submit", () => {
+    lastSubmittedValue = searchInput instanceof HTMLInputElement ? searchInput.value : "";
+    lastSubmittedSort = sortSelect instanceof HTMLSelectElement ? sortSelect.value : "";
+    clearPendingSubmit();
+  });
+})();

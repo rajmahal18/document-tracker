@@ -2194,7 +2194,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
     </div>
 
     <div class="docsControlsGrid">
-      <form class="toolbar toolbarSearch docsToolbarSearch" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
+      <form id="docsSearchForm" class="toolbar toolbarSearch docsToolbarSearch" method="GET" action="<?= PUBLIC_PATH ?>/documents.php#docsSearchForm">
         <input type="hidden" name="view" value="<?= htmlspecialchars($requestedDocumentsTab) ?>">
         <?php if ($assistantModeEnabled): ?><input type="hidden" name="acting_principal_user_id" value="<?= (int)($activeAssistantPrincipal['id'] ?? 0) ?>"><?php endif; ?>
         <input type="hidden" name="status" value="<?= htmlspecialchars($statusGet) ?>">
@@ -2219,8 +2219,6 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
             <option value="oldest" <?= $sort === "oldest" ? "selected" : "" ?>>Oldest document date</option>
           </select>
         </div>
-
-        <button type="submit" class="btnSecondary docsControlBtn">Search</button>
       </form>
 
       <form class="toolbar toolbarFilters docsToolbarFilters" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">

@@ -562,7 +562,11 @@ body[data-theme="dark"] .docsCalendarWeekBtn {
   backdrop-filter: none;
 }
 
-.docsToolbarSearch { grid-template-columns: minmax(0, 1fr) 220px 132px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.65); }
+.docsToolbarSearch {
+  grid-template-columns: minmax(0, 1.55fr) minmax(220px, 0.8fr);
+  align-items: end;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.65);
+}
 .docsToolbarFilters { grid-template-columns: repeat(3, minmax(0, 1fr)) 128px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.65); }
 .docsToolbarSearch .search,
 .docsToolbarSearch .select,
@@ -570,6 +574,13 @@ body[data-theme="dark"] .docsCalendarWeekBtn {
 .docsToolbarFilters .date { background: rgba(255,255,255,0.95); }
 .docsSearchControl,
 .docsSortControl { min-width: 0; }
+.docsSearchControl { display: grid; gap: 8px; }
+.docsSortControl {
+  display: grid;
+  gap: 8px;
+  justify-self: end;
+  width: min(100%, 280px);
+}
 .docsControlBtn { height: 42px; align-self: end; }
 
 .docsTableWrap {
@@ -966,7 +977,7 @@ body[data-theme="dark"] .docsToolbarFilters .date {
 
 @media (max-width: 1200px) {
   .docsControlsGrid { grid-template-columns: 1fr; }
-  .docsToolbarSearch { grid-template-columns: minmax(0, 1fr) 220px 132px; }
+  .docsToolbarSearch { grid-template-columns: minmax(0, 1fr) 240px; }
 }
 
 @media (max-width: 900px) {
@@ -981,6 +992,10 @@ body[data-theme="dark"] .docsToolbarFilters .date {
   .docsHeroActions { width: 100%; justify-content: flex-start; }
   .docsToolbarSearch,
   .docsToolbarFilters { grid-template-columns: 1fr; }
+  .docsSortControl {
+    justify-self: stretch;
+    width: 100%;
+  }
   .docsControlBtn,
   .docsAddBtn,
   .docsClearFilters { width: 100%; }
