@@ -2194,7 +2194,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
     </div>
 
     <div class="docsControlsGrid">
-      <form id="docsSearchForm" class="toolbar toolbarSearch docsToolbarSearch" method="GET" action="<?= PUBLIC_PATH ?>/documents.php#docsSearchForm">
+      <form id="docsSearchForm" class="toolbar toolbarSearch docsToolbarSearch" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
         <input type="hidden" name="view" value="<?= htmlspecialchars($requestedDocumentsTab) ?>">
         <?php if ($assistantModeEnabled): ?><input type="hidden" name="acting_principal_user_id" value="<?= (int)($activeAssistantPrincipal['id'] ?? 0) ?>"><?php endif; ?>
         <input type="hidden" name="status" value="<?= htmlspecialchars($statusGet) ?>">

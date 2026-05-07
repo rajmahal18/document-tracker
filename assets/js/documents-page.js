@@ -3804,14 +3804,21 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
   closeBtn?.addEventListener("click", closeDrawer);
   backdrop?.addEventListener("click", closeDrawer);
 
-  document.querySelectorAll("[data-doc]").forEach((row) => {
-    row.addEventListener("click", () => {
-      const raw = row.getAttribute("data-doc") || "{}";
-      let payload;
-      try { payload = JSON.parse(raw); } catch { payload = {}; }
-      openDrawer(payload);
+  function bindDocumentRows(scope = document) {
+    scope.querySelectorAll("[data-doc]").forEach((row) => {
+      if (row.dataset.drawerBound === "1") return;
+      row.dataset.drawerBound = "1";
+      row.addEventListener("click", () => {
+        const raw = row.getAttribute("data-doc") || "{}";
+        let payload;
+        try { payload = JSON.parse(raw); } catch { payload = {}; }
+        openDrawer(payload);
+      });
     });
-  });
+  }
+
+  window.DTBindDocumentRows = bindDocumentRows;
+  bindDocumentRows();
 
   const restoreState = consumeDrawerRestoreState();
   if (restoreState?.docId) {
@@ -4472,15 +4479,20 @@ document.addEventListener("click", function (e) {
 
 (function () {
   const form = document.querySelector(".docsToolbarSearch");
+  const docsList = document.getElementById("docsList");
   if (!(form instanceof HTMLFormElement)) return;
+  if (!(docsList instanceof HTMLDivElement)) return;
 
   const searchInput = form.querySelector('input[name="q"]');
   const sortSelect = form.querySelector('select[name="sort"]');
   if (!(searchInput instanceof HTMLInputElement) && !(sortSelect instanceof HTMLSelectElement)) return;
 
   const SUBMIT_DELAY_MS = 380;
+  const DELETE_SUBMIT_DELAY_MS = 720;
   let debounceTimer = 0;
   let isComposing = false;
+  let pendingInputDelay = SUBMIT_DELAY_MS;
+  let activeRequest = null;
   let lastSubmittedValue = searchInput instanceof HTMLInputElement ? searchInput.value : "";
   let lastSubmittedSort = sortSelect instanceof HTMLSelectElement ? sortSelect.value : "";
 
@@ -4491,17 +4503,77 @@ document.addEventListener("click", function (e) {
     }
   }
 
-  function submitSearch() {
+  function setSearchBusy(isBusy) {
+    form.dataset.searchBusy = isBusy ? "1" : "0";
+    docsList.dataset.searchBusy = isBusy ? "1" : "0";
+    if (searchInput instanceof HTMLInputElement) searchInput.setAttribute("aria-busy", isBusy ? "true" : "false");
+    if (sortSelect instanceof HTMLSelectElement) sortSelect.disabled = isBusy;
+  }
+
+  async function submitSearch() {
     clearPendingSubmit();
     const nextValue = searchInput instanceof HTMLInputElement ? searchInput.value : "";
     const nextSort = sortSelect instanceof HTMLSelectElement ? sortSelect.value : "";
     if (nextValue === lastSubmittedValue && nextSort === lastSubmittedSort) return;
-    lastSubmittedValue = nextValue;
-    lastSubmittedSort = nextSort;
-    form.requestSubmit();
+
+    const selectionStart = searchInput instanceof HTMLInputElement ? (searchInput.selectionStart ?? nextValue.length) : 0;
+    const selectionEnd = searchInput instanceof HTMLInputElement ? (searchInput.selectionEnd ?? nextValue.length) : 0;
+    const activeElement = document.activeElement;
+    const params = new URLSearchParams(new FormData(form));
+    const url = new URL(form.action || window.location.href, window.location.origin);
+    url.search = params.toString();
+
+    activeRequest?.abort();
+    const controller = new AbortController();
+    activeRequest = controller;
+    setSearchBusy(true);
+
+    try {
+      const res = await fetch(url.toString(), {
+        headers: {
+          "X-Requested-With": "XMLHttpRequest"
+        },
+        signal: controller.signal,
+        cache: "no-store"
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const html = await res.text();
+      const parsed = new DOMParser().parseFromString(html, "text/html");
+      const nextDocsList = parsed.getElementById("docsList");
+      if (!(nextDocsList instanceof HTMLDivElement)) throw new Error("Results container missing");
+
+      docsList.innerHTML = nextDocsList.innerHTML;
+      window.DTBindDocumentRows?.(docsList);
+      window.history.replaceState({}, "", url.toString());
+
+      lastSubmittedValue = nextValue;
+      lastSubmittedSort = nextSort;
+
+      if (searchInput instanceof HTMLInputElement && activeElement === searchInput) {
+        searchInput.focus({ preventScroll: true });
+        const max = searchInput.value.length;
+        searchInput.setSelectionRange(
+          Math.max(0, Math.min(selectionStart, max)),
+          Math.max(0, Math.min(selectionEnd, max))
+        );
+      }
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      window.location.href = url.toString();
+    } finally {
+      if (activeRequest === controller) activeRequest = null;
+      if (!controller.signal.aborted) setSearchBusy(false);
+    }
   }
 
   if (searchInput instanceof HTMLInputElement) {
+    searchInput.addEventListener("keydown", (event) => {
+      pendingInputDelay = (event.key === "Backspace" || event.key === "Delete")
+        ? DELETE_SUBMIT_DELAY_MS
+        : SUBMIT_DELAY_MS;
+    });
+
     searchInput.addEventListener("compositionstart", () => {
       isComposing = true;
       clearPendingSubmit();
@@ -4515,7 +4587,7 @@ document.addEventListener("click", function (e) {
     searchInput.addEventListener("input", () => {
       if (isComposing) return;
       clearPendingSubmit();
-      debounceTimer = window.setTimeout(submitSearch, SUBMIT_DELAY_MS);
+      debounceTimer = window.setTimeout(submitSearch, pendingInputDelay);
     });
 
     searchInput.addEventListener("keydown", (event) => {
@@ -4529,9 +4601,9 @@ document.addEventListener("click", function (e) {
     sortSelect.addEventListener("change", submitSearch);
   }
 
-  form.addEventListener("submit", () => {
-    lastSubmittedValue = searchInput instanceof HTMLInputElement ? searchInput.value : "";
-    lastSubmittedSort = sortSelect instanceof HTMLSelectElement ? sortSelect.value : "";
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
     clearPendingSubmit();
+    void submitSearch();
   });
 })();
