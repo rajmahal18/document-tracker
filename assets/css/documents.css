@@ -529,19 +529,34 @@ body[data-theme="dark"] .docsCalendarWeekBtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 38px;
-  padding: 0 14px;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
   border-radius: 999px;
-  border: 1px solid rgba(11, 58, 102, 0.14);
-  background: rgba(11, 58, 102, 0.04);
-  color: #0b3a66;
+  border: 1px solid rgba(185, 28, 28, 0.22);
+  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(254, 226, 226, 0.96));
+  color: #b42318;
   text-decoration: none;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 900;
+  letter-spacing: .01em;
   white-space: nowrap;
+  box-shadow: 0 8px 18px rgba(185, 28, 28, 0.10);
+  transition: background .18s ease, border-color .18s ease, box-shadow .18s ease, color .18s ease, transform .18s ease;
 }
 
-.docsClearFilters:hover { background: rgba(11, 58, 102, 0.08); }
+.docsClearFilters::before {
+  content: "↺";
+  font-size: 13px;
+  line-height: 1;
+}
+
+.docsClearFilters:hover {
+  background: linear-gradient(180deg, rgba(255,255,255,1), rgba(254, 205, 211, 0.98));
+  border-color: rgba(185, 28, 28, 0.34);
+  box-shadow: 0 12px 22px rgba(185, 28, 28, 0.14);
+  transform: translateY(-1px);
+}
 
 .docsControlsGrid {
   display: grid;

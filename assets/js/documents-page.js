@@ -4493,6 +4493,7 @@ document.addEventListener("click", function (e) {
   let isComposing = false;
   let pendingInputDelay = SUBMIT_DELAY_MS;
   let activeRequest = null;
+  let inputRevision = 0;
   let lastSubmittedValue = searchInput instanceof HTMLInputElement ? searchInput.value : "";
   let lastSubmittedSort = sortSelect instanceof HTMLSelectElement ? sortSelect.value : "";
 
@@ -4519,6 +4520,7 @@ document.addEventListener("click", function (e) {
     const selectionStart = searchInput instanceof HTMLInputElement ? (searchInput.selectionStart ?? nextValue.length) : 0;
     const selectionEnd = searchInput instanceof HTMLInputElement ? (searchInput.selectionEnd ?? nextValue.length) : 0;
     const activeElement = document.activeElement;
+    const submitRevision = inputRevision;
     const params = new URLSearchParams(new FormData(form));
     const url = new URL(form.action || window.location.href, window.location.origin);
     url.search = params.toString();
@@ -4542,6 +4544,7 @@ document.addEventListener("click", function (e) {
       const parsed = new DOMParser().parseFromString(html, "text/html");
       const nextDocsList = parsed.getElementById("docsList");
       if (!(nextDocsList instanceof HTMLDivElement)) throw new Error("Results container missing");
+      if (submitRevision !== inputRevision) return;
 
       docsList.innerHTML = nextDocsList.innerHTML;
       window.DTBindDocumentRows?.(docsList);
@@ -4550,7 +4553,12 @@ document.addEventListener("click", function (e) {
       lastSubmittedValue = nextValue;
       lastSubmittedSort = nextSort;
 
-      if (searchInput instanceof HTMLInputElement && activeElement === searchInput) {
+      if (
+        searchInput instanceof HTMLInputElement
+        && activeElement === searchInput
+        && searchInput.value === nextValue
+        && submitRevision === inputRevision
+      ) {
         searchInput.focus({ preventScroll: true });
         const max = searchInput.value.length;
         searchInput.setSelectionRange(
@@ -4586,6 +4594,12 @@ document.addEventListener("click", function (e) {
 
     searchInput.addEventListener("input", () => {
       if (isComposing) return;
+      inputRevision += 1;
+      if (activeRequest) {
+        activeRequest.abort();
+        activeRequest = null;
+        setSearchBusy(false);
+      }
       clearPendingSubmit();
       debounceTimer = window.setTimeout(submitSearch, pendingInputDelay);
     });

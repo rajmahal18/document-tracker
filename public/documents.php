@@ -1916,7 +1916,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
 
 <?php $hasActiveFilters = ($search !== "" || $statusGet !== "" || $date_from !== "" || $date_to !== "" || $quick !== "" || ($sort !== "" && $sort !== "workflow")); ?>
 <style>
-.docsViewTabs{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px}.docsViewTab{padding:10px 14px;border-radius:12px;border:1px solid rgba(15,23,42,.12);background:#fff;color:#0f172a;text-decoration:none;font-weight:700}.docsViewTab.isActive{background:#0f172a;color:#fff}.docsAssistantBar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 16px;padding:14px;border:1px solid rgba(15,23,42,.08);border-radius:16px;background:#fff}.docsAssistantIdentity{display:flex;align-items:center;gap:10px;min-width:min(100%,360px)}.docsAssistantField{display:block;min-width:0}.docsAssistantBar label,.docsAssistantFieldLabel{display:block;font-size:12px;font-weight:800;color:#475569;margin-bottom:6px}.docsAssistantBar select{width:min(100%,260px);padding:10px 12px;border-radius:12px;border:1px solid rgba(15,23,42,.12);background:#fff}.docsAssistantHint{font-size:12px;color:#64748b;min-width:220px;flex:1}@media(max-width:640px){.docsAssistantBar{align-items:stretch}.docsAssistantIdentity{width:100%}.docsAssistantField{flex:1}.docsAssistantBar select{width:100%;min-width:0}.docsAssistantHint{min-width:100%}}
+.docsTopRail{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 14px}.docsViewTabs{display:flex;gap:10px;flex-wrap:wrap;margin:0;flex:1 1 auto}.docsViewTab{padding:10px 14px;border-radius:12px;border:1px solid rgba(15,23,42,.12);background:#fff;color:#0f172a;text-decoration:none;font-weight:700}.docsViewTab.isActive{background:#0f172a;color:#fff}.docsAssistantBar{display:flex;gap:10px;align-items:center;justify-content:flex-end;flex:0 1 auto;min-width:min(100%,560px);margin:0;padding:8px 10px;border:1px solid rgba(11,58,102,.12);border-radius:18px;background:linear-gradient(135deg,rgba(255,255,255,.98),rgba(243,248,252,.98) 56%,rgba(231,240,249,.98));box-shadow:0 12px 28px rgba(15,23,42,.06),inset 0 1px 0 rgba(255,255,255,.72)}.docsAssistantBadge{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:0 10px;border-radius:999px;background:linear-gradient(135deg,#0b3a66,#1d5a91);color:#fff;font-size:11px;font-weight:900;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;box-shadow:0 8px 18px rgba(11,58,102,.18)}.docsAssistantIdentity{display:flex;align-items:center;gap:10px;min-width:0;flex:0 1 auto;padding:6px 8px 6px 6px;border-radius:14px;background:rgba(255,255,255,.78);border:1px solid rgba(255,255,255,.86)}.docsAssistantIdentity .appAvatar{box-shadow:0 6px 16px rgba(15,23,42,.12)}.docsAssistantField{display:block;min-width:0}.docsAssistantBar label,.docsAssistantFieldLabel{display:block;font-size:10px;font-weight:900;color:#486581;margin-bottom:4px;letter-spacing:.05em;text-transform:uppercase}.docsAssistantBar select{width:min(100%,250px);padding:9px 34px 9px 12px;border-radius:12px;border:1px solid rgba(15,23,42,.1);background:#fff;color:#0f172a;font-weight:700;box-shadow:inset 0 1px 0 rgba(255,255,255,.72)}.docsAssistantHint{display:grid;gap:2px;min-width:0;max-width:250px;line-height:1.3;flex:0 1 250px}.docsAssistantHint strong{font-size:12px;color:#0f172a;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.docsAssistantHint span{font-size:11px;color:#64748b}@media(max-width:980px){.docsTopRail{align-items:stretch}.docsViewTabs{flex:1 1 100%}.docsAssistantBar{flex:1 1 100%;justify-content:flex-start}}@media(max-width:640px){.docsAssistantBar{align-items:stretch;flex-wrap:wrap;padding:12px}.docsAssistantBadge{min-height:30px}.docsAssistantIdentity{width:100%}.docsAssistantField{flex:1}.docsAssistantBar select{width:100%;min-width:0}.docsAssistantHint{max-width:none;flex:1 1 100%}}
 .forwardModalCard{width:min(100%,760px);max-width:calc(100vw - 24px);max-height:min(88vh,820px);box-sizing:border-box;overflow:hidden}
 .forwardModalBody{display:grid;gap:12px;overflow-x:hidden}
 .forwardCompactToolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -1942,16 +1942,17 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
 @media(max-width:640px){.forwardModalCard{max-width:calc(100vw - 16px);max-height:min(92vh,900px)}.forwardCompactToolbar{align-items:stretch}.forwardCompactToolbar .select{min-width:0;flex:1 1 100%}.forwardUserTools{width:100%}.forwardUserTools .btnSecondary{flex:1 1 0}.forwardRecipientList{max-height:min(34vh,240px)}.modalHeader{gap:10px}.modalHeader h3{font-size:24px}.modalClose{width:34px;height:34px;border-radius:10px}.sendTypeOption{padding:14px}.sendTypeOption strong{font-size:16px}}
 </style>
 <div class="docsPageShell">
-  <div class="docsViewTabs" aria-label="Documents view tabs">
-    <a class="docsViewTab <?= $currentDocumentsView === 'my' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(documentsUrl(['view' => 'my', 'acting_principal_user_id' => null, 'page' => 1])) ?>">My documents</a>
-    <?php if ($assistantPrincipals !== []): ?>
-      <a class="docsViewTab <?= $currentDocumentsView === 'assistant' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(documentsUrl(['view' => 'assistant', 'acting_principal_user_id' => (int)($activeAssistantPrincipal['id'] ?? $assistantPrincipals[0]['id'] ?? 0), 'page' => 1])) ?>">Assistant mode</a>
-    <?php endif; ?>
-    <?php if ($isAdminUser): ?>
-      <a class="docsViewTab <?= $currentDocumentsView === 'admin' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(documentsUrl(['view' => 'admin', 'acting_principal_user_id' => null, 'page' => 1])) ?>">Admin mode</a>
-    <?php endif; ?>
-  </div>
-  <?php if ($assistantModeEnabled): ?>
+  <div class="docsTopRail">
+    <div class="docsViewTabs" aria-label="Documents view tabs">
+      <a class="docsViewTab <?= $currentDocumentsView === 'my' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(documentsUrl(['view' => 'my', 'acting_principal_user_id' => null, 'page' => 1])) ?>">My documents</a>
+      <?php if ($assistantPrincipals !== []): ?>
+        <a class="docsViewTab <?= $currentDocumentsView === 'assistant' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(documentsUrl(['view' => 'assistant', 'acting_principal_user_id' => (int)($activeAssistantPrincipal['id'] ?? $assistantPrincipals[0]['id'] ?? 0), 'page' => 1])) ?>">Assistant mode</a>
+      <?php endif; ?>
+      <?php if ($isAdminUser): ?>
+        <a class="docsViewTab <?= $currentDocumentsView === 'admin' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(documentsUrl(['view' => 'admin', 'acting_principal_user_id' => null, 'page' => 1])) ?>">Admin mode</a>
+      <?php endif; ?>
+    </div>
+    <?php if ($assistantModeEnabled): ?>
     <form class="docsAssistantBar" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
       <input type="hidden" name="view" value="assistant">
       <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
@@ -1965,6 +1966,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
         $activePrincipalPhotoUrl = (string)($activeAssistantPrincipal['profile_photo_url'] ?? '');
         $activePrincipalInitials = function_exists('app_user_initials') ? app_user_initials($activePrincipalName) : strtoupper(substr($activePrincipalName, 0, 1));
       ?>
+      <div class="docsAssistantBadge">Assistant queue</div>
       <div class="docsAssistantIdentity">
         <span class="appAvatar appAvatarMd" aria-hidden="true">
           <?php if ($activePrincipalPhotoUrl !== ''): ?>
@@ -1978,9 +1980,13 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
           <select name="acting_principal_user_id" onchange="this.form.submit()"><?php foreach ($assistantPrincipals as $principal): ?><option value="<?= (int)$principal['id'] ?>" <?= (int)$principal['id'] === (int)($activeAssistantPrincipal['id'] ?? 0) ? 'selected' : '' ?>><?= htmlspecialchars((string)$principal['full_name']) ?></option><?php endforeach; ?></select>
         </label>
       </div>
-      <div class="docsAssistantHint">Separate assistant queue for <?= htmlspecialchars($activePrincipalName) ?>. Actions remain under your account, but authority checks use this chief context.</div>
+      <div class="docsAssistantHint">
+        <strong><?= htmlspecialchars($activePrincipalName) ?></strong>
+        <span>Authority checks follow this chief while actions still stay under your account.</span>
+      </div>
     </form>
-  <?php endif; ?>
+    <?php endif; ?>
+  </div>
   <nav class="docsMobileTabs" aria-label="Documents sections">
     <a href="#docsOverview" class="docsMobileTab isActive" data-scroll-tab>Overview</a>
     <a href="#docsFilters" class="docsMobileTab" data-scroll-tab>Find</a>
