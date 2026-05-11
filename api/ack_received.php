@@ -126,13 +126,6 @@ try {
     exit;
   }
 
-  if ($docStatus !== "ACTIVE") {
-    $conn->rollback();
-    http_response_code(409);
-    echo json_encode(["ok" => false, "error" => "Cannot receive: document is not ACTIVE."]);
-    exit;
-  }
-
   $stmt = $conn->prepare("\n    UPDATE routes\n    SET received_by_user_id = ?,\n        received_at = NOW()\n    WHERE id = ?\n      AND received_at IS NULL\n      AND cancelled_at IS NULL\n  ");
   $stmt->bind_param("ii", $actualUserId, $routeId);
   $stmt->execute();

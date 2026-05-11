@@ -1380,8 +1380,7 @@
     if (btnAckReceived) {
       const canReceive = !!(
         branch &&
-        Number(branch.my_pending_route_id || 0) > 0 &&
-        (currentPayload?.current_status || "ACTIVE").toString().toUpperCase() === "ACTIVE"
+        Number(branch.my_pending_route_id || 0) > 0
       );
       btnAckReceived.textContent = currentAckLabel();
       btnAckReceived.style.display = canReceive ? "" : "none";
@@ -1390,7 +1389,6 @@
       const canTaskDone = !!(
         branch
         && Number(branch.attachment_forward_can_mark_done || 0) === 1
-        && (currentPayload?.current_status || "ACTIVE").toString().toUpperCase() === "ACTIVE"
       );
       btnAttachmentTaskDone.style.display = canTaskDone ? "" : "none";
     }
@@ -1635,8 +1633,8 @@
 
     if (btnAttachmentTaskDone) {
       const canTaskDone = currentBranchMode
-        ? !!(getSelectedBranch() && Number(getSelectedBranch().attachment_forward_can_mark_done || 0) === 1 && (currentPayload?.current_status || "ACTIVE").toString().toUpperCase() === "ACTIVE")
-        : !!(Number(currentPayload?.attachment_forward_can_mark_done || 0) === 1 && (currentPayload?.current_status || "ACTIVE").toString().toUpperCase() === "ACTIVE");
+        ? !!(getSelectedBranch() && Number(getSelectedBranch().attachment_forward_can_mark_done || 0) === 1)
+        : !!(Number(currentPayload?.attachment_forward_can_mark_done || 0) === 1);
       btnAttachmentTaskDone.style.display = canTaskDone ? "" : "none";
     }
 
@@ -3263,7 +3261,6 @@
       const canTaskDoneFlat = !!(
         flatAttachmentRecipientInProgress
         && Number(payload.attachment_forward_can_mark_done || 0) === 1
-        && docStatus === "ACTIVE"
       );
       btnAttachmentTaskDone.style.display = canTaskDoneFlat ? "" : "none";
     }

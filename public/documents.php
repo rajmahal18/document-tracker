@@ -661,7 +661,7 @@ if ($quick !== "") {
     }
   } else {
     if ($quick === "incoming") {
-      $where[] = "d.current_status = 'ACTIVE' AND ({$myHasOpenInboundPredicate})";
+      $where[] = "({$myHasOpenInboundPredicate})";
     } elseif ($quick === "pending") {
       $where[] = "d.current_status = 'ACTIVE' AND ({$myHasActionableRolePredicate})";
     } elseif ($quick === "completed") {
@@ -1336,8 +1336,7 @@ $orderBySql = $adminModeEnabled
        AND effective_deadline_at < NOW()
       THEN 0
 
-      WHEN d.current_status = 'ACTIVE'
-       AND ({$myHasOpenInboundPredicate})
+      WHEN ({$myHasOpenInboundPredicate})
        AND effective_deadline_at IS NOT NULL
        AND effective_deadline_at < NOW()
       THEN 1
@@ -1346,8 +1345,7 @@ $orderBySql = $adminModeEnabled
        AND ({$myHasActionableRolePredicate})
       THEN 2
 
-      WHEN d.current_status = 'ACTIVE'
-       AND ({$myHasOpenInboundPredicate})
+      WHEN ({$myHasOpenInboundPredicate})
       THEN 3
 
       WHEN d.current_status = 'ACTIVE'
@@ -1400,7 +1398,7 @@ if ($sort === "newest") {
       CASE WHEN effective_deadline_at IS NULL THEN 1 ELSE 0 END ASC,
       effective_deadline_at ASC,
       CASE WHEN d.current_status = 'ACTIVE' AND ({$myHasActionableRolePredicate}) THEN 0
-           WHEN d.current_status = 'ACTIVE' AND ({$myHasOpenInboundPredicate}) THEN 1
+           WHEN ({$myHasOpenInboundPredicate}) THEN 1
            ELSE 2 END ASC,
       d.updated_at DESC,
       d.id DESC
@@ -1425,7 +1423,7 @@ if ($sort === "newest") {
       CASE WHEN effective_deadline_at IS NOT NULL AND effective_deadline_at < NOW() THEN 0 ELSE 1 END ASC,
       effective_deadline_at ASC,
       CASE WHEN d.current_status = 'ACTIVE' AND ({$myHasActionableRolePredicate}) THEN 0
-           WHEN d.current_status = 'ACTIVE' AND ({$myHasOpenInboundPredicate}) THEN 1
+           WHEN ({$myHasOpenInboundPredicate}) THEN 1
            ELSE 2 END ASC,
       d.updated_at DESC,
       d.id DESC
@@ -1638,7 +1636,7 @@ $statSql = $adminModeEnabled
 "
   : "
   SELECT
-    SUM(d.current_status = 'ACTIVE' AND ({$myHasOpenInboundPredicate})) AS incoming,
+    SUM({$myHasOpenInboundPredicate}) AS incoming,
     SUM(d.current_status = 'ACTIVE' AND ({$myHasActionableRolePredicate})) AS pending,
     SUM({$myCompletePredicate}) AS completed,
     SUM(d.current_status = 'ACTIVE' AND {$effectiveDeadlineFilterExpr} IS NOT NULL AND {$effectiveDeadlineFilterExpr} < NOW()) AS overdue,
