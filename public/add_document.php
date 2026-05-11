@@ -1556,6 +1556,7 @@ $contentTypeOptions = [
   "Communication (External) DEO",
   "Program of Works and Plans",
   "Proposal",
+  "Planning",
   "Back to Office Report",
   "Others",
 ];
