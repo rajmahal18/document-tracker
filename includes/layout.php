@@ -17,6 +17,7 @@ $pageTitle = $pageTitle ?? "Document Tracker";
 
   <link rel="manifest" href="<?= asset_url("public/manifest.webmanifest") ?>">
   <link rel="apple-touch-icon" href="<?= asset_url("assets/icons/icon-192.png") ?>">
+  <link rel="icon" type="image/png" href="<?= asset_url("assets/mpwlogo1.png") ?>">
   <link rel="icon" type="image/png" sizes="192x192" href="<?= asset_url("assets/icons/icon-192.png") ?>">
   <link rel="icon" type="image/png" sizes="512x512" href="<?= asset_url("assets/icons/icon-512.png") ?>">
 
@@ -54,6 +55,10 @@ $pageTitle = $pageTitle ?? "Document Tracker";
 
 <?php
   $currentPage = basename($_SERVER['PHP_SELF']);
+  $currentContentScope = strtolower(trim((string)($_GET['content_scope'] ?? '')));
+  $sessionDivisionName = strtolower(trim((string)($_SESSION["division_name"] ?? "")));
+  $sessionDivisionCode = strtoupper(trim((string)($_SESSION["division_code"] ?? "")));
+  $isPpdNavigationUser = $sessionDivisionCode === 'PPD' || str_contains($sessionDivisionName, 'planning and programming');
 ?>
 <header class="topbar appTopbar">
   <div class="appTopbarMain">
@@ -118,14 +123,16 @@ $pageTitle = $pageTitle ?? "Document Tracker";
           <span class="navIcon">&#8250;</span>
           <span class="navText">Legacy Documents</span>
         </a>
-        <a href="#" class="navPlaceholder navSubLink" onclick="event.preventDefault()">
-          <span class="navIcon">&#8250;</span>
-          <span class="navText">Issuances</span>
-        </a>
-        <a href="#" class="navPlaceholder navSubLink" onclick="event.preventDefault()">
-          <span class="navIcon">&#8250;</span>
-          <span class="navText">Ministry Orders</span>
-        </a>
+        <?php if ($isPpdNavigationUser): ?>
+          <a href="<?= PUBLIC_PATH ?>/documents.php?content_scope=planning" class="navSubLink <?= $currentPage === 'documents.php' && $currentContentScope === 'planning' ? 'navActive' : '' ?>">
+            <span class="navIcon">&#8250;</span>
+            <span class="navText">Planning</span>
+          </a>
+          <a href="<?= PUBLIC_PATH ?>/documents.php?content_scope=proposals" class="navSubLink <?= $currentPage === 'documents.php' && $currentContentScope === 'proposals' ? 'navActive' : '' ?>">
+            <span class="navIcon">&#8250;</span>
+            <span class="navText">Proposals</span>
+          </a>
+        <?php endif; ?>
       </div>
     </div>
     <a href="<?= PUBLIC_PATH ?>/org_chart.php" class="<?= $currentPage === 'org_chart.php' ? 'navActive' : '' ?>">

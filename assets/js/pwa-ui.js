@@ -121,6 +121,12 @@
     }
 
     if (docsToggle && docsItems && docsGroup) {
+      if (docsGroup.querySelector('.navActive')) {
+        docsGroup.classList.add('isOpen');
+        docsItems.hidden = false;
+        docsToggle.setAttribute('aria-expanded', 'true');
+      }
+
       docsToggle.addEventListener('click', function () {
         const isOpen = docsGroup.classList.contains('isOpen');
         docsGroup.classList.toggle('isOpen', !isOpen);

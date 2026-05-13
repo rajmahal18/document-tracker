@@ -78,6 +78,10 @@ $documentContextSectionId = $assistantModeEnabled
 $myDivisionMeta = get_user_division_meta($conn, $documentContextSectionId);
 $myDivisionId = (int)($myDivisionMeta['id'] ?? 0);
 $myDivisionCode = strtoupper(trim((string)($myDivisionMeta['code'] ?? '')));
+$contentScope = strtolower(trim((string)($_GET['content_scope'] ?? '')));
+if (!in_array($contentScope, ['', 'planning', 'proposals'], true)) {
+  $contentScope = '';
+}
 $hasOwnDivisionSlip = is_supported_division_tracking_code($myDivisionCode);
 $ownDivisionSlipLabel = $hasOwnDivisionSlip ? ($myDivisionCode . ' Tracking Slip') : '';
 $myDivisionCodeSql = $conn->real_escape_string($myDivisionCode);
@@ -152,9 +156,18 @@ $role        = $sessionRole;
 $actualUserId = (int)($_SESSION["user_id"] ?? 0);
 $actualSectionId = (int)($_SESSION["section_id"] ?? 0);
 $actualIsChief = ((int)($_SESSION["is_chief"] ?? 0) === 1);
+$actualDivisionMeta = get_user_division_meta($conn, $actualSectionId);
+$actualDivisionCode = strtoupper(trim((string)($actualDivisionMeta['code'] ?? '')));
+$actualDivisionName = strtolower(trim((string)($_SESSION["division_name"] ?? ($actualDivisionMeta['name'] ?? ''))));
+$isActualPpdUser = ($actualDivisionCode === 'PPD') || str_contains($actualDivisionName, 'planning and programming');
 $myUserId    = $assistantModeEnabled ? (int)($activeAssistantPrincipal['id'] ?? 0) : $actualUserId;
 $mySectionId = $assistantModeEnabled ? (int)($activeAssistantPrincipal['section_id'] ?? 0) : $actualSectionId;
 $isChief     = $assistantModeEnabled ? in_array((string)($activeAssistantPrincipal['authority_role'] ?? ''), ['director','division_head','section_head'], true) : $actualIsChief;
+
+if ($contentScope !== '' && !$isActualPpdUser) {
+  http_response_code(403);
+  exit('Access denied');
+}
 
 $assistantOwnPageIsolationSql = "";
 if (!$assistantModeEnabled && !$adminModeEnabled && $actualUserId > 0 && $assistantPrincipals !== []) {
@@ -346,6 +359,16 @@ if ($date_from !== "") {
 if ($date_to !== "") {
   $where[] = "d.document_date <= ?";
   $params[] = $date_to;
+  $types .= "s";
+}
+
+if ($contentScope === 'planning') {
+  $where[] = "d.content_type = ?";
+  $params[] = 'Planning';
+  $types .= "s";
+} elseif ($contentScope === 'proposals') {
+  $where[] = "d.content_type = ?";
+  $params[] = 'Proposal';
   $types .= "s";
 }
 
@@ -1795,6 +1818,11 @@ function documentsUrl(array $overrides = []): string {
 }
 
 $currentDocumentsView = $adminModeEnabled ? 'admin' : ($assistantModeEnabled ? 'assistant' : 'my');
+$scopeTitleMap = [
+  'planning' => 'Planning',
+  'proposals' => 'Proposals',
+];
+$scopeTitle = $scopeTitleMap[$contentScope] ?? '';
 $documentsEyebrow = $adminModeEnabled
   ? 'Admin queue'
   : ($assistantModeEnabled ? 'Assistant queue' : 'My work queue');
@@ -1802,6 +1830,11 @@ $documentsTitle = $adminModeEnabled
   ? 'Admin Mode Documents'
   : ($assistantModeEnabled ? 'Assistant Mode Documents' : 'My Documents');
 $documentsSortLabel = $adminModeEnabled ? 'Queue sort' : 'Sort order';
+if ($scopeTitle !== '') {
+  $documentsEyebrow = 'Planning and Programming Division';
+  $documentsTitle = $scopeTitle . ' Documents';
+}
+$isScopedDocumentsView = ($contentScope !== '');
 
 $workingCalendar = dt_work_calendar($conn);
 $calendarDayLabels = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'Sat', 7 => 'Sun'];
@@ -1953,6 +1986,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
     <?php if ($assistantModeEnabled): ?>
     <form class="docsAssistantBar" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
       <input type="hidden" name="view" value="assistant">
+      <input type="hidden" name="content_scope" value="<?= htmlspecialchars($contentScope) ?>">
       <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
       <input type="hidden" name="status" value="<?= htmlspecialchars($statusGet) ?>">
       <input type="hidden" name="from" value="<?= htmlspecialchars($date_from) ?>">
@@ -2118,6 +2152,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
     })();
   </script>
 
+  <?php if (!$isScopedDocumentsView): ?>
   <div class="stats docsStatsGrid" id="docsStats">
     <a class="statCard statCardLink docsStatCard toneIncoming <?= ($adminModeEnabled ? $quick === 'active' : $quick === 'incoming') ? 'isActive' : '' ?>"
        href="<?= htmlspecialchars(quickUrl($adminModeEnabled ? 'active' : 'incoming')) ?>">
@@ -2167,6 +2202,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
       <div class="statValue"><?= $stats["overdue"] ?></div>
     </a>
   </div>
+  <?php endif; ?>
 
   <section class="docsControlsCard" id="docsFilters">
     <div class="docsControlsTop">
@@ -2179,6 +2215,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
       <?php endif; ?>
     </div>
 
+    <?php if (!$isScopedDocumentsView): ?>
     <div class="docsQuickFilters" aria-label="Quick filters">
       <a class="docsQuickFilter <?= $quick === '' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('')) ?>">All visible <span><?= (int)$stats['active'] + (int)$stats['released'] + (int)$stats['archived'] ?></span></a>
       <?php if ($adminModeEnabled): ?>
@@ -2196,10 +2233,12 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
         <a class="docsQuickFilter <?= $quick === 'archived' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(quickUrl('archived')) ?>">Archived <span><?= $stats['archived'] ?></span></a>
       <?php endif; ?>
     </div>
+    <?php endif; ?>
 
     <div class="docsControlsGrid">
       <form id="docsSearchForm" class="toolbar toolbarSearch docsToolbarSearch" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
         <input type="hidden" name="view" value="<?= htmlspecialchars($requestedDocumentsTab) ?>">
+        <input type="hidden" name="content_scope" value="<?= htmlspecialchars($contentScope) ?>">
         <?php if ($assistantModeEnabled): ?><input type="hidden" name="acting_principal_user_id" value="<?= (int)($activeAssistantPrincipal['id'] ?? 0) ?>"><?php endif; ?>
         <input type="hidden" name="status" value="<?= htmlspecialchars($statusGet) ?>">
         <input type="hidden" name="from" value="<?= htmlspecialchars($date_from) ?>">
@@ -2227,6 +2266,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
 
       <form class="toolbar toolbarFilters docsToolbarFilters" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
         <input type="hidden" name="view" value="<?= htmlspecialchars($requestedDocumentsTab) ?>">
+        <input type="hidden" name="content_scope" value="<?= htmlspecialchars($contentScope) ?>">
         <?php if ($assistantModeEnabled): ?><input type="hidden" name="acting_principal_user_id" value="<?= (int)($activeAssistantPrincipal['id'] ?? 0) ?>"><?php endif; ?>
         <input type="hidden" name="quick" value="<?= htmlspecialchars($quick) ?>">
         <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
