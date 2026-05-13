@@ -56,9 +56,37 @@ $pageTitle = $pageTitle ?? "Document Tracker";
 <?php
   $currentPage = basename($_SERVER['PHP_SELF']);
   $currentContentScope = strtolower(trim((string)($_GET['content_scope'] ?? '')));
-  $sessionDivisionName = strtolower(trim((string)($_SESSION["division_name"] ?? "")));
+  $sessionDivisionName = trim((string)($_SESSION["division_name"] ?? ""));
   $sessionDivisionCode = strtoupper(trim((string)($_SESSION["division_code"] ?? "")));
-  $isPpdNavigationUser = $sessionDivisionCode === 'PPD' || str_contains($sessionDivisionName, 'planning and programming');
+  $resolvedDivisionName = $sessionDivisionName;
+  $resolvedDivisionCode = $sessionDivisionCode;
+
+  if (isset($_SESSION["user_id"], $_SESSION["section_id"], $conn) && $conn instanceof mysqli) {
+    $resolvedSectionId = (int)($_SESSION["section_id"] ?? 0);
+    if ($resolvedSectionId > 0) {
+      $divisionMetaStmt = $conn->prepare("
+        SELECT d.name, d.code
+        FROM sections s
+        JOIN divisions d ON d.id = s.division_id
+        WHERE s.id = ?
+        LIMIT 1
+      ");
+      if ($divisionMetaStmt) {
+        $divisionMetaStmt->bind_param("i", $resolvedSectionId);
+        $divisionMetaStmt->execute();
+        $divisionMeta = $divisionMetaStmt->get_result()->fetch_assoc() ?: null;
+        $divisionMetaStmt->close();
+
+        if (is_array($divisionMeta)) {
+          $resolvedDivisionName = trim((string)($divisionMeta["name"] ?? $resolvedDivisionName));
+          $resolvedDivisionCode = strtoupper(trim((string)($divisionMeta["code"] ?? $resolvedDivisionCode)));
+        }
+      }
+    }
+  }
+
+  $isPpdNavigationUser = $resolvedDivisionCode === 'PPD'
+    || str_contains(strtolower($resolvedDivisionName), 'planning and programming');
 ?>
 <header class="topbar appTopbar">
   <div class="appTopbarMain">

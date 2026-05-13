@@ -82,6 +82,16 @@ $contentScope = strtolower(trim((string)($_GET['content_scope'] ?? '')));
 if (!in_array($contentScope, ['', 'planning', 'proposals'], true)) {
   $contentScope = '';
 }
+if ($contentScope !== '') {
+  $requestedDocumentsTab = 'my';
+  $assistantModeEnabled = false;
+  $adminModeEnabled = false;
+  $activeAssistantPrincipal = null;
+  $documentContextSectionId = (int)($_SESSION['section_id'] ?? 0);
+  $myDivisionMeta = get_user_division_meta($conn, $documentContextSectionId);
+  $myDivisionId = (int)($myDivisionMeta['id'] ?? 0);
+  $myDivisionCode = strtoupper(trim((string)($myDivisionMeta['code'] ?? '')));
+}
 $hasOwnDivisionSlip = is_supported_division_tracking_code($myDivisionCode);
 $ownDivisionSlipLabel = $hasOwnDivisionSlip ? ($myDivisionCode . ' Tracking Slip') : '';
 $myDivisionCodeSql = $conn->real_escape_string($myDivisionCode);
@@ -170,7 +180,7 @@ if ($contentScope !== '' && !$isActualPpdUser) {
 }
 
 $assistantOwnPageIsolationSql = "";
-if (!$assistantModeEnabled && !$adminModeEnabled && $actualUserId > 0 && $assistantPrincipals !== []) {
+if ($contentScope === '' && !$assistantModeEnabled && !$adminModeEnabled && $actualUserId > 0 && $assistantPrincipals !== []) {
   $actualUid = (int)$actualUserId;
   $assistantOwnPageIsolationSql = "NOT (
     EXISTS (
@@ -212,7 +222,8 @@ if (!in_array($quick, $allowedQuicks, true)) {
  * Branch mode = creator + explicit user visibility + direct route involvement.
  * Legacy mode = previous section-aware fallback.
  */
-$isPrivileged = $adminModeEnabled;
+$isPpdScopedDocumentsView = ($contentScope !== '' && $isActualPpdUser);
+$isPrivileged = $adminModeEnabled || $isPpdScopedDocumentsView;
 $isPrivilegedInt = $isPrivileged ? 1 : 0;
 if (!$isPrivileged) {
   if ($myUserId <= 0) {
@@ -1973,6 +1984,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
 @media(max-width:640px){.forwardModalCard{max-width:calc(100vw - 16px);max-height:min(92vh,900px)}.forwardCompactToolbar{align-items:stretch}.forwardCompactToolbar .select{min-width:0;flex:1 1 100%}.forwardUserTools{width:100%}.forwardUserTools .btnSecondary{flex:1 1 0}.forwardRecipientList{max-height:min(34vh,240px)}.modalHeader{gap:10px}.modalHeader h3{font-size:24px}.modalClose{width:34px;height:34px;border-radius:10px}.sendTypeOption{padding:14px}.sendTypeOption strong{font-size:16px}}
 </style>
 <div class="docsPageShell">
+  <?php if (!$isScopedDocumentsView): ?>
   <div class="docsTopRail">
     <div class="docsViewTabs" aria-label="Documents view tabs">
       <a class="docsViewTab <?= $currentDocumentsView === 'my' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(documentsUrl(['view' => 'my', 'acting_principal_user_id' => null, 'page' => 1])) ?>">My documents</a>
@@ -2019,6 +2031,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
     </form>
     <?php endif; ?>
   </div>
+  <?php endif; ?>
   <nav class="docsMobileTabs" aria-label="Documents sections">
     <a href="#docsOverview" class="docsMobileTab isActive" data-scroll-tab>Overview</a>
     <a href="#docsFilters" class="docsMobileTab" data-scroll-tab>Find</a>
