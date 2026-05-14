@@ -34,9 +34,12 @@ if (!isset($_FILES["file"])) {
 
 $identity = effective_document_identity($conn);
 $role        = (string)($_SESSION["role"] ?? "user");
+$assistantMode = (bool)($identity['assistant_mode'] ?? false);
 $actualUserId = (int)($identity['actual_user_id'] ?? 0);
 $userId      = (int)($identity['effective_user_id'] ?? 0);
 $mySectionId = (int)($identity['effective_section_id'] ?? 0);
+$adminModeRequested = (int)($_POST["admin_mode"] ?? 0) === 1;
+$isAdminModeUpload = ($adminModeRequested && $role === "admin" && !$assistantMode);
 
 
 
@@ -73,11 +76,13 @@ try {
   $attachmentBranchId = 0;
   $branchAttachmentScopeEnabled = workflow_branch_attachment_scope_enabled($conn);
 
-  // Only ACTIVE docs can accept attachments (keeps audit sane)
-  if ($status !== "ACTIVE") {
+  $isAllowedClosedAdminStatus = $isAdminModeUpload && in_array($status, ["RELEASED", "ARCHIVED"], true);
+
+  // Default rule stays ACTIVE-only. Admin mode may append files to closed docs.
+  if ($status !== "ACTIVE" && !$isAllowedClosedAdminStatus) {
     $conn->rollback();
     http_response_code(409);
-    echo json_encode(["ok" => false, "error" => "Cannot attach files: document is not ACTIVE."]);
+    echo json_encode(["ok" => false, "error" => "Cannot attach files: document is not open for attachments."]);
     exit;
   }
 

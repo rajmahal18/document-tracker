@@ -1189,24 +1189,28 @@
     const ctx = window.__CTX__ || {};
     const myRole = (ctx.myRole || "user").toString().toLowerCase();
     const isPrivileged = myRole === "admin" || myRole === "records";
+    const isAdminMode = !!ctx.adminMode && myRole === "admin";
     const docStatus = (currentPayload?.current_status || "ACTIVE").toString().toUpperCase();
     const flatAttachmentRecipientInProgress = (
       !currentBranchMode
       && Number(currentPayload?.flat_attachment_recipient_in_progress || 0) === 1
     );
+    const canAdminAttachClosed = isAdminMode && (docStatus === "RELEASED" || docStatus === "ARCHIVED");
 
     let canAttach = false;
-    if (docStatus === "ACTIVE") {
+    if (docStatus === "ACTIVE" || canAdminAttachClosed) {
       if (currentBranchMode) {
         const branch = getSelectedBranch();
         canAttach = !!(
-          isPrivileged
+          canAdminAttachClosed
+          || isPrivileged
           || (branch && Number(branch.can_forward || 0) === 1)
           || (branch && Number(branch.attachment_forward_can_attach || 0) === 1)
         );
       } else {
         canAttach = !!(
-          isPrivileged
+          canAdminAttachClosed
+          || isPrivileged
           || flatAttachmentRecipientInProgress
           || Number(currentPayload?.my_has_actionable_role || 0) === 1
           || Number(currentPayload?.attachment_forward_can_attach || 0) === 1
@@ -3003,6 +3007,7 @@
     if (currentBranchMode && branch && Number(branch.id || 0) > 0) {
       form.append("branch_id", String(Number(branch.id || 0)));
     }
+    form.append("admin_mode", (window.__CTX__?.adminMode && (window.__CTX__?.myRole || "").toString().toLowerCase() === "admin") ? "1" : "0");
     form.append("file", f0);
     form.append("is_append", (attachType?.value || "1") === "1" ? "1" : "0");
     form.append("note", attachNote ? attachNote.value : "");
@@ -3134,6 +3139,7 @@
     const mySectionId = Number(ctx.mySectionId || 0);
     const myUserId = Number(ctx.myUserId || 0);
     const isChief = !!ctx.isChief;
+    const isAdminMode = !!ctx.adminMode && myRole === "admin";
 
     // Important:
     // branch mode here must mean actual branch context for this document,
@@ -3189,16 +3195,17 @@
 
     let canAttach = false;
     let canForward = false;
+    const canAdminAttachClosed = isAdminMode && (docStatus === "RELEASED" || docStatus === "ARCHIVED");
 
     if (currentBranchMode) {
-      canAttach = docStatus === "ACTIVE" && isPrivileged;
+      canAttach = canAdminAttachClosed || (docStatus === "ACTIVE" && isPrivileged);
       canForward = false;
     } else {
-      canAttach = docStatus === "ACTIVE" && (
+      canAttach = canAdminAttachClosed || (docStatus === "ACTIVE" && (
         isPrivileged
         || flatAttachmentRecipientInProgress
         || (!flatAttachmentTaskExclusive && (flatActionableByMe || Number(payload.attachment_forward_can_attach || 0) === 1))
-      );
+      ));
       canForward = !flatAttachmentTaskExclusive && docStatus === "ACTIVE" && flatActionableByMe;
     }
 
