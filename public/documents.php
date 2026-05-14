@@ -1525,7 +1525,7 @@ if ($docIdsOnPage !== []) {
     }
 
     $canSeeRemark = $isPrivileged
-      || in_array((string)($payload['kind'] ?? ''), ['holder_progress_note_added', 'holder_progress_note_updated', 'holder_progress_note_cleared'], true)
+      || in_array((string)($payload['kind'] ?? ''), ['holder_progress_note_added', 'holder_progress_note_updated', 'holder_progress_note_cleared', 'admin_closed_note_added', 'admin_closed_note_updated', 'admin_closed_note_cleared'], true)
       || (int)($remarkRow['actor_user_id'] ?? 0) === $myUserId
       || (int)($remarkRow['actor_section_id'] ?? 0) === $mySectionId
       || (int)($remarkRow['from_section_id'] ?? 0) === $mySectionId

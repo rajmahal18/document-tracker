@@ -635,12 +635,15 @@
     const hasRemark = !!remarks;
     const mode = (state?.mode || "pending_route").toString();
     const isHolderMode = mode === "holder_progress";
+    const isAdminClosedMode = mode === "admin_closed";
     if (elPendingRemarksEyebrow) {
-      elPendingRemarksEyebrow.textContent = isHolderMode ? "With you now" : "Pending route only";
+      elPendingRemarksEyebrow.textContent = isAdminClosedMode ? "Admin closed-doc note" : (isHolderMode ? "With you now" : "Pending route only");
     }
 
     if (elPendingRemarksTitle) {
-      elPendingRemarksTitle.textContent = isHolderMode
+      elPendingRemarksTitle.textContent = isAdminClosedMode
+        ? (hasRemark ? "Admin remarks" : "Add admin remarks")
+        : isHolderMode
         ? (hasRemark ? "Work-in-progress remarks" : "Add work-in-progress remarks")
         : (hasRemark ? "Pending remarks" : "Add pending remarks");
     }
@@ -650,10 +653,12 @@
 
     elPendingRemarksPreview.textContent = hasRemark
       ? remarks
-      : (isHolderMode ? "No work-in-progress remarks yet." : "No pending remarks yet.");
+      : (isAdminClosedMode ? "No admin remarks yet." : (isHolderMode ? "No work-in-progress remarks yet." : "No pending remarks yet."));
     elPendingRemarksPreview.classList.toggle("isEmpty", !hasRemark);
     elPendingRemarksPreview.classList.toggle("isChanged", !!state?.just_saved);
-    elPendingRemarksHint.textContent = state?.helper_text || "This stays editable until the recipient receives the route.";
+    elPendingRemarksHint.textContent = state?.helper_text || (isAdminClosedMode
+      ? "Admin mode may add remarks to closed documents."
+      : "This stays editable until the recipient receives the route.");
 
     btnEditPendingRemarks.textContent = state?.button_label || (hasRemark ? "Edit pending remarks" : "Add pending remarks");
 
@@ -672,6 +677,7 @@
     const qs = appendActingPrincipal(new URLSearchParams({ document_id: String(docId) }), currentPayload);
     const branchId = Number(forcedBranchId || currentPendingRemarksBranchId() || 0);
     if (branchId > 0) qs.set("branch_id", String(branchId));
+    qs.set("admin_mode", (window.__CTX__?.adminMode && (window.__CTX__?.myRole || "").toString().toLowerCase() === "admin") ? "1" : "0");
 
     try {
       const res = await fetch(`${API}/get_pending_route_remarks.php?${qs.toString()}`, {
@@ -907,6 +913,9 @@
       holder_progress_note_added: "Remark Added",
       holder_progress_note_updated: "Remark Updated",
       holder_progress_note_cleared: "Remark Cleared",
+      admin_closed_note_added: "Admin Remark Added",
+      admin_closed_note_updated: "Admin Remark Updated",
+      admin_closed_note_cleared: "Admin Remark Cleared",
       branch_ended_here: "Lifecycle Ended",
       branch_end_here_undone: "Lifecycle Reopened",
       document_ended_here: "Lifecycle Ended",
@@ -935,6 +944,9 @@
       holder_progress_note_added: "N",
       holder_progress_note_updated: "N",
       holder_progress_note_cleared: "N",
+      admin_closed_note_added: "N",
+      admin_closed_note_updated: "N",
+      admin_closed_note_cleared: "N",
       branch_ended_here: "E",
       branch_end_here_undone: "U",
       document_ended_here: "E",
@@ -3718,6 +3730,7 @@
     form.append("document_id", String(docId));
     if (routeId > 0) form.append("route_id", String(routeId));
     if (branchId > 0) form.append("branch_id", String(branchId));
+    form.append("admin_mode", (window.__CTX__?.adminMode && (window.__CTX__?.myRole || "").toString().toLowerCase() === "admin") ? "1" : "0");
     form.append("remarks", remarks);
     form.append("csrf_token", window.__CSRF__ || "");
 
@@ -3737,8 +3750,13 @@
 
       const mode = (data?.mode || currentPendingRemarksState?.mode || "pending_route").toString();
       const isHolderMode = mode === "holder_progress";
+      const isAdminClosedMode = mode === "admin_closed";
       const isCleared = /_cleared$/.test((data?.change_type || "").toString());
-      const helperText = isHolderMode
+      const helperText = isAdminClosedMode
+        ? (isCleared
+          ? "Admin remarks cleared from the closed document. The timeline keeps the change trail."
+          : "Admin remarks saved on the closed document. The timeline keeps the change trail.")
+        : isHolderMode
         ? (isCleared
           ? "Work-in-progress remarks cleared. The timeline keeps the change trail."
           : "Work-in-progress remarks saved. The timeline keeps the change trail while the document stays with you.")
@@ -3754,7 +3772,9 @@
         mode,
         remarks: (data?.remarks || "").toString(),
         has_remark: !!data?.has_remark,
-        button_label: isHolderMode
+        button_label: isAdminClosedMode
+          ? (!!data?.has_remark ? "Edit admin remarks" : "Add admin remarks")
+          : isHolderMode
           ? (!!data?.has_remark ? "Edit remarks" : "Add remarks")
           : (!!data?.has_remark ? "Edit pending remarks" : "Add pending remarks"),
         helper_text: helperText,

@@ -34,11 +34,21 @@ $effectiveUserId = (int)($identity['effective_user_id'] ?? 0);
 $effectiveSectionId = (int)($identity['effective_section_id'] ?? 0);
 $actualUserId = (int)($identity['actual_user_id'] ?? 0);
 $assistantMode = (bool)($identity['assistant_mode'] ?? false);
+$sessionRole = (string)($_SESSION['role'] ?? 'user');
+$adminModeRequested = (int)($_POST['admin_mode'] ?? 0) === 1;
 if ($effectiveUserId <= 0) {
   http_response_code(403);
   echo json_encode(['ok' => false, 'error' => 'Invalid user']);
   exit;
 }
+
+$stmt = $conn->prepare("SELECT current_status FROM documents WHERE id = ? LIMIT 1");
+$stmt->bind_param('i', $docId);
+$stmt->execute();
+$docRow = $stmt->get_result()->fetch_assoc();
+$stmt->close();
+$docStatus = strtoupper(trim((string)($docRow['current_status'] ?? 'ACTIVE')));
+$isClosedDocAdminMode = ($adminModeRequested && $sessionRole === 'admin' && !$assistantMode && in_array($docStatus, ['RELEASED', 'ARCHIVED'], true));
 
 $senderUserIds = [$effectiveUserId];
 if ($assistantMode && $actualUserId > 0 && $actualUserId !== $effectiveUserId) {
@@ -110,9 +120,110 @@ if (!$route) {
   }
 
   if (!$holderEditable) {
-    http_response_code(404);
-    echo json_encode(['ok' => false, 'error' => 'No editable pending route was found.']);
-    exit;
+    if (!$isClosedDocAdminMode) {
+      http_response_code(404);
+      echo json_encode(['ok' => false, 'error' => 'No editable pending route was found.']);
+      exit;
+    }
+
+    $stmt = $conn->prepare("
+      SELECT payload_json
+      FROM document_events
+      WHERE document_id = ?
+        AND event_type = 'updated'
+      ORDER BY id DESC
+      LIMIT 100
+    ");
+    $stmt->bind_param('i', $docId);
+    $stmt->execute();
+    $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC) ?: [];
+    $stmt->close();
+
+    $selectedBranchId = $branchId > 0 ? $branchId : 0;
+    $oldRemarks = '';
+    foreach ($rows as $row) {
+      $payload = json_decode((string)($row['payload_json'] ?? ''), true);
+      if (!is_array($payload)) continue;
+      $kind = (string)($payload['kind'] ?? '');
+      if (!in_array($kind, ['admin_closed_note_added', 'admin_closed_note_updated', 'admin_closed_note_cleared'], true)) {
+        continue;
+      }
+      if ((int)($payload['branch_id'] ?? 0) !== $selectedBranchId) {
+        continue;
+      }
+      $oldRemarks = trim((string)($payload['remarks'] ?? ''));
+      break;
+    }
+
+    if ($oldRemarks === $remarks) {
+      echo json_encode([
+        'ok' => true,
+        'route_id' => 0,
+        'remarks' => $remarks,
+        'has_remark' => ($remarks !== ''),
+        'change_type' => $remarks !== '' ? 'admin_closed_note_updated' : 'admin_closed_note_cleared',
+        'message' => 'No changes were made.',
+        'branch_id' => $selectedBranchId,
+        'mode' => 'admin_closed',
+      ], JSON_UNESCAPED_UNICODE);
+      exit;
+    }
+
+    $conn->begin_transaction();
+    try {
+      $changeType = 'admin_closed_note_updated';
+      if ($oldRemarks === '' && $remarks !== '') {
+        $changeType = 'admin_closed_note_added';
+      } elseif ($oldRemarks !== '' && $remarks === '') {
+        $changeType = 'admin_closed_note_cleared';
+      }
+
+      $eventPayload = json_encode([
+        'kind' => $changeType,
+        'branch_id' => $selectedBranchId,
+        'old_remarks' => $oldRemarks,
+        'remarks' => $remarks,
+        'title' => match ($changeType) {
+          'admin_closed_note_added' => 'Added admin remarks to a closed document',
+          'admin_closed_note_cleared' => 'Cleared admin remarks from a closed document',
+          default => 'Updated admin remarks on a closed document',
+        },
+      ], JSON_UNESCAPED_UNICODE);
+
+      $stmt = $conn->prepare("
+        INSERT INTO document_events
+          (document_id, event_type, actor_user_id, actor_section_id, payload_json)
+        VALUES
+          (?, 'updated', ?, ?, ?)
+      ");
+      $stmt->bind_param('iiis', $docId, $effectiveUserId, $effectiveSectionId, $eventPayload);
+      $stmt->execute();
+      $stmt->close();
+
+      $conn->commit();
+
+      echo json_encode([
+        'ok' => true,
+        'route_id' => 0,
+        'remarks' => $remarks,
+        'has_remark' => ($remarks !== ''),
+        'change_type' => $changeType,
+        'title' => match ($changeType) {
+          'admin_closed_note_added' => 'Added admin remarks to a closed document',
+          'admin_closed_note_cleared' => 'Cleared admin remarks from a closed document',
+          default => 'Updated admin remarks on a closed document',
+        },
+        'old_remarks' => $oldRemarks,
+        'branch_id' => $selectedBranchId,
+        'mode' => 'admin_closed',
+      ], JSON_UNESCAPED_UNICODE);
+      exit;
+    } catch (Throwable $e) {
+      $conn->rollback();
+      http_response_code(500);
+      echo json_encode(['ok' => false, 'error' => 'Failed to update admin remarks.']);
+      exit;
+    }
   }
 
   $stmt = $conn->prepare("

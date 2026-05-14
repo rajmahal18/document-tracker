@@ -24,11 +24,22 @@ $identity = effective_document_identity($conn);
 $effectiveUserId = (int)($identity['effective_user_id'] ?? 0);
 $actualUserId = (int)($identity['actual_user_id'] ?? 0);
 $assistantMode = (bool)($identity['assistant_mode'] ?? false);
+$sessionRole = (string)($_SESSION['role'] ?? 'user');
+$adminModeRequested = (int)($_GET['admin_mode'] ?? 0) === 1;
+$isClosedDocAdminMode = false;
 if ($effectiveUserId <= 0) {
   http_response_code(403);
   echo json_encode(['ok' => false, 'error' => 'Invalid user']);
   exit;
 }
+
+$stmt = $conn->prepare("SELECT current_status FROM documents WHERE id = ? LIMIT 1");
+$stmt->bind_param('i', $docId);
+$stmt->execute();
+$docRow = $stmt->get_result()->fetch_assoc();
+$stmt->close();
+$docStatus = strtoupper(trim((string)($docRow['current_status'] ?? 'ACTIVE')));
+$isClosedDocAdminMode = ($adminModeRequested && $sessionRole === 'admin' && !$assistantMode && in_array($docStatus, ['RELEASED', 'ARCHIVED'], true));
 
 $senderUserIds = [$effectiveUserId];
 if ($assistantMode && $actualUserId > 0 && $actualUserId !== $effectiveUserId) {
@@ -145,6 +156,51 @@ if (!$route) {
       'helper_text' => 'Share a work-in-progress remark while this document is still with you. Every change is logged in the timeline.',
       'branch_id' => $holderBranchId,
       'mode' => 'holder_progress',
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+  }
+
+  if ($isClosedDocAdminMode) {
+    $stmt = $conn->prepare("
+      SELECT payload_json
+      FROM document_events
+      WHERE document_id = ?
+        AND event_type = 'updated'
+      ORDER BY id DESC
+      LIMIT 100
+    ");
+    $stmt->bind_param('i', $docId);
+    $stmt->execute();
+    $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC) ?: [];
+    $stmt->close();
+
+    $remarks = '';
+    $selectedBranchId = $branchId > 0 ? $branchId : 0;
+    foreach ($rows as $row) {
+      $payload = json_decode((string)($row['payload_json'] ?? ''), true);
+      if (!is_array($payload)) continue;
+      $kind = (string)($payload['kind'] ?? '');
+      if (!in_array($kind, ['admin_closed_note_added', 'admin_closed_note_updated', 'admin_closed_note_cleared'], true)) {
+        continue;
+      }
+      if ((int)($payload['branch_id'] ?? 0) !== $selectedBranchId) {
+        continue;
+      }
+      $remarks = trim((string)($payload['remarks'] ?? ''));
+      break;
+    }
+
+    $hasRemark = ($remarks !== '');
+    echo json_encode([
+      'ok' => true,
+      'editable' => true,
+      'route_id' => 0,
+      'remarks' => $remarks,
+      'has_remark' => $hasRemark,
+      'button_label' => $hasRemark ? 'Edit admin remarks' : 'Add admin remarks',
+      'helper_text' => 'Admin mode may add remarks to closed documents. Every change is logged in the timeline.',
+      'branch_id' => $selectedBranchId,
+      'mode' => 'admin_closed',
     ], JSON_UNESCAPED_UNICODE);
     exit;
   }

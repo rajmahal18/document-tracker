@@ -739,7 +739,7 @@ try {
     if (in_array(($payload["kind"] ?? ""), ["attachment_forwarded", "attachment_forward_task_done"], true)) {
       $eventKey = (string)$payload["kind"];
     }
-    if (in_array(($payload["kind"] ?? ""), ["holder_progress_note_added", "holder_progress_note_updated", "holder_progress_note_cleared"], true)) {
+    if (in_array(($payload["kind"] ?? ""), ["holder_progress_note_added", "holder_progress_note_updated", "holder_progress_note_cleared", "admin_closed_note_added", "admin_closed_note_updated", "admin_closed_note_cleared"], true)) {
       $eventKey = (string)$payload["kind"];
     }
 
@@ -989,6 +989,18 @@ try {
 
       case "holder_progress_note_cleared":
         $title = "{$actor} cleared work-in-progress remarks";
+        break;
+
+      case "admin_closed_note_added":
+        $title = "{$actor} added admin remarks on a closed document";
+        break;
+
+      case "admin_closed_note_updated":
+        $title = "{$actor} updated admin remarks on a closed document";
+        break;
+
+      case "admin_closed_note_cleared":
+        $title = "{$actor} cleared admin remarks on a closed document";
         break;
 
       case "updated":
