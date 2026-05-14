@@ -298,9 +298,12 @@ function ensure_division_tracking_tables(mysqli $conn): void
     UNIQUE KEY uq_doc_division_tracking_doc_division (document_id, division_id),
     UNIQUE KEY uq_doc_division_tracking_no (division_id, tracking_no),
     KEY idx_doc_division_tracking_doc (document_id),
+    KEY idx_doc_division_tracking_division (division_id),
     CONSTRAINT fk_doc_division_tracking_doc FOREIGN KEY (document_id) REFERENCES documents(id),
     CONSTRAINT fk_doc_division_tracking_division FOREIGN KEY (division_id) REFERENCES divisions(id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+  ensure_document_division_tracking_duplicate_override_support($conn);
 
   $conn->query("CREATE TABLE IF NOT EXISTS division_tracking_slip_user_order (
     division_id INT NOT NULL,
@@ -314,6 +317,44 @@ function ensure_division_tracking_tables(mysqli $conn): void
     CONSTRAINT fk_division_tracking_slip_order_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_division_tracking_slip_order_updated_by FOREIGN KEY (updated_by_user_id) REFERENCES users(id) ON DELETE SET NULL
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+}
+
+function ensure_document_division_tracking_duplicate_override_support(mysqli $conn): void
+{
+  $dbResult = $conn->query('SELECT DATABASE()');
+  $dbRow = $dbResult ? $dbResult->fetch_row() : null;
+  $dbName = trim((string)($dbRow[0] ?? ''));
+  if ($dbName === '') {
+    return;
+  }
+
+  $stmt = $conn->prepare("
+    SELECT COUNT(*)
+    FROM information_schema.statistics
+    WHERE table_schema = ?
+      AND table_name = 'document_division_tracking'
+      AND index_name = 'uq_doc_division_tracking_no'
+  ");
+  $stmt->bind_param('s', $dbName);
+  $stmt->execute();
+  $exists = (int)($stmt->get_result()->fetch_row()[0] ?? 0) > 0;
+  if ($exists) {
+    $stmt = $conn->prepare("
+      SELECT COUNT(*)
+      FROM information_schema.statistics
+      WHERE table_schema = ?
+        AND table_name = 'document_division_tracking'
+        AND index_name = 'idx_doc_division_tracking_division'
+    ");
+    $stmt->bind_param('s', $dbName);
+    $stmt->execute();
+    $divisionIdxExists = (int)($stmt->get_result()->fetch_row()[0] ?? 0) > 0;
+    if (!$divisionIdxExists) {
+      $conn->query('ALTER TABLE document_division_tracking ADD INDEX idx_doc_division_tracking_division (division_id)');
+    }
+
+    $conn->query('ALTER TABLE document_division_tracking DROP INDEX uq_doc_division_tracking_no');
+  }
 }
 
 function get_division_meta(mysqli $conn, int $divisionId): ?array
