@@ -2099,6 +2099,10 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
         </div>
       </div>
 
+      <a href="<?= htmlspecialchars(PUBLIC_PATH . '/task_monitoring.php') ?>" class="docsTmsBtn" style="text-decoration:none;">
+        Switch to Task Monitoring
+      </a>
+
       <a href="<?= htmlspecialchars(PUBLIC_PATH . '/add_document.php' . ($assistantModeEnabled && (int)($activeAssistantPrincipal['id'] ?? 0) > 0 ? '?acting_principal_user_id=' . (int)($activeAssistantPrincipal['id'] ?? 0) : '')) ?>" class="btnComp docsAddBtn" style="text-decoration:none;">
         + Add Document
       </a>
@@ -3292,6 +3296,13 @@ $end   = min($totalPages, $page + 2);
       <input id="divisionSlipTrackingNo" type="text" class="search" style="width:100%; margin-top:6px;" placeholder="<?= htmlspecialchars($myDivisionCode !== '' ? $myDivisionCode . ' MMDDYYNN' : 'Division tracking number') ?>">
       <div class="mini" style="margin-top:6px; opacity:.75;">Format: <?= htmlspecialchars($myDivisionCode !== '' ? $myDivisionCode . ' MMDDYYNN' : 'DIVISION MMDDYYNN') ?>. Editable before generate.</div>
       <div id="divisionSlipTrackingDuplicateHint" class="mini" style="margin-top:6px; color:#b45309; display:none;"></div>
+      <label id="divisionSlipForceDuplicateWrap" style="display:none; gap:8px; align-items:flex-start; cursor:pointer; margin-top:8px;">
+        <input id="divisionSlipForceDuplicate" type="checkbox" style="margin-top:3px;">
+        <span>
+          <span style="display:block; font-size:12px; font-weight:900;">Force duplicate division tracking number</span>
+          <span class="mini" style="opacity:.75;">Only use this when the document came from another division and you need to intentionally reuse the same tracking number.</span>
+        </span>
+      </label>
 
       <label for="divisionSlipReceivedBy" style="font-size:12px; font-weight:900; margin-top:8px;">Received by</label>
       <input id="divisionSlipReceivedBy" type="text" class="search" style="width:100%; margin-top:6px;" placeholder="Name of receiver">

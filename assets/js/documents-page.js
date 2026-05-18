@@ -251,6 +251,8 @@
   const fallbackBase = ((window.location.pathname.match(/^(.*?)(?:\/public\/|\/api\/|\/public$|\/api$)/) || [])[1] || '');
   const API = APP.api || (fallbackBase + '/api');
   const PUBLIC = APP.public || (fallbackBase + '/public');
+  const divisionSlipForceDuplicateWrap = document.getElementById("divisionSlipForceDuplicateWrap");
+  const divisionSlipForceDuplicate = document.getElementById("divisionSlipForceDuplicate");
 
   let currentCanForward = false;
   let currentCanAttachmentForward = false;
@@ -295,16 +297,23 @@
 
     if (divisionSlipModalTitle) divisionSlipModalTitle.textContent = slipActionMeta.actionLabel;
     if (divisionSlipTrackingNo) divisionSlipTrackingNo.value = fallbackTrackingNo.trim();
+    const crossDivision = (
+      (currentPayload.origin_division_code || "").toString().trim().toUpperCase() !== ""
+      && (currentPayload.origin_division_code || "").toString().trim().toUpperCase() !== (APP.myDivisionCode || "").toString().trim().toUpperCase()
+    );
+    if (divisionSlipForceDuplicateWrap) {
+      divisionSlipForceDuplicateWrap.style.display = crossDivision ? "flex" : "none";
+    }
+    if (divisionSlipForceDuplicate) {
+      divisionSlipForceDuplicate.checked = false;
+      divisionSlipForceDuplicate.disabled = !crossDivision;
+    }
     if (divisionSlipReceivedBy) {
       divisionSlipReceivedBy.value = defaultDivisionSlipReceivedBy(currentPayload);
       divisionSlipReceivedBy.readOnly = actingPrincipalId(currentPayload) > 0;
     }
     if (divisionSlipReceivedAt) divisionSlipReceivedAt.value = defaultReceivedAt;
     if (divisionSlipModalHint) {
-      const crossDivision = (
-        (currentPayload.origin_division_code || "").toString().trim().toUpperCase() !== ""
-        && (currentPayload.origin_division_code || "").toString().trim().toUpperCase() !== (APP.myDivisionCode || "").toString().trim().toUpperCase()
-      );
       divisionSlipModalHint.textContent = crossDivision
         ? "Defaults are based on when this document entered your division."
         : "Defaults are based on your division's current receipt context.";
@@ -357,8 +366,12 @@
 
       const docTracking = String(data.document_tracking_no || "").trim() || `Document #${Number(data.document_id || 0)}`;
       const subjectShort = String(data.subject_short || "").trim();
+      const crossDivision = (
+        (currentPayload.origin_division_code || "").toString().trim().toUpperCase() !== ""
+        && (currentPayload.origin_division_code || "").toString().trim().toUpperCase() !== (APP.myDivisionCode || "").toString().trim().toUpperCase()
+      );
       setDivisionSlipDuplicateHint(
-        `This division tracking number already exists. See: ${docTracking}${subjectShort ? ` (SUBJECT: ${subjectShort})` : ""}`
+        `This division tracking number already exists. See: ${docTracking}${subjectShort ? ` (SUBJECT: ${subjectShort})` : ""}${crossDivision ? ". You may force this duplicate for a cross-division document." : ""}`
       );
     } catch {
       if (currentSeq !== divisionSlipDuplicateSeq) return;
@@ -4335,6 +4348,7 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
       form.append("division_tracking_no", trackingNo);
       form.append("received_by_name", receivedBy);
       form.append("received_datetime", receivedAt);
+      form.append("allow_duplicate_tracking_no", divisionSlipForceDuplicate?.checked ? "1" : "0");
       form.append("csrf_token", window.__CSRF__ || "");
 
       const res = await fetch(`${API}/division_tracking_slip_generate.php`, {

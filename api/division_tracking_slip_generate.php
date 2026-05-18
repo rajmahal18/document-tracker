@@ -241,10 +241,15 @@ $trackingRow = get_document_division_tracking($conn, $docId, $divisionId);
 $submittedTrackingNo = strtoupper(trim((string)($_POST['division_tracking_no'] ?? '')));
 $submittedReceivedBy = trim((string)($_POST['received_by_name'] ?? ''));
 $submittedReceivedDatetime = trim((string)($_POST['received_datetime'] ?? ''));
+$allowDuplicateTrackingNo = (int)($_POST['allow_duplicate_tracking_no'] ?? 0) === 1;
+$originDivisionMeta = get_user_division_meta($conn, (int)($doc['origin_section_id'] ?? 0));
+$originDivisionId = (int)($originDivisionMeta['id'] ?? 0);
+$isCrossDivisionDocument = $originDivisionId > 0 && $originDivisionId !== $divisionId;
+$canForceDuplicateTrackingNo = $isCrossDivisionDocument && $allowDuplicateTrackingNo;
 
 try {
   if ($submittedTrackingNo !== '') {
-    upsert_document_division_tracking($conn, $docId, $divisionId, $submittedTrackingNo, $actualUserId, true);
+    upsert_document_division_tracking($conn, $docId, $divisionId, $submittedTrackingNo, $actualUserId, true, $canForceDuplicateTrackingNo);
   } elseif (!$trackingRow) {
     $defaultNo = preview_next_division_tracking_number($conn, $divisionId, new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')));
     upsert_document_division_tracking($conn, $docId, $divisionId, $defaultNo, $actualUserId, false);
@@ -312,8 +317,6 @@ $initialReceiveAtRaw = $submittedReceivedDatetime !== ''
   : trim((string)($receivedDefaults['received_at_raw'] ?? ''));
 
 $head = resolve_division_head($conn, $divisionId);
-$originDivisionMeta = get_user_division_meta($conn, $originSectionId);
-$originDivisionId = (int)($originDivisionMeta['id'] ?? 0);
 $flowRows = build_division_slip_flow_rows($conn, $docId, $divisionId, $receivedBy, [
   'initial_receive_name' => $receivedBy,
   'initial_receive_datetime' => $initialReceiveAtRaw,
