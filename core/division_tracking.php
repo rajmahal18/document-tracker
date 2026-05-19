@@ -403,6 +403,11 @@ function division_tracking_attachment_note(string $divisionCode): string
   return 'AUTO:DIVISION_TRACKING_SLIP:' . strtoupper(trim($divisionCode));
 }
 
+function division_tracking_page2_attachment_note(string $divisionCode): string
+{
+  return 'AUTO:DIVISION_TRACKING_SLIP_PAGE2:' . strtoupper(trim($divisionCode));
+}
+
 function division_tracking_attachment_note_matches(?string $note, ?string $divisionCode): bool
 {
   $note = strtoupper(trim((string)$note));
@@ -416,6 +421,17 @@ function division_tracking_attachment_note_matches(?string $note, ?string $divis
   }
 
   return $divisionCode === 'PPD' && $note === 'AUTO:PPD_TRACKING_SLIP';
+}
+
+function division_tracking_page2_attachment_note_matches(?string $note, ?string $divisionCode): bool
+{
+  $note = strtoupper(trim((string)$note));
+  $divisionCode = strtoupper(trim((string)$divisionCode));
+  if ($note === '' || $divisionCode === '') {
+    return false;
+  }
+
+  return $note === division_tracking_page2_attachment_note($divisionCode);
 }
 
 function get_document_creator_name(mysqli $conn, int $documentId): string
@@ -681,6 +697,18 @@ function upsert_document_division_tracking(
   }
 }
 
+function delete_document_division_tracking(mysqli $conn, int $documentId, int $divisionId): void
+{
+  ensure_division_tracking_tables($conn);
+  if ($documentId <= 0 || $divisionId <= 0) {
+    return;
+  }
+
+  $stmt = $conn->prepare('DELETE FROM document_division_tracking WHERE document_id = ? AND division_id = ? LIMIT 1');
+  $stmt->bind_param('ii', $documentId, $divisionId);
+  $stmt->execute();
+}
+
 function get_document_division_tracking(mysqli $conn, int $documentId, int $divisionId): ?array
 {
   ensure_division_tracking_tables($conn);
@@ -856,6 +884,7 @@ function build_division_slip_flow_rows(mysqli $conn, int $documentId, int $divis
 
   $initialReceiveName = trim((string)($options['initial_receive_name'] ?? $assistantName));
   $initialReceiveDatetime = trim((string)($options['initial_receive_datetime'] ?? ''));
+  $rowLimit = max(1, (int)($options['row_limit'] ?? 8));
   $rows = [];
   $routeCount = count($routes);
   for ($i = 0; $i < $routeCount; $i++) {
@@ -883,5 +912,5 @@ function build_division_slip_flow_rows(mysqli $conn, int $documentId, int $divis
     }
   }
 
-  return array_slice($rows, 0, 8);
+  return array_slice($rows, 0, $rowLimit);
 }

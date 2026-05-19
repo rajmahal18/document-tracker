@@ -31,7 +31,9 @@ $pageTitle = $pageTitle ?? "Document Tracker";
   <?php if (empty($disableLegacyOrgChartStyles)): ?>
   <link rel="stylesheet" href="<?= asset_url("assets/css/org-chart.css") ?>">
   <?php endif; ?>
+  <?php if (empty($disableDocumentsStyles)): ?>
   <link rel="stylesheet" href="<?= asset_url("assets/css/documents.css") ?>">
+  <?php endif; ?>
   <?php if (!empty($pageStyles) && is_array($pageStyles)): ?>
     <?php foreach ($pageStyles as $href): ?>
       <link rel="stylesheet" href="<?= htmlspecialchars((string)$href, ENT_QUOTES, "UTF-8") ?>">
@@ -51,7 +53,7 @@ $pageTitle = $pageTitle ?? "Document Tracker";
 </script>
 </head>
 
-<body>
+<body class="<?= htmlspecialchars(trim((string)($bodyClass ?? '')), ENT_QUOTES, "UTF-8") ?>">
 
 <?php
   $currentPage = basename($_SERVER['PHP_SELF']);
@@ -167,6 +169,12 @@ $pageTitle = $pageTitle ?? "Document Tracker";
       <span class="navIcon">▤</span>
       <span class="navText">Organizational Chart</span>
     </a>
+    <?php /*
+    <a href="<?= PUBLIC_PATH ?>/task_monitoring.php" class="<?= $currentPage === 'task_monitoring.php' ? 'navActive' : '' ?>">
+      <span class="navIcon">&#9716;</span>
+      <span class="navText">Task Monitoring</span>
+    </a>
+    */ ?>
     <a href="<?= PUBLIC_PATH ?>/account.php" class="<?= $currentPage === 'account.php' ? 'navActive' : '' ?>">
       <span class="navIcon">☺</span>
       <span class="navText">My Account</span>
@@ -197,10 +205,10 @@ $pageTitle = $pageTitle ?? "Document Tracker";
   </nav>
 <?php endif; ?>
 
-<main class="page">
-  <div class="content">
+<main class="page <?= htmlspecialchars(trim((string)($pageClass ?? '')), ENT_QUOTES, "UTF-8") ?>">
+  <div class="content <?= htmlspecialchars(trim((string)($contentClass ?? '')), ENT_QUOTES, "UTF-8") ?>">
 
-    <?php if (isset($_SESSION["user_id"])): ?>
+    <?php if (isset($_SESSION["user_id"]) && empty($hideAppUserSummary)): ?>
       <?php
         $fullName = (string)($_SESSION["full_name"] ?? "User");
         $username = trim((string)($_SESSION["username"] ?? ""));

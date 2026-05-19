@@ -374,6 +374,26 @@ body[data-theme="dark"] .docsCalendarWeekBtn {
   color: #f2b36f;
 }
 .docsAddBtn { min-height: 46px; display: inline-flex; align-items: center; justify-content: center; padding: 0 18px; font-weight: 800; }
+.docsTmsBtn {
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(11, 58, 102, 0.14);
+  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.96));
+  color: #0b3a66;
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow: 0 10px 18px rgba(16, 24, 40, 0.06);
+}
+
+.docsTmsBtn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(11, 58, 102, 0.24);
+  background: #ffffff;
+}
 .docsStatsGrid { margin-top: 0; gap: 16px; }
 
 .docsStatCard {
@@ -1013,6 +1033,7 @@ body[data-theme="dark"] .docsToolbarFilters .date {
   }
   .docsControlBtn,
   .docsAddBtn,
+  .docsTmsBtn,
   .docsClearFilters { width: 100%; }
   .docsQuickFilters { width: 100%; }
   .docsQuickFilter { width: 100%; justify-content: space-between; }
@@ -1065,7 +1086,7 @@ body[data-theme="dark"] .docsToolbarFilters .date {
   .docsTitle { font-size: 24px; line-height: 1.08; }
   .docsLead { font-size: 12px; line-height: 1.45; margin-top: 6px; }
   .docsHeroActions { gap: 8px; }
-  .docsSummaryPill, .docsCalendarPeek, .docsAddBtn { min-height: 40px; }
+  .docsSummaryPill, .docsCalendarPeek, .docsAddBtn, .docsTmsBtn { min-height: 40px; }
   .docsSummaryPill { padding: 0 12px; gap: 8px; }
   .docsSummaryValue { font-size: 16px; }
   .docsSummaryLabel { font-size: 11px; }
@@ -1075,7 +1096,8 @@ body[data-theme="dark"] .docsToolbarFilters .date {
     right: auto;
     left: 0;
   }
-  .docsAddBtn { padding: 0 14px; font-size: 12px; }
+  .docsAddBtn,
+  .docsTmsBtn { padding: 0 14px; font-size: 12px; }
 
   .docsStatsGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

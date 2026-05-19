@@ -1,17 +1,18 @@
     </div>
   </main>
 
+  <?php if (empty($hideFooter)): ?>
   <footer class="footer">
-    <span>© 2026 Ministry of Public Works - BARMM</span>
+    <span>&copy; 2026 Ministry of Public Works - BARMM</span>
     <span class="muted">All activities may be monitored.</span>
   </footer>
+  <?php endif; ?>
 
   <script src="https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js"></script>
   <script src="<?= asset_url("assets/js/app.js") ?>"></script>
   <script src="<?= asset_url("assets/js/view_document_merge.js") ?>"></script>
   <script src="<?= asset_url("assets/js/login.js") ?>"></script>
   <script src="<?= asset_url("assets/js/pwa-ui.js") ?>"></script>
-
 
   <?php if (!empty($pageScripts) && is_array($pageScripts)): ?>
     <?php foreach ($pageScripts as $src): ?>

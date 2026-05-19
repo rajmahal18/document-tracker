@@ -629,6 +629,7 @@ button[id]::before {
 #btnViewDocument,
 #btnEditDocumentDetails,
 #btnRegenerateDivisionSlip,
+#btnGenerateDivisionSlipPage2,
 #btnToggleAttachments,
 #btnToggleUpload,
 #btnAttachUpload,
@@ -665,6 +666,7 @@ button[id]::before {
 #btnViewDocument::before,
 #btnEditDocumentDetails::before,
 #btnRegenerateDivisionSlip::before,
+#btnGenerateDivisionSlipPage2::before,
 #btnToggleAttachments::before,
 #btnToggleUpload::before,
 #btnAttachUpload::before,
@@ -885,6 +887,7 @@ button[id]::before {
 }
 
 #btnRegenerateDivisionSlip,
+#btnGenerateDivisionSlipPage2,
 #btnPpdSlipGenerate {
   --btn-icon-mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill='black' d='M12 4a8 8 0 0 1 7.7 6h-2.1A6 6 0 1 0 16 16.2V14h5v5h-2.2A8 8 0 1 1 12 4'/%3E%3C/svg%3E");
 }
@@ -1077,7 +1080,8 @@ button[id]::before {
   letter-spacing: 0.01em;
 }
 
-#btnRegenerateDivisionSlip {
+#btnRegenerateDivisionSlip,
+#btnGenerateDivisionSlipPage2 {
   background: transparent;
   border-color: #0b3a66;
   color: #0b3a66;
@@ -1091,7 +1095,8 @@ button[id]::before {
   color: #fff;
 }
 
-#btnRegenerateDivisionSlip:hover {
+#btnRegenerateDivisionSlip:hover,
+#btnGenerateDivisionSlipPage2:hover {
   background: rgba(11, 58, 102, 0.08);
 }
 
@@ -3118,13 +3123,15 @@ body[data-theme="dark"] .pagerBtn:hover {
   border-color: rgba(125, 183, 255, 0.38);
 }
 
-body[data-theme="dark"] #btnRegenerateDivisionSlip {
+body[data-theme="dark"] #btnRegenerateDivisionSlip,
+body[data-theme="dark"] #btnGenerateDivisionSlipPage2 {
   background: transparent;
   border-color: rgba(125, 183, 255, 0.56);
   color: #cae6ff;
 }
 
-body[data-theme="dark"] #btnRegenerateDivisionSlip:hover {
+body[data-theme="dark"] #btnRegenerateDivisionSlip:hover,
+body[data-theme="dark"] #btnGenerateDivisionSlipPage2:hover {
   background: rgba(125, 183, 255, 0.12);
 }
 

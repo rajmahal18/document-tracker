@@ -2099,9 +2099,11 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
         </div>
       </div>
 
+      <?php /*
       <a href="<?= htmlspecialchars(PUBLIC_PATH . '/task_monitoring.php') ?>" class="docsTmsBtn" style="text-decoration:none;">
         Switch to Task Monitoring
       </a>
+      */ ?>
 
       <a href="<?= htmlspecialchars(PUBLIC_PATH . '/add_document.php' . ($assistantModeEnabled && (int)($activeAssistantPrincipal['id'] ?? 0) > 0 ? '?acting_principal_user_id=' . (int)($activeAssistantPrincipal['id'] ?? 0) : '')) ?>" class="btnComp docsAddBtn" style="text-decoration:none;">
         + Add Document
@@ -3077,6 +3079,7 @@ $end   = min($totalPages, $page + 2);
 
       <div class="drawerSectionActions">
         <button type="button" class="btnSecondary" id="btnRegenerateDivisionSlip" style="display:none;">Generate division slip</button>
+        <button type="button" class="btnSecondary" id="btnGenerateDivisionSlipPage2" style="display:none;">Generate slip 2nd page</button>
         <button type="button" class="btnSecondary" id="btnToggleUpload">Add attachment</button>
       </div>
 
@@ -3378,6 +3381,41 @@ $end   = min($totalPages, $page + 2);
     <div class="modalFooter">
       <button id="btnAttachmentTaskDoneCancel" type="button" class="btnSecondary">Cancel</button>
       <button id="btnAttachmentTaskDoneConfirm" type="button" class="btnComp">Confirm task done</button>
+    </div>
+  </div>
+</div>
+
+<div id="attachmentDeleteModal" class="modalWrap" aria-hidden="true">
+  <div id="attachmentDeleteModalBackdrop" class="modalBackdrop"></div>
+  <div class="modalCard forwardModalCard" style="max-width:620px;">
+    <div class="modalHeader">
+      <div>
+        <h3>Delete attachment?</h3>
+        <div class="attSub mini">This action is limited to admin accounts.</div>
+      </div>
+      <button id="attachmentDeleteModalClose" class="modalClose" type="button">✕</button>
+    </div>
+
+    <div class="modalBody forwardModalBody">
+      <div class="mini" style="font-weight:900; color:#0f172a;">Selected file</div>
+      <div id="attachmentDeleteName" style="font-weight:900; line-height:1.4; word-break:break-word;"></div>
+
+      <div style="margin-top:12px; padding:12px 14px; border-radius:14px; background:#fff7ed; border:1px solid rgba(249,115,22,.18); color:#7c2d12;">
+        <div style="font-weight:900; margin-bottom:8px;">Implications</div>
+        <div class="mini" style="display:grid; gap:6px; color:#7c2d12;">
+          <div>• The attachment will be hidden from document views, downloads, and attachment lists.</div>
+          <div>• The file history event will remain for audit trail purposes.</div>
+          <div>• If this file was used in attachment forwarding, users may no longer be able to use that deleted attachment from the UI.</div>
+          <div>• This is a soft delete only. The row stays for audit history.</div>
+        </div>
+      </div>
+
+      <div id="attachmentDeleteModalMsg" class="modalMsg" style="display:none;"></div>
+    </div>
+
+    <div class="modalFooter">
+      <button id="btnAttachmentDeleteCancel" type="button" class="btnSecondary">Cancel</button>
+      <button id="btnAttachmentDeleteConfirm" type="button" class="btnGhost" style="border-color:rgba(220,38,38,.18); color:#b91c1c;">Delete attachment</button>
     </div>
   </div>
 </div>

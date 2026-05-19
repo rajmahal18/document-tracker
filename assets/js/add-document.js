@@ -5,6 +5,7 @@
   const apiPath = String(cfg.apiPath || "");
   const editMode = !!cfg.editMode;
   const hasOwnDivisionSlip = !!cfg.hasOwnDivisionSlip;
+  const canGenerateTransmittalMemo = !!cfg.canGenerateTransmittalMemo;
   const sectionLabels = cfg.sectionLabels && typeof cfg.sectionLabels === "object" ? cfg.sectionLabels : {};
   const sectionMeta = cfg.sectionMeta && typeof cfg.sectionMeta === "object" ? cfg.sectionMeta : {};
   const divisionChiefTargets = Array.isArray(cfg.divisionChiefTargets) ? cfg.divisionChiefTargets : [];
@@ -177,15 +178,29 @@
     const transOpts = document.getElementById("transmittalOpts");
     const slipOpts = document.getElementById("divisionSlipOpts");
     const slipReceivedWrap = document.getElementById("divisionSlipReceivedWrap");
+    const createDivisionTrackingWrap = document.getElementById("createDivisionTrackingWrap");
     const radios = document.querySelectorAll('input[name="gen_choice"]');
+
+    function setWrapEnabled(wrap, on) {
+      if (!wrap) return;
+      wrap.style.display = on ? "block" : "none";
+      wrap.querySelectorAll("input, select, textarea, button").forEach((field) => {
+        if (!field) return;
+        field.disabled = !on;
+      });
+    }
 
     function syncGen() {
       let choice = "none";
       radios.forEach((r) => { if (r.checked) choice = r.value; });
-      show(transOpts, choice === "transmittal");
+      show(transOpts, canGenerateTransmittalMemo && choice === "transmittal");
       show(slipOpts, hasOwnDivisionSlip && choice === "division_slip");
+      setWrapEnabled(createDivisionTrackingWrap, hasOwnDivisionSlip && choice === "division_slip");
       if (slipReceivedWrap) {
         slipReceivedWrap.style.display = hasOwnDivisionSlip && choice === "division_slip" ? "grid" : "none";
+        slipReceivedWrap.querySelectorAll("input, select, textarea, button").forEach((field) => {
+          field.disabled = !(hasOwnDivisionSlip && choice === "division_slip");
+        });
       }
 
       if (choice === "transmittal" && transOpts) {

@@ -57,7 +57,9 @@ $branchFieldSql = workflow_branch_attachment_scope_enabled($conn)
   ? 'branch_id'
   : 'NULL AS branch_id';
 
-$whereSql = "document_id = ? AND is_deleted = 0 AND note NOT LIKE 'AUTO:DIVISION_TRACKING_SLIP:%:SUPERSEDED'";
+$whereSql = "document_id = ? AND is_deleted = 0"
+  . " AND note NOT LIKE 'AUTO:DIVISION_TRACKING_SLIP:%:SUPERSEDED'"
+  . " AND note NOT LIKE 'AUTO:DIVISION_TRACKING_SLIP_PAGE2:%'";
 $bindTypes = 'i';
 $bindValues = [$docId];
 if ($isScoped) {
@@ -86,7 +88,8 @@ $sql = "
     CASE
       WHEN note = 'AUTO:TRANSMITTAL_MEMO' THEN 0
       WHEN note = 'AUTO:PPD_TRACKING_SLIP' OR note LIKE 'AUTO:DIVISION_TRACKING_SLIP:%' THEN 1
-      ELSE 2
+      WHEN note LIKE 'AUTO:DIVISION_TRACKING_SLIP_PAGE2:%' THEN 2
+      ELSE 3
     END ASC,
     CASE WHEN branch_id IS NULL OR branch_id = 0 THEN 0 ELSE 1 END ASC,
     is_append ASC,
@@ -107,6 +110,10 @@ if ($atts) {
       }
       if (str_starts_with($note, 'AUTO:DIVISION_TRACKING_SLIP:')) {
         $suffix = strtoupper(trim(substr($note, strlen('AUTO:DIVISION_TRACKING_SLIP:'))));
+        return trim(explode(':', $suffix, 2)[0] ?? '');
+      }
+      if (str_starts_with($note, 'AUTO:DIVISION_TRACKING_SLIP_PAGE2:')) {
+        $suffix = strtoupper(trim(substr($note, strlen('AUTO:DIVISION_TRACKING_SLIP_PAGE2:'))));
         return trim(explode(':', $suffix, 2)[0] ?? '');
       }
       return '';

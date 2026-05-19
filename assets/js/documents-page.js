@@ -72,15 +72,25 @@
   const btnViewDocument = document.getElementById("btnViewDocument");
   const rowEditDocumentDetails = document.getElementById("rowEditDocumentDetails");
   const btnEditDocumentDetails = document.getElementById("btnEditDocumentDetails");
+  const attachmentDeleteModal = document.getElementById("attachmentDeleteModal");
+  const attachmentDeleteModalBackdrop = document.getElementById("attachmentDeleteModalBackdrop");
+  const attachmentDeleteModalClose = document.getElementById("attachmentDeleteModalClose");
+  const attachmentDeleteName = document.getElementById("attachmentDeleteName");
+  const attachmentDeleteModalMsg = document.getElementById("attachmentDeleteModalMsg");
+  const btnAttachmentDeleteCancel = document.getElementById("btnAttachmentDeleteCancel");
+  const btnAttachmentDeleteConfirm = document.getElementById("btnAttachmentDeleteConfirm");
 
   const rowPpdSlip = document.getElementById("rowPpdSlip");
   const btnPpdSlipGenerate = document.getElementById("btnPpdSlipGenerate");
   const btnPpdSlipAttach = document.getElementById("btnPpdSlipAttach");
   const btnPpdSlipPrint = document.getElementById("btnPpdSlipPrint");
   let currentPpdSlipAttId = 0;
+  let currentDivisionSlipPage2AttId = 0;
   let currentDivisionSlipTrigger = null;
   let divisionSlipDuplicateTimer = null;
   let divisionSlipDuplicateSeq = 0;
+  let canAdminDeleteAttachments = false;
+  let pendingAttachmentDelete = null;
 
   function currentDivisionSlipActionMeta(payload = currentPayload) {
     const hasExisting = Number(payload?.has_my_division_slip || 0) === 1;
@@ -92,6 +102,18 @@
       : {
         actionLabel: "Generate division slip",
         successText: "Division tracking slip generated."
+      };
+  }
+
+  function currentDivisionSlipPage2ActionMeta() {
+    return currentDivisionSlipPage2AttId > 0
+      ? {
+        actionLabel: "Generate latest slip 2nd page",
+        successText: "Latest division tracking slip 2nd page generated."
+      }
+      : {
+        actionLabel: "Generate slip 2nd page",
+        successText: "Division tracking slip 2nd page generated."
       };
   }
 
@@ -122,8 +144,16 @@
     return divisionCode === "PPD" && raw === "AUTO:PPD_TRACKING_SLIP";
   }
 
+  function isCurrentDivisionSlipPage2Attachment(note) {
+    const raw = (note || "").toString().trim().toUpperCase();
+    const divisionCode = (APP.myDivisionCode || "").toString().trim().toUpperCase();
+    if (!raw || !divisionCode) return false;
+    return raw === `AUTO:DIVISION_TRACKING_SLIP_PAGE2:${divisionCode}`;
+  }
+
   const btnToggleUpload = document.getElementById("btnToggleUpload");
   const btnRegenerateDivisionSlip = document.getElementById("btnRegenerateDivisionSlip");
+  const btnGenerateDivisionSlipPage2 = document.getElementById("btnGenerateDivisionSlipPage2");
   const btnToggleForward = document.getElementById("btnToggleForward");
   const btnToggleAttachmentForward = document.getElementById("btnToggleAttachmentForward");
   const btnAttachmentTaskDone = document.getElementById("btnAttachmentTaskDone");
@@ -2277,6 +2307,7 @@
                 <div style="display:flex; gap:8px; flex-shrink:0;">
                   <a href="#" class="attachLink btn btnSm" data-view-url="${esc(viewUrl)}" data-dl-url="${esc(dlUrl)}" data-mime="${esc(a.mime || "")}" data-name="${esc(name)}">View</a>
                   <a href="${esc(dlUrl)}" class="btn btnSm btnGhost" target="_blank" rel="noopener">Download</a>
+                  ${canAdminDeleteAttachments ? `<button type="button" class="btn btnSm btnGhost attachDeleteBtn" data-attachment-id="${Number(a.id || 0)}" data-attachment-name="${esc(name)}" style="color:#b91c1c; border-color:rgba(220,38,38,.14);">Delete</button>` : ""}
                 </div>
               </div>
             </div>
@@ -2302,8 +2333,10 @@
         return;
       }
 
+      canAdminDeleteAttachments = !!data?.can_admin_delete_attachments;
       const items = Array.isArray(data.attachments) ? data.attachments : [];
       currentPpdSlipAttId = 0;
+      currentDivisionSlipPage2AttId = 0;
 
       for (const a of items) {
         const note = (a.note || '').toString();
@@ -2313,13 +2346,96 @@
         }
       }
 
+      for (const a of items) {
+        const note = (a.note || '').toString();
+        if (isCurrentDivisionSlipPage2Attachment(note) && !note.toUpperCase().includes(':SUPERSEDED')) {
+          currentDivisionSlipPage2AttId = Number(a.id || 0);
+          break;
+        }
+      }
+
       if (btnPpdSlipPrint) {
         btnPpdSlipPrint.disabled = !(APP.hasOwnDivisionSlip && currentPpdSlipAttId > 0);
+      }
+
+      if (btnGenerateDivisionSlipPage2) {
+        btnGenerateDivisionSlipPage2.textContent = currentDivisionSlipPage2ActionMeta().actionLabel;
       }
 
       renderAttachments(items);
     } catch {
       elAttachments.textContent = "Failed to load attachments.";
+    }
+  }
+
+  function openAttachmentDeleteModal(attachmentId, attachmentName) {
+    if (!attachmentDeleteModal) return;
+    pendingAttachmentDelete = {
+      attachmentId: Number(attachmentId || 0),
+      attachmentName: String(attachmentName || `Attachment #${attachmentId || ""}`),
+      documentId: Number(elId?.value || 0),
+    };
+    if (attachmentDeleteName) attachmentDeleteName.textContent = pendingAttachmentDelete.attachmentName;
+    if (attachmentDeleteModalMsg) {
+      attachmentDeleteModalMsg.textContent = "";
+      attachmentDeleteModalMsg.className = "modalMsg";
+      attachmentDeleteModalMsg.style.display = "none";
+    }
+    attachmentDeleteModal.classList.add("open");
+    attachmentDeleteModal.setAttribute("aria-hidden", "false");
+    btnAttachmentDeleteConfirm?.focus();
+  }
+
+  function closeAttachmentDeleteModal() {
+    if (!attachmentDeleteModal) return;
+    attachmentDeleteModal.classList.remove("open");
+    attachmentDeleteModal.setAttribute("aria-hidden", "true");
+    pendingAttachmentDelete = null;
+  }
+
+  async function confirmAttachmentDelete() {
+    if (!pendingAttachmentDelete || !pendingAttachmentDelete.attachmentId || !pendingAttachmentDelete.documentId) return;
+    if (btnAttachmentDeleteConfirm) btnAttachmentDeleteConfirm.disabled = true;
+    try {
+      const form = new FormData();
+      form.append("csrf_token", window.__CSRF__ || window.__APP__?.csrf || "");
+      form.append("attachment_id", String(pendingAttachmentDelete.attachmentId));
+      form.append("document_id", String(pendingAttachmentDelete.documentId));
+
+      const targetDocumentId = pendingAttachmentDelete.documentId;
+      const res = await fetch(`${API}/admin_attachment_delete.php`, {
+        method: "POST",
+        body: form,
+        credentials: "same-origin",
+      });
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.ok) {
+        const msg = data?.error || `Failed to delete attachment. (${res.status})`;
+        if (attachmentDeleteModalMsg) {
+          attachmentDeleteModalMsg.textContent = msg;
+          attachmentDeleteModalMsg.className = "modalMsg error";
+          attachmentDeleteModalMsg.style.display = "";
+        } else {
+          window.DTToast?.error(msg) || console.warn(msg);
+        }
+        return;
+      }
+
+      closeAttachmentDeleteModal();
+      window.DTToast?.success(data?.message || "Attachment deleted.") || console.log(data?.message || "Attachment deleted.");
+      await loadAttachments(targetDocumentId);
+    } catch {
+      const msg = "Failed to delete attachment (network error).";
+      if (attachmentDeleteModalMsg) {
+        attachmentDeleteModalMsg.textContent = msg;
+        attachmentDeleteModalMsg.className = "modalMsg error";
+        attachmentDeleteModalMsg.style.display = "";
+      } else {
+        window.DTToast?.error(msg) || console.warn(msg);
+      }
+    } finally {
+      if (btnAttachmentDeleteConfirm) btnAttachmentDeleteConfirm.disabled = false;
     }
   }
 
@@ -3257,6 +3373,14 @@
       btnRegenerateDivisionSlip.dataset.docId = canRegenerateSlip ? String(payload.id || "") : "";
       btnRegenerateDivisionSlip.textContent = slipActionMeta.actionLabel;
     }
+    if (btnGenerateDivisionSlipPage2) {
+      const canGenerateSlipPage2 = !!APP.hasOwnDivisionSlip
+        && Number(payload.can_regenerate_division_slip || 0) === 1
+        && Number(payload.has_my_division_slip || 0) === 1;
+      btnGenerateDivisionSlipPage2.style.display = canGenerateSlipPage2 ? "" : "none";
+      btnGenerateDivisionSlipPage2.dataset.docId = canGenerateSlipPage2 ? String(payload.id || "") : "";
+      btnGenerateDivisionSlipPage2.textContent = currentDivisionSlipPage2ActionMeta().actionLabel;
+    }
     updateForwardUI();
 
     if (attachFile) attachFile.value = "";
@@ -3826,6 +3950,16 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
   }
 
   document.addEventListener("click", (e) => {
+    const deleteBtn = e.target?.closest?.(".attachDeleteBtn[data-attachment-id]");
+    if (deleteBtn) {
+      e.preventDefault();
+      openAttachmentDeleteModal(
+        Number(deleteBtn.getAttribute("data-attachment-id") || 0),
+        deleteBtn.getAttribute("data-attachment-name") || "Attachment"
+      );
+      return;
+    }
+
     const link = e.target?.closest?.("a.attachLink[data-view-url]");
     if (!link) return;
 
@@ -4308,6 +4442,10 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
   btnAttachmentTaskDoneCancel?.addEventListener("click", closeAttachmentTaskDoneModal);
   attachmentTaskDoneModalBackdrop?.addEventListener("click", closeAttachmentTaskDoneModal);
   btnAttachmentTaskDoneConfirm?.addEventListener("click", submitAttachmentTaskDone);
+  attachmentDeleteModalClose?.addEventListener("click", closeAttachmentDeleteModal);
+  btnAttachmentDeleteCancel?.addEventListener("click", closeAttachmentDeleteModal);
+  attachmentDeleteModalBackdrop?.addEventListener("click", closeAttachmentDeleteModal);
+  btnAttachmentDeleteConfirm?.addEventListener("click", confirmAttachmentDelete);
   pendingRemarksModalClose?.addEventListener("click", () => setPendingRemarksEditing(false));
   pendingRemarksModalBackdrop?.addEventListener("click", () => setPendingRemarksEditing(false));
   btnEditPendingRemarks?.addEventListener("click", () => setPendingRemarksEditing(true));
@@ -4388,12 +4526,55 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
     }
   }
 
+  async function generateDivisionSlipPage2(triggerButton) {
+    const docId = triggerButton?.dataset?.docId || elId?.value || "";
+    if (!docId) return;
+    const actionMeta = currentDivisionSlipPage2ActionMeta();
+
+    if (triggerButton) triggerButton.disabled = true;
+    try {
+      const form = appendActingPrincipal(new FormData(), currentPayload);
+      form.append("document_id", docId);
+      form.append("csrf_token", window.__CSRF__ || "");
+
+      const res = await fetch(`${API}/division_tracking_slip_page2_generate.php`, {
+        method: "POST",
+        body: form,
+        headers: { Accept: "application/json" }
+      });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        window.DTToast?.error(data?.error || `${actionMeta.actionLabel} failed. (${res.status})`) || console.warn(data?.error || `${actionMeta.actionLabel} failed. (${res.status})`);
+        return;
+      }
+
+      const attId = Number(data.attachment_id || 0);
+      await loadAttachments(docId);
+      if (btnGenerateDivisionSlipPage2) {
+        btnGenerateDivisionSlipPage2.textContent = currentDivisionSlipPage2ActionMeta().actionLabel;
+      }
+      window.DTToast?.success(data?.message || actionMeta.successText) || console.log(data?.message || actionMeta.successText);
+      if (attId > 0) {
+        const principalQs = actingPrincipalId() > 0 ? `&acting_principal_user_id=${actingPrincipalId()}` : "";
+        window.open(`${PUBLIC}/view_attachment.php?id=${attId}${principalQs}`, "_blank", "noopener");
+      }
+    } catch {
+      window.DTToast?.error(`${actionMeta.actionLabel} failed.`) || console.warn(`${actionMeta.actionLabel} failed.`);
+    } finally {
+      if (triggerButton) triggerButton.disabled = false;
+    }
+  }
+
   btnPpdSlipGenerate?.addEventListener("click", async () => {
     openDivisionSlipModal(btnPpdSlipGenerate);
   });
 
   btnRegenerateDivisionSlip?.addEventListener("click", async () => {
     openDivisionSlipModal(btnRegenerateDivisionSlip);
+  });
+  btnGenerateDivisionSlipPage2?.addEventListener("click", async () => {
+    await generateDivisionSlipPage2(btnGenerateDivisionSlipPage2);
   });
   divisionSlipTrackingNo?.addEventListener("input", () => {
     if (divisionSlipDuplicateTimer) clearTimeout(divisionSlipDuplicateTimer);

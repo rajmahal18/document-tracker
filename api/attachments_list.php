@@ -114,7 +114,8 @@ try {
         WHEN a.note = 'AUTO:TRANSMITTAL_MEMO' THEN 0
         WHEN a.note LIKE 'AUTO:DIVISION_TRACKING_SLIP:%' THEN 1
         WHEN a.note = 'AUTO:PPD_TRACKING_SLIP' THEN 1
-        ELSE 2
+        WHEN a.note LIKE 'AUTO:DIVISION_TRACKING_SLIP_PAGE2:%' THEN 2
+        ELSE 3
       END ASC,
       {$branchOrderSql}
       a.uploaded_at DESC,
@@ -182,6 +183,10 @@ try {
           $suffix = strtoupper(trim(substr($note, strlen('AUTO:DIVISION_TRACKING_SLIP:'))));
           return trim(explode(':', $suffix, 2)[0] ?? '');
         }
+        if (str_starts_with($note, 'AUTO:DIVISION_TRACKING_SLIP_PAGE2:')) {
+          $suffix = strtoupper(trim(substr($note, strlen('AUTO:DIVISION_TRACKING_SLIP_PAGE2:'))));
+          return trim(explode(':', $suffix, 2)[0] ?? '');
+        }
         return '';
       };
 
@@ -228,6 +233,7 @@ try {
   echo json_encode([
     "ok" => true,
     "attachments" => $rows,
+    "can_admin_delete_attachments" => ((string)($_SESSION['role'] ?? '') === 'admin'),
     "selected_branch_id" => $selectedBranchId > 0 ? $selectedBranchId : null,
     "branch_scoped" => $isScoped,
     "viewer_is_document_origin" => $viewerIsDocumentOrigin,

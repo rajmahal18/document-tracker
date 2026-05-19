@@ -413,6 +413,24 @@ $sections = $conn->query("
   ORDER BY d.name ASC, s.name ASC
 ")->fetch_all(MYSQLI_ASSOC);
 
+$currentSectionName = '';
+foreach ($sections as $sectionRow) {
+  if ((int)($sectionRow['id'] ?? 0) === $fromSectionId) {
+    $currentSectionName = trim((string)($sectionRow['name'] ?? ''));
+    break;
+  }
+}
+
+$normalizedCurrentDivisionName = strtolower(trim($divisionName));
+$normalizedCurrentSectionName = strtolower(preg_replace('/\s+/', ' ', $currentSectionName));
+$normalizedActingLabel = strtolower(trim((string)($identity["acting_label"] ?? '')));
+$isTechnicalServicesScope = $myDivisionCode === 'TS'
+  || str_contains($normalizedCurrentDivisionName, 'technical services');
+$isOfficeOfDirectorScope = in_array($normalizedCurrentSectionName, ['office of the director', 'director office'], true)
+  || $normalizedActingLabel === 'office of the director'
+  || str_contains($normalizedCurrentDivisionName, 'director office');
+$canGenerateTransmittalMemo = $isTechnicalServicesScope && $isOfficeOfDirectorScope;
+
 // For JS / labels
 $divisionChiefTargets = build_division_chief_targets($conn, $sections, $myDivisionId);
 $sectionLabelMap = [];
@@ -740,7 +758,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
 
   // Generator choice
   $genChoice = (string)($_POST['gen_choice'] ?? 'none');
-  $allowedGenChoices = ['none', 'transmittal'];
+  $allowedGenChoices = ['none'];
+  if ($canGenerateTransmittalMemo) {
+    $allowedGenChoices[] = 'transmittal';
+  }
   if ($hasOwnDivisionSlip) {
     $allowedGenChoices[] = 'division_slip';
   }
@@ -754,7 +775,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   $forceDuplicateDivisionTracking = ((string)($_POST['force_duplicate_division_tracking'] ?? '') === '1');
   $divisionSlipReceivedRaw = trim((string)($_POST['division_slip_received_datetime'] ?? ''));
   $divisionSlipReceivedDatetime = format_optional_slip_received_datetime($divisionSlipReceivedRaw);
-  if ($divisionTrackingInput === '' && $hasOwnDivisionSlip) {
+
+  if ($genChoice !== 'division_slip') {
+    $divisionTrackingInput = '';
+    $forceDuplicateDivisionTracking = false;
+    $divisionSlipReceivedRaw = '';
+    $divisionSlipReceivedDatetime = null;
+  } elseif ($divisionTrackingInput === '' && $hasOwnDivisionSlip) {
     $divisionTrackingInput = $ownDivisionTrackingPreview;
   }
 
@@ -844,16 +871,20 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         );
         $stmt->execute();
 
-        if ($hasOwnDivisionSlip && $myDivisionId > 0 && $divisionTrackingInput !== "") {
-          upsert_document_division_tracking(
-            $conn,
-            $editDocumentId,
-            $myDivisionId,
-            $divisionTrackingInput,
-            $userId,
-            strtoupper(trim($divisionTrackingInput)) !== strtoupper(trim((string)($editDocument["division_tracking_no"] ?? ""))),
-            $forceDuplicateDivisionTracking
-          );
+        if ($hasOwnDivisionSlip && $myDivisionId > 0) {
+          if ($divisionTrackingInput !== '') {
+            upsert_document_division_tracking(
+              $conn,
+              $editDocumentId,
+              $myDivisionId,
+              $divisionTrackingInput,
+              $userId,
+              strtoupper(trim($divisionTrackingInput)) !== strtoupper(trim((string)($editDocument["division_tracking_no"] ?? ""))),
+              $forceDuplicateDivisionTracking
+            );
+          } else {
+            delete_document_division_tracking($conn, $editDocumentId, $myDivisionId);
+          }
         }
         $resolvedProjectIds = resolve_project_ids_for_document($conn, $projectIds, $projectCodes);
         sync_document_projects($conn, $editDocumentId, $resolvedProjectIds, $userId);
@@ -983,7 +1014,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         $stmt->execute();
         $docId = (int)$conn->insert_id;
 
-        if ($hasOwnDivisionSlip && $myDivisionId > 0) {
+        if ($genChoice === 'division_slip' && $hasOwnDivisionSlip && $myDivisionId > 0 && $divisionTrackingInput !== '') {
           upsert_document_division_tracking(
             $conn,
             $docId,
@@ -1819,32 +1850,47 @@ require __DIR__ . "/../includes/layout.php";
       <div class="authField addDocAutoField">
         <div class="addDocInlineLabel">Auto-generate (choose one)</div>
 
-        <?php $choice = (string)($_POST["gen_choice"] ?? "none"); ?>
+        <?php
+          $choice = (string)($_POST["gen_choice"] ?? "none");
+          $displayChoices = ['none'];
+          if ($canGenerateTransmittalMemo) {
+            $displayChoices[] = 'transmittal';
+          }
+          if ($hasOwnDivisionSlip) {
+            $displayChoices[] = 'division_slip';
+          }
+          if (!in_array($choice, $displayChoices, true)) {
+            $choice = 'none';
+          }
+          $divisionSlipSelected = ($choice === 'division_slip');
+        ?>
 
         <label style="display:flex;align-items:center;gap:8px;font-weight:800;">
           <input type="radio" name="gen_choice" value="none" <?= ($choice === "none") ? "checked" : "" ?>>
           None
         </label>
 
-        <label style="display:flex;align-items:center;gap:8px;font-weight:800;margin-top:8px;">
-          <input type="radio" name="gen_choice" value="transmittal" <?= ($choice === "transmittal") ? "checked" : "" ?>>
-          Transmittal Memo
-        </label>
-
-        <div class="mini" style="margin-top:6px;">
-          Generates a printable PDF memo based on <b>Document Date</b> + <b>Subject</b>, and auto-attaches it.
-        </div>
-
-        <div id="transmittalOpts" style="margin-top:10px; display:none; gap:10px; flex-wrap:wrap;">
-          <label style="display:flex;align-items:center;gap:8px;font-weight:800;">
-            <input type="radio" name="transmittal_mode" value="print" <?= (($_POST["transmittal_mode"] ?? "attach") === "print") ? "checked" : "" ?>>
-            Generate, Attach, and Print
+        <?php if ($canGenerateTransmittalMemo): ?>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:800;margin-top:8px;">
+            <input type="radio" name="gen_choice" value="transmittal" <?= ($choice === "transmittal") ? "checked" : "" ?>>
+            Transmittal Memo
           </label>
-          <label style="display:flex;align-items:center;gap:8px;font-weight:800;">
-            <input type="radio" name="transmittal_mode" value="attach" <?= (($_POST["transmittal_mode"] ?? "attach") === "attach") ? "checked" : "" ?>>
-            Generate and Attach only
-          </label>
-        </div>
+
+          <div class="mini" style="margin-top:6px;">
+            Generates a printable PDF memo based on <b>Document Date</b> + <b>Subject</b>, and auto-attaches it.
+          </div>
+
+          <div id="transmittalOpts" style="margin-top:10px; display:none; gap:10px; flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:8px;font-weight:800;">
+              <input type="radio" name="transmittal_mode" value="print" <?= (($_POST["transmittal_mode"] ?? "attach") === "print") ? "checked" : "" ?>>
+              Generate, Attach, and Print
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;font-weight:800;">
+              <input type="radio" name="transmittal_mode" value="attach" <?= (($_POST["transmittal_mode"] ?? "attach") === "attach") ? "checked" : "" ?>>
+              Generate and Attach only
+            </label>
+          </div>
+        <?php endif; ?>
 
         <?php if ($hasOwnDivisionSlip): ?>
           <label style="display:flex;align-items:center;gap:8px;font-weight:800;margin-top:14px;">
@@ -1867,23 +1913,24 @@ require __DIR__ . "/../includes/layout.php";
             </label>
           </div>
 
-          <div style="margin-top:12px;">
+          <div id="createDivisionTrackingWrap" style="margin-top:12px; display:<?= $divisionSlipSelected ? 'block' : 'none' ?>;">
             <label style="font-weight:800;display:block;margin-bottom:6px;">Own Division Tracking Number</label>
-            <input type="text" id="createDivisionTrackingNo" name="division_tracking_no" value="<?= htmlspecialchars($_POST["division_tracking_no"] ?? $ownDivisionTrackingPreview) ?>" placeholder="<?= htmlspecialchars($ownDivisionTrackingPreview) ?>">
+            <input type="text" id="createDivisionTrackingNo" name="division_tracking_no" value="<?= htmlspecialchars($_POST["division_tracking_no"] ?? $ownDivisionTrackingPreview) ?>" placeholder="<?= htmlspecialchars($ownDivisionTrackingPreview) ?>" <?= $divisionSlipSelected ? '' : 'disabled' ?>>
             <div class="mini" style="margin-top:6px;">Format: <?= htmlspecialchars($myDivisionCode) ?> MMDDYYNN. Auto-filled but editable.</div>
             <div id="createDivisionTrackingDuplicateHint" class="mini" style="margin-top:6px; color:#b45309; display:none;"></div>
             <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-weight:700;">
-              <input type="checkbox" name="force_duplicate_division_tracking" value="1" <?= (($_POST["force_duplicate_division_tracking"] ?? "") === "1") ? "checked" : "" ?>>
+              <input type="checkbox" name="force_duplicate_division_tracking" value="1" <?= (($_POST["force_duplicate_division_tracking"] ?? "") === "1") ? "checked" : "" ?> <?= $divisionSlipSelected ? '' : 'disabled' ?>>
               Force allow duplicate tracking number
             </label>
           </div>
 
-          <div id="divisionSlipReceivedWrap" style="margin-top:12px; display:none; gap:6px;">
+          <div id="divisionSlipReceivedWrap" style="margin-top:12px; display:<?= $divisionSlipSelected ? 'grid' : 'none' ?>; gap:6px;">
             <label style="font-weight:800;">Received date and time <span class="mini" style="font-weight:700;">(optional)</span></label>
             <input
               type="datetime-local"
               name="division_slip_received_datetime"
               value="<?= htmlspecialchars($_POST["division_slip_received_datetime"] ?? "") ?>"
+              <?= $divisionSlipSelected ? '' : 'disabled' ?>
             >
             <div class="mini">If filled, this is printed in the received date/time box of the generated division tracking slip. Leave blank if not needed.</div>
           </div>
@@ -1958,6 +2005,7 @@ require __DIR__ . "/../includes/layout.php";
   window.addDocumentConfig = <?= json_encode([
     "editMode" => $editMode,
     "hasOwnDivisionSlip" => $hasOwnDivisionSlip,
+    "canGenerateTransmittalMemo" => $canGenerateTransmittalMemo,
     "apiPath" => API_PATH,
     "divisionTrackingLookupUrl" => API_PATH . "/division_tracking_duplicate_lookup.php",
     "excludeDocumentId" => $editMode ? (int)$editDocumentId : 0,
