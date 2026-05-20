@@ -169,6 +169,10 @@ $pageTitle = $pageTitle ?? "Document Tracker";
       <span class="navIcon">▤</span>
       <span class="navText">Organizational Chart</span>
     </a>
+    <a href="<?= PUBLIC_PATH ?>/changelogs.php" class="<?= $currentPage === 'changelogs.php' ? 'navActive' : '' ?>">
+      <span class="navIcon">✦</span>
+      <span class="navText">Changelogs</span>
+    </a>
     <?php /*
     <a href="<?= PUBLIC_PATH ?>/task_monitoring.php" class="<?= $currentPage === 'task_monitoring.php' ? 'navActive' : '' ?>">
       <span class="navIcon">&#9716;</span>

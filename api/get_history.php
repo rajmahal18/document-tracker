@@ -138,7 +138,7 @@ try {
     return $summary;
   };
 
-  if (!can_view_document($conn, $docId)) {
+  if (!can_view_document_family($conn, $docId)) {
     http_response_code(403);
     echo json_encode(["ok" => false, "error" => "Forbidden"]);
     exit;
@@ -873,7 +873,17 @@ try {
     $title = "";
     switch ($eventKey) {
       case "created":
-        $title = "{$actor} created the document";
+        $createdKind = strtolower(trim((string)($payload['kind'] ?? '')));
+        $parentTrackingNo = trim((string)($payload['parent_tracking_no'] ?? ''));
+        if ($createdKind === 'split_child_created' && $parentTrackingNo !== '') {
+          $title = "{$actor} created this document from existing document {$parentTrackingNo}";
+        } else {
+          $title = "{$actor} created the document";
+        }
+        break;
+
+      case "child_setup_completed":
+        $title = "{$actor} completed child document setup";
         break;
 
       case "sent":
@@ -1232,7 +1242,16 @@ try {
 
       switch ($eventKey) {
         case 'created':
-          $title = "{$safeDivision} created the document";
+          $createdKind = strtolower(trim((string)($payload['kind'] ?? '')));
+          $parentTrackingNo = trim((string)($payload['parent_tracking_no'] ?? ''));
+          if ($createdKind === 'split_child_created' && $parentTrackingNo !== '') {
+            $title = "{$safeDivision} created this document from existing document {$parentTrackingNo}";
+          } else {
+            $title = "{$safeDivision} created the document";
+          }
+          break;
+        case 'child_setup_completed':
+          $title = "{$safeDivision} completed child document setup";
           break;
         case 'received':
           $title = "{$safeDivision} received the document";

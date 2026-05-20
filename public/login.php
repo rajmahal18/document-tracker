@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require __DIR__ . "/../includes/bootstrap.php";
+require_once __DIR__ . "/../core/changelog.php";
 
 $next = app_safe_next_path((string)($_POST["next"] ?? $_GET["next"] ?? ""), PUBLIC_PATH . "/documents.php");
 
@@ -13,6 +14,7 @@ if (is_logged_in()) {
 $pageTitle = "Login - Document Tracker";
 $pageStyles = [asset_url("assets/css/login-v1.css")];
 $pageScripts = [asset_url("assets/js/login-v1.js")];
+$currentReleaseVersion = changelog_release_version_label();
 $error = "";
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
@@ -97,7 +99,7 @@ require __DIR__ . "/../includes/layout.php";
 
       <div class="loginV1InlineMeta">
         <span class="badge">Official Use Only</span>
-        <span class="muted">Version 1.0</span>
+        <span class="muted">Version <?= htmlspecialchars($currentReleaseVersion, ENT_QUOTES, "UTF-8") ?></span>
       </div>
     </form>
   </section>

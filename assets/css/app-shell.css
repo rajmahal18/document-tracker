@@ -619,6 +619,18 @@ body[data-theme="dark"] .branchPill {
   border-color: rgba(133, 164, 196, 0.22);
 }
 
+body[data-theme="dark"] .docMiniBadge.parent {
+  background: rgba(76, 142, 255, 0.16);
+  border-color: rgba(125, 183, 255, 0.28);
+  color: #a9d0ff;
+}
+
+body[data-theme="dark"] .docMiniBadge.child {
+  background: rgba(242, 168, 95, 0.16);
+  border-color: rgba(242, 168, 95, 0.28);
+  color: #ffd4a6;
+}
+
 body[data-theme="dark"] .tToggle {
   background: rgba(18, 37, 56, 0.96);
   border-color: rgba(154, 199, 255, 0.28);

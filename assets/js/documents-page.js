@@ -33,6 +33,10 @@
   const elProjects = document.getElementById("d_projects");
   const elProjectsManageRow = document.getElementById("d_projects_manage_row");
   const elProjectsActions = document.getElementById("d_projects_actions");
+  const elRelatedDocs = document.getElementById("d_related_docs");
+  const relatedDocumentSummaries = new Map();
+  const elSplitProjectsRow = document.getElementById("d_split_projects_row");
+  const btnSplitProjects = document.getElementById("btnSplitProjects");
   const btnProjectManageToggle = document.getElementById("btnProjectManageToggle");
   const btnProjectManageClose = document.getElementById("btnProjectManageClose");
   const inputProjectCode = document.getElementById("d_project_code_input");
@@ -79,6 +83,13 @@
   const attachmentDeleteModalMsg = document.getElementById("attachmentDeleteModalMsg");
   const btnAttachmentDeleteCancel = document.getElementById("btnAttachmentDeleteCancel");
   const btnAttachmentDeleteConfirm = document.getElementById("btnAttachmentDeleteConfirm");
+  const splitProjectsModal = document.getElementById("splitProjectsModal");
+  const splitProjectsModalBackdrop = document.getElementById("splitProjectsModalBackdrop");
+  const splitProjectsModalClose = document.getElementById("splitProjectsModalClose");
+  const splitProjectsList = document.getElementById("splitProjectsList");
+  const splitProjectsModalMsg = document.getElementById("splitProjectsModalMsg");
+  const btnSplitProjectsCancel = document.getElementById("btnSplitProjectsCancel");
+  const btnSplitProjectsConfirm = document.getElementById("btnSplitProjectsConfirm");
 
   const rowPpdSlip = document.getElementById("rowPpdSlip");
   const btnPpdSlipGenerate = document.getElementById("btnPpdSlipGenerate");
@@ -91,6 +102,7 @@
   let divisionSlipDuplicateSeq = 0;
   let canAdminDeleteAttachments = false;
   let pendingAttachmentDelete = null;
+  let pendingSplitProjects = [];
 
   function currentDivisionSlipActionMeta(payload = currentPayload) {
     const hasExisting = Number(payload?.has_my_division_slip || 0) === 1;
@@ -457,6 +469,365 @@
       normalized.push({ id, project_code: code });
     }
     return normalized;
+  }
+
+  function canSplitProjects(payload = null) {
+    const p = payload || currentPayload || {};
+    return Number(p.can_split_projects || 0) === 1 && normalizeProjectList(p).length > 0;
+  }
+
+  function findVisibleDocumentPayload(docId) {
+    const targetId = Number(docId || 0);
+    if (targetId <= 0) return null;
+
+    const rows = Array.from(document.querySelectorAll('tr[data-doc]'));
+    for (const row of rows) {
+      try {
+        const payload = JSON.parse(row.getAttribute("data-doc") || "{}");
+        if (Number(payload?.id || 0) === targetId) {
+          return payload;
+        }
+      } catch {
+      }
+    }
+    return null;
+  }
+
+  function getDrawerSwapDirection(nextPayload) {
+    const currentId = Number(currentPayload?.id || 0);
+    const nextId = Number(nextPayload?.id || 0);
+    if (currentId <= 0 || nextId <= 0 || currentId === nextId) return "";
+
+    const currentParentId = Number(currentPayload?.parent_document_id || 0);
+    const nextParentId = Number(nextPayload?.parent_document_id || 0);
+
+    if (nextParentId === currentId) return "forward";
+    if (currentParentId === nextId) return "backward";
+    return "forward";
+  }
+
+  function animateDrawerDocumentSwap(nextPayload) {
+    if (!drawer || !backdrop || !drawer.classList.contains("open") || !currentPayload) return;
+    const direction = getDrawerSwapDirection(nextPayload);
+    if (!direction) return;
+
+    drawer.classList.remove("drawer-switch-forward", "drawer-switch-backward");
+    backdrop.classList.remove("drawer-switch-forward", "drawer-switch-backward");
+    void drawer.offsetWidth;
+    drawer.classList.add(direction === "backward" ? "drawer-switch-backward" : "drawer-switch-forward");
+    backdrop.classList.add(direction === "backward" ? "drawer-switch-backward" : "drawer-switch-forward");
+
+    window.setTimeout(() => {
+      drawer.classList.remove("drawer-switch-forward", "drawer-switch-backward");
+      backdrop.classList.remove("drawer-switch-forward", "drawer-switch-backward");
+    }, 260);
+  }
+
+  async function openRelatedDocument(docId) {
+    const targetId = Number(docId || 0);
+    if (targetId <= 0) return;
+
+    const visiblePayload = findVisibleDocumentPayload(targetId);
+    if (visiblePayload) {
+      openDrawer(visiblePayload);
+      return;
+    }
+
+    const relatedSummary = relatedDocumentSummaries.get(targetId) || null;
+
+    function buildRelatedFallbackPayload(summary) {
+      if (!summary || Number(summary.id || 0) <= 0) return null;
+      const status = clean(summary.status || summary.status_label || "ACTIVE");
+      const holder = clean(summary.current_holder_section_name || summary.current_holder_name || summary.current_holder_text || "");
+      const trackingNo = clean(summary.tracking_no || `#${Number(summary.id || 0)}`);
+      const subject = clean(summary.subject || "");
+      const projectCodes = Array.isArray(summary.project_codes) ? summary.project_codes.filter(Boolean) : [];
+      return {
+        id: Number(summary.id || 0),
+        tracking_no: trackingNo,
+        tracking_display: trackingNo,
+        requester: "",
+        document_date: "",
+        deadline_at: null,
+        subject,
+        content_type: "",
+        comm_type: "",
+        project_codes: projectCodes,
+        project_ids: [],
+        current_status: status || "ACTIVE",
+        status_label: status || "ACTIVE",
+        status_chip_class: "chip incoming",
+        current_holder_name: holder,
+        current_holder_text: holder || "—",
+        current_holder_section_name: holder,
+        destination_text: "—",
+        last_holder_text: "—",
+        activity_label: "Days stuck",
+        activity_value: "—",
+        days_stuck: "",
+        working_minutes_stuck: 0,
+        open_route_count: 0,
+        in_transit: 0,
+        my_has_open_inbound: 0,
+        my_has_actionable_role: 0,
+        my_can_change_lifecycle: 0,
+        my_has_participation: 0,
+        my_is_visible_only: 1,
+        my_is_for_reference: 1,
+        my_is_receive_only: 0,
+        can_edit_details: 0,
+        can_regenerate_division_slip: 0,
+        has_my_division_slip: 0,
+        my_division_tracking_no: "",
+        origin_division_code: "",
+        viewer_relation_mode: "related_followup",
+      };
+    }
+
+    try {
+      const qs = appendActingPrincipal(new URLSearchParams({ document_id: String(targetId) }), currentPayload);
+      const res = await fetch(`${API}/document_drawer_snapshot.php?${qs.toString()}`, {
+        cache: "no-store",
+        headers: { Accept: "application/json" }
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok || !data?.document) {
+        const fallbackPayload = buildRelatedFallbackPayload(relatedSummary);
+        if (fallbackPayload) {
+          openDrawer(fallbackPayload);
+          return;
+        }
+        window.DTToast?.error?.(data?.error || "Failed to open linked document.") || console.error(data?.error || "Failed to open linked document.");
+        return;
+      }
+      openDrawer(data.document);
+    } catch {
+      const fallbackPayload = buildRelatedFallbackPayload(relatedSummary);
+      if (fallbackPayload) {
+        openDrawer(fallbackPayload);
+        return;
+      }
+      window.DTToast?.error?.("Failed to open linked document.") || console.error("Failed to open linked document.");
+    }
+  }
+
+  function renderRelatedDocuments(data = null) {
+    if (!elRelatedDocs) return;
+    relatedDocumentSummaries.clear();
+    const parent = data?.parent || null;
+    const children = Array.isArray(data?.children) ? data.children : [];
+    const currentId = Number(currentPayload?.id || 0);
+    const currentTracking = clean(currentPayload?.tracking_no || currentPayload?.tracking_display || "");
+    const currentSubject = clean(currentPayload?.subject || "");
+    const currentStatus = clean(currentPayload?.status_label || currentPayload?.current_status || "ACTIVE");
+    const currentHolder = clean(currentPayload?.current_holder_name || currentPayload?.current_holder_text || "");
+
+    if (!parent && !children.length) {
+      elRelatedDocs.textContent = "This document has no linked family documents yet.";
+      return;
+    }
+
+    if (parent && Number(parent.id || 0) > 0) {
+      relatedDocumentSummaries.set(Number(parent.id || 0), parent);
+    }
+    children.forEach((child) => {
+      const childId = Number(child?.id || 0);
+      if (childId > 0) {
+        relatedDocumentSummaries.set(childId, child);
+      }
+    });
+
+    function renderFamilyNode(item, options = {}) {
+      const id = Number(item?.id || 0);
+      const trackingNo = clean(item?.tracking_no || (id > 0 ? `#${id}` : ""));
+      const status = clean(item?.status || item?.status_label || "");
+      const holder = clean(item?.current_holder_section_name || item?.current_holder_name || item?.current_holder_text || "");
+      const projectCodes = Array.isArray(item?.project_codes) ? item.project_codes.filter(Boolean) : [];
+      const projectText = projectCodes.length ? projectCodes.join(", ") : "";
+      const isCurrent = !!options.current;
+      const clickable = !!options.clickable;
+      const tagHtml = isCurrent ? `<span class="drawerDocTreeBadge">Current</span>` : "";
+      const metaTop = projectText;
+      const metaBottom = [status, holder].filter(Boolean).join(" • ");
+      const mainHtml = `
+        <span class="drawerDocTreeNodeMain">
+          <span class="drawerDocTreeNodeHead">
+            <strong>${esc(trackingNo)}</strong>
+            ${tagHtml}
+          </span>
+          ${metaTop ? `<span class="drawerDocTreeNodeMeta">${esc(metaTop)}</span>` : ""}
+          ${metaBottom ? `<span class="mini drawerDocTreeNodeSub">${esc(metaBottom)}</span>` : ""}
+        </span>
+      `;
+
+      if (!clickable) {
+        return `<div class="drawerDocTreeNode isCurrent">${mainHtml}</div>`;
+      }
+
+      return `<button type="button" class="drawerDocTreeNode" data-related-doc-id="${id}" aria-label="Open document ${esc(trackingNo)}">
+        ${mainHtml}
+        <span class="drawerDocTreeNodeArrow" aria-hidden="true">›</span>
+      </button>`;
+    }
+
+    const lines = [`<div class="drawerDocTree">`];
+
+    if (parent?.tracking_no) {
+      lines.push(`<div class="drawerDocTreeRoot">${renderFamilyNode(parent, { clickable: true })}</div>`);
+      lines.push(`<div class="drawerDocTreeConnector" aria-hidden="true"></div>`);
+    } else if (currentId > 0) {
+      lines.push(`<div class="drawerDocTreeRoot">${renderFamilyNode({
+        id: currentId,
+        tracking_no: currentTracking,
+        status: currentStatus,
+        current_holder_name: currentHolder
+      }, { current: true, clickable: false })}</div>`);
+    }
+
+    if (children.length) {
+      if (parent?.tracking_no || currentId > 0) {
+        lines.push(`<div class="drawerDocTreeConnector" aria-hidden="true"></div>`);
+      }
+      lines.push(`<div class="drawerDocTreeChildren">${children.map((child) => {
+        const childId = Number(child.id || 0);
+        return renderFamilyNode(child, {
+          current: childId === currentId,
+          clickable: childId !== currentId
+        });
+      }).join("")}</div>`);
+    } else if (parent?.tracking_no && currentId > 0) {
+      lines.push(`<div class="drawerDocTreeCurrentSolo">${renderFamilyNode({
+        id: currentId,
+        tracking_no: currentTracking,
+        status: currentStatus,
+        current_holder_name: currentHolder
+      }, { current: true, clickable: false })}</div>`);
+    }
+
+    lines.push(`</div>`);
+    elRelatedDocs.innerHTML = lines.join("");
+  }
+
+  async function loadRelatedDocuments(docId) {
+    if (!elRelatedDocs || !docId) return;
+    elRelatedDocs.textContent = "Loading related documents...";
+    try {
+      const qs = appendActingPrincipal(new URLSearchParams({ document_id: String(docId) }), currentPayload);
+      const res = await fetch(`${API}/document_related_documents.php?${qs.toString()}`, {
+        cache: "no-store",
+        headers: { Accept: "application/json" }
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        elRelatedDocs.textContent = data?.error || "Failed to load related documents.";
+        return;
+      }
+      renderRelatedDocuments(data);
+    } catch {
+      elRelatedDocs.textContent = "Failed to load related documents.";
+    }
+  }
+
+  elRelatedDocs?.addEventListener("click", (event) => {
+    const trigger = event.target.closest("[data-related-doc-id]");
+    if (!trigger) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openRelatedDocument(Number(trigger.getAttribute("data-related-doc-id") || "0"));
+  });
+
+  function openSplitProjectsModal() {
+    if (!splitProjectsModal || !currentPayload) return;
+    const projects = normalizeProjectList(currentPayload);
+    pendingSplitProjects = [];
+    if (splitProjectsList) {
+      splitProjectsList.innerHTML = projects.length
+        ? projects.map((project) => `<label style="display:flex; align-items:flex-start; gap:10px; padding:10px 12px; border:1px solid rgba(15,23,42,.08); border-radius:14px; background:#fff;">
+            <input type="checkbox" data-split-project-id="${Number(project.id || 0)}" style="margin-top:2px;">
+            <span>
+              <strong>${esc(project.project_code || `Project #${project.id || ""}`)}</strong>
+              <span class="mini" style="display:block; margin-top:2px; color:#64748b;">A linked child document will be created for this project.</span>
+            </span>
+          </label>`).join("")
+        : `<div class="mini">No projects available for splitting.</div>`;
+    }
+    if (splitProjectsModalMsg) {
+      splitProjectsModalMsg.textContent = "";
+      splitProjectsModalMsg.className = "modalMsg";
+      splitProjectsModalMsg.style.display = "none";
+    }
+    splitProjectsModal.classList.add("open");
+    splitProjectsModal.setAttribute("aria-hidden", "false");
+    btnSplitProjectsConfirm?.focus();
+  }
+
+  function closeSplitProjectsModal() {
+    if (!splitProjectsModal) return;
+    splitProjectsModal.classList.remove("open");
+    splitProjectsModal.setAttribute("aria-hidden", "true");
+    pendingSplitProjects = [];
+  }
+
+  async function submitSplitProjects() {
+    if (!currentPayload || !splitProjectsList) return;
+    const docId = Number(currentPayload.id || 0);
+    if (docId <= 0) return;
+
+    pendingSplitProjects = Array.from(splitProjectsList.querySelectorAll("[data-split-project-id]:checked"))
+      .map((input) => Number(input.getAttribute("data-split-project-id") || 0))
+      .filter((value) => value > 0);
+
+    if (!pendingSplitProjects.length) {
+      if (splitProjectsModalMsg) {
+        splitProjectsModalMsg.textContent = "Select at least one project.";
+        splitProjectsModalMsg.className = "modalMsg error";
+        splitProjectsModalMsg.style.display = "";
+      }
+      return;
+    }
+
+    if (btnSplitProjectsConfirm) btnSplitProjectsConfirm.disabled = true;
+    try {
+      const form = appendActingPrincipal(new FormData(), currentPayload);
+      form.append("document_id", String(docId));
+      pendingSplitProjects.forEach((projectId) => form.append("project_ids[]", String(projectId)));
+      form.append("csrf_token", window.__CSRF__ || "");
+
+      const res = await fetch(`${API}/split_document_projects.php`, {
+        method: "POST",
+        body: form,
+        headers: { Accept: "application/json" }
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        const msg = data?.error || `Failed to split document. (${res.status})`;
+        if (splitProjectsModalMsg) {
+          splitProjectsModalMsg.textContent = msg;
+          splitProjectsModalMsg.className = "modalMsg error";
+          splitProjectsModalMsg.style.display = "";
+        }
+        return;
+      }
+
+      window.DTToast?.success(data?.message || "Child documents created.") || console.log(data?.message || "Child documents created.");
+      closeSplitProjectsModal();
+      if (Array.isArray(data?.created) && data.created.length === 1) {
+        const setupUrl = String(data.created[0]?.setup_url || "").trim();
+        if (setupUrl) {
+          window.location.href = setupUrl;
+          return;
+        }
+      }
+      window.location.reload();
+    } catch {
+      if (splitProjectsModalMsg) {
+        splitProjectsModalMsg.textContent = "Failed to split document (network error).";
+        splitProjectsModalMsg.className = "modalMsg error";
+        splitProjectsModalMsg.style.display = "";
+      }
+    } finally {
+      if (btnSplitProjectsConfirm) btnSplitProjectsConfirm.disabled = false;
+    }
   }
 
   function renderProjectCodes(payload = null) {
@@ -3184,10 +3555,12 @@
   }
 
   function openDrawer(payload) {
+    animateDrawerDocumentSwap(payload);
     currentPayload = payload || null;
     setCollapsed(elAttachments, false);
     setCollapsed(attachForm, true);
     closeForwardModal();
+    closeSplitProjectsModal();
     closeAttachmentForwardModal();
     closeAttachmentTaskDoneModal();
     syncToggleLabels();
@@ -3197,9 +3570,14 @@
 
     if (rowEditDocumentDetails && btnEditDocumentDetails) {
       const canEditDetails = Number(payload.can_edit_details || 0) === 1;
+      const needsChildSetup = Number(payload.needs_child_setup || 0) === 1;
       const docId = payload.id || "";
       rowEditDocumentDetails.style.display = (canEditDetails && docId) ? "" : "none";
       btnEditDocumentDetails.dataset.docId = canEditDetails ? String(docId || "") : "";
+      btnEditDocumentDetails.dataset.childSetup = needsChildSetup ? "1" : "0";
+      btnEditDocumentDetails.textContent = needsChildSetup ? "Complete child document" : "Edit details";
+      const rowLabel = rowEditDocumentDetails.querySelector(".k");
+      if (rowLabel) rowLabel.textContent = needsChildSetup ? "Child setup" : "Correction";
     }
 
     if (rowPpdSlip) {
@@ -3234,6 +3612,12 @@
     projectManageOpen = false;
     renderProjectCodes(payload);
     syncProjectActions(payload);
+    if (elSplitProjectsRow && btnSplitProjects) {
+      const showSplit = canSplitProjects(payload);
+      elSplitProjectsRow.style.display = showSplit ? "" : "none";
+      btnSplitProjects.dataset.docId = showSplit ? String(payload.id || "") : "";
+    }
+    renderRelatedDocuments(null);
     if (elActivityLabel) elActivityLabel.textContent = payload.activity_label || "Days stuck";
     if (elDays) elDays.textContent = payload.activity_value || (payload.days_stuck ?? "0");
 
@@ -3292,6 +3676,7 @@
 
     if (elAttachments) elAttachments.textContent = "Loading attachments…";
     if (payload.id) loadAttachments(payload.id);
+    if (payload.id) loadRelatedDocuments(payload.id);
 
     if (elTimeline) elTimeline.textContent = "Loading timeline…";
     if (payload.id) {
@@ -4446,6 +4831,11 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
   btnAttachmentDeleteCancel?.addEventListener("click", closeAttachmentDeleteModal);
   attachmentDeleteModalBackdrop?.addEventListener("click", closeAttachmentDeleteModal);
   btnAttachmentDeleteConfirm?.addEventListener("click", confirmAttachmentDelete);
+  btnSplitProjects?.addEventListener("click", openSplitProjectsModal);
+  splitProjectsModalClose?.addEventListener("click", closeSplitProjectsModal);
+  btnSplitProjectsCancel?.addEventListener("click", closeSplitProjectsModal);
+  splitProjectsModalBackdrop?.addEventListener("click", closeSplitProjectsModal);
+  btnSplitProjectsConfirm?.addEventListener("click", submitSplitProjects);
   pendingRemarksModalClose?.addEventListener("click", () => setPendingRemarksEditing(false));
   pendingRemarksModalBackdrop?.addEventListener("click", () => setPendingRemarksEditing(false));
   btnEditPendingRemarks?.addEventListener("click", () => setPendingRemarksEditing(true));
@@ -4621,6 +5011,9 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
     if (!docId) return;
 
     const qs = new URLSearchParams({ edit_id: String(docId) });
+    if (String(btnEditDocumentDetails.dataset.childSetup || "") === "1") {
+      qs.set("mode", "child_setup");
+    }
     const actingId = actingPrincipalId();
     if (actingId > 0) qs.set("acting_principal_user_id", String(actingId));
     window.location.href = `${APP.public || ""}/add_document.php?${qs.toString()}`;

@@ -750,12 +750,15 @@ body[data-theme="dark"] .docsCalendarWeekBtn {
 .docMiniBadge.warn { background: rgba(217,45,32,0.08); border-color: rgba(217,45,32,0.20); color: #b42318; }
 .docMiniBadge.muted { background: rgba(102,112,133,0.09); border-color: rgba(102,112,133,0.16); color: #00ff1a; }
 .docMiniBadge.new { background: rgba(102,112,133,0.09); border-color: rgba(102,112,133,0.16); color: #00ff2a; }
+.docMiniBadge.parent { background: rgba(37, 99, 235, 0.10); border-color: rgba(37, 99, 235, 0.22); color: #1d4ed8; }
+.docMiniBadge.child { background: rgba(232, 119, 34, 0.12); border-color: rgba(232, 119, 34, 0.24); color: #b86500; }
 
 .docInfoTitle { font-size: 15px; line-height: 1.35; font-weight: 800; color: #0f1728; }
 .docInfoMeta,
 .docStateHint,
 .requesterMeta,
 .daysHintText { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: #667085; font-weight: 700; }
+.docRelationMeta { gap: 8px; }
 .docInfoTracking { color: #0b5ea8; font-weight: 900; }
 .docMetaDot { color: #98a2b3; }
 

@@ -5,7 +5,9 @@ require __DIR__ . "/../includes/bootstrap.php";
 require_once __DIR__ . "/../core/division_tracking.php";
 require_once __DIR__ . "/../core/working_time.php";
 require_once __DIR__ . "/../core/project_codes.php";
+require_once __DIR__ . "/../core/document_split.php";
 require_login();
+$documentSplitParentReady = document_split_parent_link_ready($conn);
 
 /* -------------------------
  * Assistant mode bootstrap
@@ -751,6 +753,23 @@ $projectTagSelectSql = $projectCodesReady
   : "'' AS project_codes_concat,
     '' AS project_ids_concat,";
 
+$parentDocumentIdSelectSql = $documentSplitParentReady
+  ? "COALESCE(d.parent_document_id, 0) AS parent_document_id,
+    COALESCE((
+      SELECT p_rel.tracking_no
+      FROM documents p_rel
+      WHERE p_rel.id = d.parent_document_id
+      LIMIT 1
+    ), '') AS parent_tracking_no,
+    COALESCE((
+      SELECT COUNT(*)
+      FROM documents c_rel
+      WHERE c_rel.parent_document_id = d.id
+    ), 0) AS child_document_count,"
+  : "0 AS parent_document_id,
+    '' AS parent_tracking_no,
+    0 AS child_document_count,";
+
 $sql = "
   SELECT
     d.id,
@@ -763,6 +782,7 @@ $sql = "
     d.content_type,
     d.comm_type,
     d.current_status,
+    {$parentDocumentIdSelectSql}
     d.updated_at,
     CASE
       WHEN NOT EXISTS (
@@ -2626,6 +2646,10 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
             $docCommText = trim((string)($d["comm_type"] ?? ""));
             $projectCodes = array_values(array_filter(array_map('trim', explode('||', (string)($d["project_codes_concat"] ?? ""))), static fn(string $v): bool => $v !== ''));
             $projectIds = array_values(array_filter(array_map('intval', explode(',', (string)($d["project_ids_concat"] ?? ""))), static fn(int $v): bool => $v > 0));
+            $parentDocumentId = (int)($d["parent_document_id"] ?? 0);
+            $parentTrackingNo = trim((string)($d["parent_tracking_no"] ?? ""));
+            $childDocumentCount = (int)($d["child_document_count"] ?? 0);
+            $canSplitProjects = document_split_can_create_children($conn, (int)$d["id"], $myUserId, $mySectionId, $myChiefInt === 1, $isPrivileged);
             $docMetaType = $docTypeText !== "" && $docCommText !== ""
               ? $docTypeText . " • " . $docCommText
               : ($docTypeText !== "" ? $docTypeText : ($docCommText !== "" ? $docCommText : "—"));
@@ -2726,6 +2750,10 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
                 "comm_type" => $d["comm_type"],
                 "project_codes" => $projectCodes,
                 "project_ids" => $projectIds,
+                "parent_document_id" => $parentDocumentId,
+                "parent_tracking_no" => $parentTrackingNo,
+                "child_document_count" => $childDocumentCount,
+                "can_split_projects" => $canSplitProjects ? 1 : 0,
 
                 "status_label" => $docStateLabel,
                 "status_chip_class" => $drawerStatusChipClass,
@@ -2815,6 +2843,17 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
                   <span class="docMetaDot">•</span>
                   <span><?= htmlspecialchars((string)$d["document_date"]) ?></span>
                 </div>
+                <?php if ($parentDocumentId > 0 || $childDocumentCount > 0): ?>
+                  <div class="docInfoMeta docRelationMeta" style="margin-top:4px;">
+                    <?php if ($parentDocumentId > 0 && $parentTrackingNo !== ''): ?>
+                      <span class="docMiniBadge child">Child</span>
+                      <span>From <?= htmlspecialchars($parentTrackingNo) ?></span>
+                    <?php elseif ($childDocumentCount > 0): ?>
+                      <span class="docMiniBadge parent">Parent</span>
+                      <span>Split into <?= (int)$childDocumentCount ?> child <?= $childDocumentCount === 1 ? 'document' : 'documents' ?></span>
+                    <?php endif; ?>
+                  </div>
+                <?php endif; ?>
               </div>
             </td>
 
@@ -2975,6 +3014,10 @@ $end   = min($totalPages, $page + 2);
       <span class="drawerTabIcon drawerTabIconOverview" aria-hidden="true"></span>
       <span>Overview</span>
     </button>
+    <button type="button" class="drawerTab" data-drawer-tab="context" aria-selected="false">
+      <span class="drawerTabIcon drawerTabIconContext" aria-hidden="true"></span>
+      <span>Context</span>
+    </button>
     <button type="button" class="drawerTab" data-drawer-tab="files" aria-selected="false">
       <span class="drawerTabIcon drawerTabIconFiles" aria-hidden="true"></span>
       <span>Files</span>
@@ -3025,8 +3068,32 @@ $end   = min($totalPages, $page + 2);
     <div class="kv"><div class="k">Doc deadline</div><div class="v" id="d_deadline">—</div></div>
     <div class="kv"><div class="k">Your deadline</div><div class="v" id="d_personal_deadline">—</div></div>
     <div class="kv"><div class="k">Urgency</div><div class="v" id="d_deadline_countdown">—</div></div>
+    <div class="kv"><div class="k" id="d_activity_label">Days stuck</div><div class="v" id="d_days"></div></div>
     <div class="kv"><div class="k">Subject</div><div class="v" id="d_subject"></div></div>
     <div class="kv"><div class="k">Type</div><div class="v" id="d_type"></div></div>
+    <div class="kv" id="rowEditDocumentDetails" style="display:none;">
+      <div class="k">Correction</div>
+      <div class="v"><button type="button" class="btnSecondary" id="btnEditDocumentDetails">Edit details</button></div>
+    </div>
+    <div class="kv"><div class="k">Full Document</div><div class="v"><button type="button" class="btnComp" id="btnViewDocument" data-no-loading>View document</button></div></div>
+    <div class="drawerRow" id="rowPpdSlip" style="display:none;">
+      <div class="k" id="rowPpdSlipLabel"><?= htmlspecialchars($ownDivisionSlipLabel !== "" ? $ownDivisionSlipLabel : "Division Tracking Slip") ?></div>
+      <div class="v" style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
+        <button type="button" class="btnSecondary" id="btnPpdSlipGenerate">Generate division slip</button>
+        <button type="button" class="btnSecondary" id="btnPpdSlipAttach">Attach</button>
+        <button type="button" class="btnComp" id="btnPpdSlipPrint" disabled>Print</button>
+      </div>
+    </div>
+    </section>
+
+    <section class="drawerPanel" id="drawerPanelContext" data-drawer-panel="context" hidden>
+      <div class="drawerPanelIntro">
+        <div>
+          <div class="drawerPanelEyebrow">Document context</div>
+          <div class="drawerPanelTitle">Projects, family, and tracking</div>
+        </div>
+      </div>
+
     <div class="kv">
       <div class="k">Project Codes</div>
       <div class="v">
@@ -3046,24 +3113,19 @@ $end   = min($totalPages, $page + 2);
         </div>
       </div>
     </div>
-    <div class="kv"><div class="k" id="d_activity_label">Days stuck</div><div class="v" id="d_days"></div></div>
+    <div class="kv">
+      <div class="k">Document Family</div>
+      <div class="v">
+        <div id="d_related_docs" class="mini">This document has no linked family documents yet.</div>
+        <div style="margin-top:8px; display:none;" id="d_split_projects_row">
+          <button type="button" class="btnSecondary" id="btnSplitProjects">Split by project</button>
+        </div>
+      </div>
+    </div>
     <div class="kv">
       <div class="k">Action Times</div>
       <div class="v" id="d_elapsed_times">
         <span class="mini" style="opacity:0.7;">Loading...</span>
-      </div>
-    </div>
-    <div class="kv" id="rowEditDocumentDetails" style="display:none;">
-      <div class="k">Correction</div>
-      <div class="v"><button type="button" class="btnSecondary" id="btnEditDocumentDetails">Edit details</button></div>
-    </div>
-    <div class="kv"><div class="k">Full Document</div><div class="v"><button type="button" class="btnComp" id="btnViewDocument" data-no-loading>View document</button></div></div>
-    <div class="drawerRow" id="rowPpdSlip" style="display:none;">
-      <div class="k" id="rowPpdSlipLabel"><?= htmlspecialchars($ownDivisionSlipLabel !== "" ? $ownDivisionSlipLabel : "Division Tracking Slip") ?></div>
-      <div class="v" style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
-        <button type="button" class="btnSecondary" id="btnPpdSlipGenerate">Generate division slip</button>
-        <button type="button" class="btnSecondary" id="btnPpdSlipAttach">Attach</button>
-        <button type="button" class="btnComp" id="btnPpdSlipPrint" disabled>Print</button>
       </div>
     </div>
     </section>
@@ -3381,6 +3443,42 @@ $end   = min($totalPages, $page + 2);
     <div class="modalFooter">
       <button id="btnAttachmentTaskDoneCancel" type="button" class="btnSecondary">Cancel</button>
       <button id="btnAttachmentTaskDoneConfirm" type="button" class="btnComp">Confirm task done</button>
+    </div>
+  </div>
+</div>
+
+<div id="splitProjectsModal" class="modalWrap" aria-hidden="true">
+  <div id="splitProjectsModalBackdrop" class="modalBackdrop"></div>
+  <div class="modalCard forwardModalCard" style="max-width:700px;">
+    <div class="modalHeader">
+      <div>
+        <h3>Split Document by Project</h3>
+        <div class="attSub mini">This creates linked child documents from the selected project codes.</div>
+      </div>
+      <button id="splitProjectsModalClose" class="modalClose" type="button">✕</button>
+    </div>
+
+    <div class="modalBody forwardModalBody">
+      <div style="padding:12px 14px; border-radius:14px; background:#eff6ff; border:1px solid rgba(37,99,235,.14); color:#1e3a8a;">
+        <div style="font-weight:900; margin-bottom:8px;">What this v1 split does</div>
+        <div class="mini" style="display:grid; gap:6px; color:#1e3a8a;">
+          <div>• Creates one child document per selected project.</div>
+          <div>• Keeps the current parent document intact for reference and audit.</div>
+          <div>• Child documents start as active records under your current section.</div>
+        </div>
+      </div>
+
+      <div style="margin-top:14px;">
+        <div class="mini" style="font-weight:900; color:#0f172a; margin-bottom:8px;">Select projects to split</div>
+        <div id="splitProjectsList" style="display:grid; gap:8px;"></div>
+      </div>
+
+      <div id="splitProjectsModalMsg" class="modalMsg" style="display:none;"></div>
+    </div>
+
+    <div class="modalFooter">
+      <button id="btnSplitProjectsCancel" type="button" class="btnSecondary">Cancel</button>
+      <button id="btnSplitProjectsConfirm" type="button" class="btnComp">Create child documents</button>
     </div>
   </div>
 </div>

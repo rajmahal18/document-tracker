@@ -707,10 +707,11 @@ function effective_document_identity(mysqli $conn): array {
   return $base;
 }
 
-function can_view_document_for_identity(mysqli $conn, int $docId, int $userId, int $sectionId, bool $isChief, bool $isAdmin = false): bool {
+function can_view_document_directly_for_identity(mysqli $conn, int $docId, int $userId, int $sectionId, bool $isChief, bool $isAdmin = false): bool {
   if ($isAdmin) return true;
   $branchMode = workflow_branch_mode_enabled($conn);
-  if ($userId <= 0) return false;
+  if ($userId <= 0 || $docId <= 0) return false;
+
   if ($branchMode) {
     $sql = "SELECT 1 FROM documents d WHERE d.id = ? AND (d.created_by_user_id = ? OR EXISTS (SELECT 1 FROM document_user_visibility duv WHERE duv.document_id = d.id AND duv.user_id = ?) OR EXISTS (SELECT 1 FROM routes r WHERE r.document_id = d.id AND (r.to_user_id = ? OR r.sent_by_user_id = ? OR r.received_by_user_id = ?))) LIMIT 1";
     $stmt = $conn->prepare($sql);
@@ -725,9 +726,108 @@ function can_view_document_for_identity(mysqli $conn, int $docId, int $userId, i
   return (bool)$stmt->get_result()->fetch_row();
 }
 
+function can_view_document_for_identity(mysqli $conn, int $docId, int $userId, int $sectionId, bool $isChief, bool $isAdmin = false): bool {
+  static $viewDepth = 0;
+
+  if (can_view_document_directly_for_identity($conn, $docId, $userId, $sectionId, $isChief, $isAdmin)) {
+    return true;
+  }
+
+  if (!db_column_exists($conn, 'documents', 'parent_document_id')) {
+    return false;
+  }
+
+  if ($viewDepth >= 2) {
+    return false;
+  }
+
+  $parentStmt = $conn->prepare("SELECT parent_document_id FROM documents WHERE id = ? LIMIT 1");
+  $parentStmt->bind_param('i', $docId);
+  $parentStmt->execute();
+  $parentId = (int)($parentStmt->get_result()->fetch_assoc()['parent_document_id'] ?? 0);
+  if ($parentId <= 0 || $parentId === $docId) {
+    return false;
+  }
+
+  $viewDepth++;
+  try {
+    return can_view_document_for_identity($conn, $parentId, $userId, $sectionId, $isChief, $isAdmin);
+  } finally {
+    $viewDepth--;
+  }
+}
+
+function can_view_document_family_for_identity(mysqli $conn, int $docId, int $userId, int $sectionId, bool $isChief, bool $isAdmin = false): bool {
+  if (can_view_document_for_identity($conn, $docId, $userId, $sectionId, $isChief, $isAdmin)) {
+    return true;
+  }
+
+  if ($docId <= 0 || $userId <= 0 || !db_column_exists($conn, 'documents', 'parent_document_id')) {
+    return false;
+  }
+
+  $familyStmt = $conn->prepare("
+    SELECT
+      id,
+      COALESCE(parent_document_id, 0) AS parent_document_id
+    FROM documents
+    WHERE id = ?
+    LIMIT 1
+  ");
+  $familyStmt->bind_param('i', $docId);
+  $familyStmt->execute();
+  $docRow = $familyStmt->get_result()->fetch_assoc();
+  if (!$docRow) {
+    return false;
+  }
+
+  $familyRootId = (int)($docRow['parent_document_id'] ?? 0);
+  if ($familyRootId <= 0) {
+    $familyRootId = (int)($docRow['id'] ?? 0);
+  }
+  if ($familyRootId <= 0) {
+    return false;
+  }
+
+  $memberStmt = $conn->prepare("
+    SELECT id
+    FROM documents
+    WHERE id = ?
+       OR parent_document_id = ?
+    ORDER BY id ASC
+  ");
+  $memberStmt->bind_param('ii', $familyRootId, $familyRootId);
+  $memberStmt->execute();
+  $memberRows = $memberStmt->get_result()->fetch_all(MYSQLI_ASSOC) ?: [];
+
+  foreach ($memberRows as $memberRow) {
+    $memberId = (int)($memberRow['id'] ?? 0);
+    if ($memberId <= 0) {
+      continue;
+    }
+    if (can_view_document_for_identity($conn, $memberId, $userId, $sectionId, $isChief, $isAdmin)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function can_view_document(mysqli $conn, int $docId): bool {
   $identity = effective_document_identity($conn);
   return can_view_document_for_identity(
+    $conn,
+    $docId,
+    (int)($identity['effective_user_id'] ?? 0),
+    (int)($identity['effective_section_id'] ?? 0),
+    (bool)($identity['effective_is_chief'] ?? false),
+    is_admin_user() && !(bool)($identity['assistant_mode'] ?? false)
+  );
+}
+
+function can_view_document_family(mysqli $conn, int $docId): bool {
+  $identity = effective_document_identity($conn);
+  return can_view_document_family_for_identity(
     $conn,
     $docId,
     (int)($identity['effective_user_id'] ?? 0),
@@ -780,7 +880,7 @@ function can_view_attachment(mysqli $conn, int $attachmentId): bool {
   }
 
   $docId = (int)($row['document_id'] ?? 0);
-  if ($docId <= 0 || !can_view_document($conn, $docId)) {
+  if ($docId <= 0 || !can_view_document_family($conn, $docId)) {
     return false;
   }
 

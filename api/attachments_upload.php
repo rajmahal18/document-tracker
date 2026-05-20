@@ -46,12 +46,30 @@ $isAdminModeUpload = ($adminModeRequested && $role === "admin" && !$assistantMod
 try {
   $conn->begin_transaction();
 
+  $routesHaveKind = workflow_has_column($conn, 'routes', 'route_kind');
+  $openActionRouteSql = $routesHaveKind
+    ? "EXISTS (
+        SELECT 1
+        FROM routes r
+        WHERE r.document_id = d.id
+          AND r.route_kind = 'ACTION'
+          AND r.received_at IS NULL
+          AND r.cancelled_at IS NULL
+      )"
+    : "EXISTS (
+        SELECT 1
+        FROM routes r
+        WHERE r.document_id = d.id
+          AND r.received_at IS NULL
+          AND r.cancelled_at IS NULL
+      )";
+
   // Fetch doc state for permission rules
   $stmt = $conn->prepare("
     SELECT
       d.current_status,
       d.current_holder_section_id,
-      EXISTS (SELECT 1 FROM routes r WHERE r.document_id = d.id AND r.received_at IS NULL AND r.cancelled_at IS NULL) AS has_open_route
+      {$openActionRouteSql} AS has_open_action_route
     FROM documents d
     WHERE d.id = ?
     LIMIT 1
@@ -69,7 +87,7 @@ try {
 
   $status = strtoupper((string)($doc["current_status"] ?? ""));
   $holderSectionId = (int)($doc["current_holder_section_id"] ?? 0);
-  $hasOpenRoute = ((int)($doc["has_open_route"] ?? 0) === 1);
+  $hasOpenActionRoute = ((int)($doc["has_open_action_route"] ?? 0) === 1);
   $branchMode = workflow_branch_mode_enabled($conn);
   $docHasRealBranches = ($branchMode && workflow_document_has_real_branches($conn, $docId));
   $isPrivileged = in_array($role, ["admin", "records"], true);
@@ -172,11 +190,12 @@ try {
           echo json_encode(["ok" => false, "error" => "Forbidden: your section does not hold this document."]);
           exit;
         }
-        // If somehow still in transit, holder should not be attaching (prevents weirdness)
-        if ($hasOpenRoute) {
+        // Only actionable in-transit routes block holder attachment uploads.
+        // Reference/share-visibility routes do not transfer possession away.
+        if ($hasOpenActionRoute) {
           $conn->rollback();
           http_response_code(409);
-          echo json_encode(["ok" => false, "error" => "Cannot attach while document is in transit."]);
+          echo json_encode(["ok" => false, "error" => "Cannot attach while an actionable route is still in transit."]);
           exit;
         }
       }

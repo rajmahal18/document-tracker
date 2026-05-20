@@ -16,7 +16,7 @@ if ($docId <= 0) {
 }
 
 try {
-  if (!can_view_document($conn, $docId)) {
+  if (!can_view_document_family($conn, $docId)) {
     http_response_code(403);
     echo json_encode(["ok" => false, "error" => "Forbidden"]);
     exit;

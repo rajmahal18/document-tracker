@@ -5,6 +5,7 @@ require __DIR__ . "/../includes/bootstrap.php";
 require_once __DIR__ . "/../core/division_tracking.php";
 require_once __DIR__ . "/../core/DivisionTrackingSlip.php";
 require_once __DIR__ . "/../core/project_codes.php";
+require_once __DIR__ . "/../core/document_split.php";
 require_login();
 
 
@@ -364,8 +365,12 @@ function generate_document_tracking_no(mysqli $conn, ?DateTimeImmutable $now = n
 }
 
 $editDocumentId = (int)($_POST["edit_id"] ?? $_GET["edit_id"] ?? 0);
+$requestedMode = strtolower(trim((string)($_POST["mode"] ?? $_GET["mode"] ?? "")));
 $editDocument = null;
 $editMode = false;
+$childSetupMode = false;
+$childSetupRequested = ($requestedMode === "child_setup");
+$childParentSummary = null;
 $editAccessError = "";
 $pageTitle = $editDocumentId > 0 ? "Edit Document" : "Add Document";
 $error = "";
@@ -560,10 +565,17 @@ if ($editDocumentId > 0) {
       d.content_type,
       d.comm_type,
       d.current_status,
+      d.parent_document_id,
       d.origin_section_id,
       d.current_holder_section_id,
       d.created_by_user_id,
       COALESCE(ddt.tracking_no, '') AS division_tracking_no,
+      (
+        SELECT COUNT(*)
+        FROM document_events e_setup
+        WHERE e_setup.document_id = d.id
+          AND e_setup.event_type = 'child_setup_completed'
+      ) AS child_setup_completed_count,
       (
         SELECT COUNT(*)
         FROM routes r
@@ -601,7 +613,15 @@ if ($editDocumentId > 0) {
     } elseif ($routeCount > 0 || $branchCount > 0) {
       $editAccessError = "This document has already been routed, so its details are locked.";
     } else {
-      $editMode = true;
+      $isChildDocument = (int)($editDocument["parent_document_id"] ?? 0) > 0;
+      $childSetupCompleted = (int)($editDocument["child_setup_completed_count"] ?? 0) > 0;
+      if ($isChildDocument && ($childSetupRequested || !$childSetupCompleted)) {
+        $childSetupMode = true;
+        $childParentSummary = document_split_get_parent_summary($conn, $editDocumentId);
+        $pageTitle = "Complete Child Document";
+      } else {
+        $editMode = true;
+      }
     }
   }
 
@@ -610,20 +630,31 @@ if ($editDocumentId > 0) {
   }
 }
 
-if ($editMode && $_SERVER["REQUEST_METHOD"] !== "POST") {
+if (($editMode || $childSetupMode) && $_SERVER["REQUEST_METHOD"] !== "POST") {
   $_POST["requester"] = (string)($editDocument["requester"] ?? "");
-  $_POST["document_date"] = (string)($editDocument["document_date"] ?? $defaultDocDate);
-  $_POST["deadline_at"] = trim((string)($editDocument["deadline_at"] ?? "")) !== ""
-    ? date("Y-m-d", strtotime((string)$editDocument["deadline_at"]))
-    : "";
-  $_POST["subject"] = (string)($editDocument["subject"] ?? "");
-  $_POST["content_type"] = (string)($editDocument["content_type"] ?? "");
-  $_POST["comm_type"] = (string)($editDocument["comm_type"] ?? "internal");
+  $_POST["document_date"] = $childSetupMode
+    ? $defaultDocDate
+    : (string)($editDocument["document_date"] ?? $defaultDocDate);
+  $_POST["deadline_at"] = $childSetupMode
+    ? ""
+    : (trim((string)($editDocument["deadline_at"] ?? "")) !== ""
+      ? date("Y-m-d", strtotime((string)$editDocument["deadline_at"]))
+      : "");
+  $_POST["subject"] = $childSetupMode ? "" : (string)($editDocument["subject"] ?? "");
+  $_POST["content_type"] = $childSetupMode ? "" : (string)($editDocument["content_type"] ?? "");
+  $_POST["comm_type"] = $childSetupMode ? "internal" : (string)($editDocument["comm_type"] ?? "internal");
   $_POST["division_tracking_no"] = (string)($editDocument["division_tracking_no"] ?? "");
+  if ($childSetupMode) {
+    $_POST["gen_choice"] = "none";
+    $_POST["division_slip_mode"] = "attach";
+    $_POST["force_duplicate_division_tracking"] = "";
+    $_POST["division_slip_received_datetime"] = "";
+    $_POST["attach_note"] = "";
+  }
   if (project_codes_tables_ready($conn)) {
     $editProjects = fetch_document_projects($conn, $editDocumentId, true);
     $_POST["project_ids"] = array_map(static fn(array $row): int => (int)($row["id"] ?? 0), $editProjects);
-    $_POST["project_codes_input"] = implode("\n", array_values(array_filter(array_map(
+    $_POST["project_codes_input"] = $childSetupMode ? "" : implode("\n", array_values(array_filter(array_map(
       static fn(array $row): string => trim((string)($row["project_code"] ?? "")),
       $editProjects
     ))));
@@ -664,22 +695,23 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   if (!in_array($creationMode, ["review", "route_now"], true)) {
     $creationMode = "route_now";
   }
-  if ($editMode) {
+  if ($editMode || $childSetupMode) {
     $creationMode = "review";
   }
   $routeOnCreate = ($creationMode === "route_now");
   $selectedSectionId = (int)($_POST["to_section_id"] ?? 0); // picker only
 
   $fileErrorCode = (int)($_FILES["attach_file"]["error"] ?? UPLOAD_ERR_NO_FILE);
-  if (!$editMode && $fileErrorCode === UPLOAD_ERR_OK) {
+  $allowAttachmentDraftFlow = !$editMode || $childSetupMode;
+  if ($allowAttachmentDraftFlow && $fileErrorCode === UPLOAD_ERR_OK) {
     try {
       stash_uploaded_attachment($_FILES["attach_file"], $userId);
     } catch (Throwable $e) {
       $error = $e->getMessage();
     }
-  } elseif (!$editMode && $fileErrorCode !== UPLOAD_ERR_NO_FILE) {
+  } elseif ($allowAttachmentDraftFlow && $fileErrorCode !== UPLOAD_ERR_NO_FILE) {
     $error = attachment_upload_error_message($fileErrorCode);
-  } elseif (!$editMode && get_saved_temp_attachment() !== null) {
+  } elseif ($allowAttachmentDraftFlow && get_saved_temp_attachment() !== null) {
     $saved = get_saved_temp_attachment();
     if (is_array($saved)) {
       $saved["note"] = trim((string)($_POST["attach_note"] ?? ""));
@@ -759,7 +791,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   // Generator choice
   $genChoice = (string)($_POST['gen_choice'] ?? 'none');
   $allowedGenChoices = ['none'];
-  if ($canGenerateTransmittalMemo) {
+  if ($canGenerateTransmittalMemo && !$childSetupMode) {
     $allowedGenChoices[] = 'transmittal';
   }
   if ($hasOwnDivisionSlip) {
@@ -802,7 +834,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   } elseif (!$routeOnCreate && $genChoice === "transmittal") {
     $error = "Transmittal Memo needs a destination. Choose Save and route now, or generate a division tracking slip instead.";
   } else {
-    if ($editMode) {
+    if ($editMode || $childSetupMode) {
       $txStarted = false;
       $txCommitted = false;
 
@@ -889,27 +921,203 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         $resolvedProjectIds = resolve_project_ids_for_document($conn, $projectIds, $projectCodes);
         sync_document_projects($conn, $editDocumentId, $resolvedProjectIds, $userId);
 
-        $payloadUpdated = json_encode([
-          "kind" => "document_details_updated",
-          "tracking_no" => (string)($editDocument["tracking_no"] ?? ""),
-          "subject" => $subject,
-        ], JSON_UNESCAPED_UNICODE);
+        $resolvedTrackingNo = (string)($editDocument["tracking_no"] ?? "");
 
-        $stmt = $conn->prepare("
-          INSERT INTO document_events
-            (document_id, event_type, actor_user_id, actor_section_id, payload_json)
-          VALUES (?, 'updated', ?, ?, ?)
-        ");
-        $stmt->bind_param("iiis", $editDocumentId, $userId, $fromSectionId, $payloadUpdated);
-        $stmt->execute();
+        if ($childSetupMode && $genChoice === "division_slip" && $hasOwnDivisionSlip && $myDivisionId > 0) {
+          $stmt = $conn->prepare("
+            SELECT s.name AS section_name, d.name AS division_name
+            FROM sections s
+            JOIN divisions d ON d.id = s.division_id
+            WHERE s.id = ?
+            LIMIT 1
+          ");
+          $stmt->bind_param("i", $fromSectionId);
+          $stmt->execute();
+          $rFrom = $stmt->get_result()->fetch_assoc();
+
+          $fromLabel = trim((string)$requester);
+          if ($fromLabel === '') {
+            $fromLabel = ($divisionName !== "") ? $divisionName : $myDivisionCode;
+            if ($rFrom) {
+              $divisionNameFrom = trim((string)($rFrom["division_name"] ?? ''));
+              $sectionNameFrom = trim((string)($rFrom["section_name"] ?? ''));
+
+              if ($divisionNameFrom !== '' && $sectionNameFrom !== '') {
+                $fromLabel = $divisionNameFrom . " / " . $sectionNameFrom;
+              } elseif ($divisionNameFrom !== '') {
+                $fromLabel = $divisionNameFrom;
+              } elseif ($sectionNameFrom !== '') {
+                $fromLabel = $sectionNameFrom;
+              }
+            }
+          }
+
+          $baseDir = realpath(__DIR__ . "/../storage/attachments");
+          if ($baseDir === false) {
+            $baseDir = __DIR__ . "/../storage/attachments";
+            if (!is_dir($baseDir)) {
+              mkdir($baseDir, 0775, true);
+            }
+          }
+          $docDir = rtrim((string)$baseDir, "/\\") . "/doc_" . $editDocumentId;
+          if (!is_dir($docDir)) {
+            mkdir($docDir, 0775, true);
+          }
+
+          $safeDivision = preg_replace('/[^A-Za-z0-9._-]+/', '_', $myDivisionCode) ?: 'DIVISION';
+          $storedName = $safeDivision . "_TRACKING_SLIP_" . $resolvedTrackingNo . ".pdf";
+          $abs = $docDir . "/" . $storedName;
+          $rel = "storage/attachments/doc_" . $editDocumentId . "/" . $storedName;
+
+          $qrToken = null;
+          $stmt = $conn->prepare("
+            SELECT token
+            FROM document_qr_tokens
+            WHERE document_id = ?
+              AND revoked_at IS NULL
+            ORDER BY id DESC
+            LIMIT 1
+          ");
+          $stmt->bind_param("i", $editDocumentId);
+          $stmt->execute();
+          $rowTok = $stmt->get_result()->fetch_assoc();
+
+          if ($rowTok && !empty($rowTok["token"])) {
+            $qrToken = (string)$rowTok["token"];
+          } else {
+            $qrToken = bin2hex(random_bytes(16));
+            $stmt = $conn->prepare("
+              INSERT INTO document_qr_tokens (document_id, token)
+              VALUES (?, ?)
+            ");
+            $stmt->bind_param("is", $editDocumentId, $qrToken);
+            $stmt->execute();
+          }
+
+          $qrUrl = app_url(PUBLIC_PATH . "/qr.php?t=" . urlencode($qrToken));
+          $divisionTrackingRow = get_document_division_tracking($conn, $editDocumentId, $myDivisionId);
+          $divisionSlipNo = trim((string)($divisionTrackingRow['tracking_no'] ?? $divisionTrackingInput));
+          $divisionHead = resolve_division_head($conn, $myDivisionId);
+          $flowRows = build_division_slip_flow_rows($conn, $editDocumentId, $myDivisionId, $actualUserFullName);
+          $nameEntries = build_division_name_initial_entries($conn, $myDivisionId, (int)($divisionHead['id'] ?? 0));
+          $assignedTo = build_division_slip_assigned_to_label($conn, $editDocumentId);
+
+          DivisionTrackingSlip::generateA4([
+            "division_tracking_no" => $divisionSlipNo,
+            "division_name"        => $myDivisionName,
+            "division_code"        => $myDivisionCode,
+            "from_label"           => $fromLabel,
+            "document_type"        => $content_type,
+            "document_date"        => $document_date,
+            "subject"              => $subject,
+            "mpw_tracking_no"      => $resolvedTrackingNo,
+            "received_by"          => $actualUserFullName !== "" ? $actualUserFullName : trim((string)($_SESSION["full_name"] ?? "")),
+            "received_datetime"    => (string)$divisionSlipReceivedDatetime,
+            "assigned_to"          => $assignedTo,
+            "deadline_date"        => $deadlineAt ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("m/d/Y") : "",
+            "deadline_time"        => $deadlineAt ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("g:i A") : "",
+            "qr_url"               => $qrUrl,
+            "logo_left_abs"        => realpath(__DIR__ . "/../assets/mpwlogo1.png") ?: "",
+            "logo_right_abs"       => realpath(__DIR__ . "/../assets/ocmlogo.png") ?: "",
+            "signatory_name"       => (string)($divisionHead['full_name'] ?? ''),
+            "signatory_title"      => 'Chief' . ($myDivisionName !== '' ? ', ' . $myDivisionName : ''),
+            "flow_rows"            => $flowRows,
+            "name_entries"         => $nameEntries,
+          ], $abs);
+
+          $size = (int)@filesize($abs);
+          if ($size <= 0) {
+            throw new RuntimeException("Failed to generate division tracking slip PDF");
+          }
+          if ($size > attachment_max_bytes()) {
+            @unlink($abs);
+            throw new RuntimeException("Generated division tracking slip is too large (max " . attachment_max_mb_label() . ")");
+          }
+
+          $orig = $storedName;
+          $mime = "application/pdf";
+          $note = "AUTO:DIVISION_TRACKING_SLIP:" . $myDivisionCode;
+
+          $stmt = $conn->prepare("
+            INSERT INTO document_attachments
+              (document_id, original_name, stored_name, stored_path, mime, size_bytes, note, is_append, uploaded_by_user_id, uploaded_by_section_id)
+            VALUES
+              (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+          ");
+          $stmt->bind_param("issssisii", $editDocumentId, $orig, $storedName, $rel, $mime, $size, $note, $userId, $fromSectionId);
+          $stmt->execute();
+          $divisionAttachId = (int)$conn->insert_id;
+
+          $payloadSlip = json_encode([
+            "kind" => "division_tracking_slip_generated",
+            "attachment_id" => $divisionAttachId,
+            "file" => $orig,
+            "division_code" => $myDivisionCode,
+            "received_by_name" => $actualUserFullName !== "" ? $actualUserFullName : trim((string)($_SESSION["full_name"] ?? "")),
+            "received_datetime" => (string)$divisionSlipReceivedDatetime,
+            "assistant_actual_user_id" => $assistantModeEnabled ? $actualUserId : null,
+            "acting_principal_user_id" => ($assistantModeEnabled && $actingPrincipalUserId > 0) ? $actingPrincipalUserId : null,
+            "acting_principal_name" => ($assistantModeEnabled && $actingPrincipalName !== "") ? $actingPrincipalName : "",
+          ], JSON_UNESCAPED_UNICODE);
+
+          $stmt = $conn->prepare("
+            INSERT INTO document_events
+              (document_id, event_type, actor_user_id, actor_section_id, payload_json)
+            VALUES
+              (?, 'updated', ?, ?, ?)
+          ");
+          $stmt->bind_param("iiis", $editDocumentId, $userId, $fromSectionId, $payloadSlip);
+          $stmt->execute();
+        }
+
+        if ($childSetupMode) {
+          move_temp_attachment_to_document($conn, $editDocumentId, $userId, $fromSectionId);
+
+          $payloadUpdated = json_encode([
+            "kind" => "child_document_completed",
+            "tracking_no" => $resolvedTrackingNo,
+            "subject" => $subject,
+            "parent_document_id" => (int)($editDocument["parent_document_id"] ?? 0),
+          ], JSON_UNESCAPED_UNICODE);
+
+          $stmt = $conn->prepare("
+            INSERT INTO document_events
+              (document_id, event_type, actor_user_id, actor_section_id, payload_json)
+            VALUES (?, 'child_setup_completed', ?, ?, ?)
+          ");
+          $stmt->bind_param("iiis", $editDocumentId, $userId, $fromSectionId, $payloadUpdated);
+          $stmt->execute();
+        } else {
+          $payloadUpdated = json_encode([
+            "kind" => "document_details_updated",
+            "tracking_no" => $resolvedTrackingNo,
+            "subject" => $subject,
+          ], JSON_UNESCAPED_UNICODE);
+
+          $stmt = $conn->prepare("
+            INSERT INTO document_events
+              (document_id, event_type, actor_user_id, actor_section_id, payload_json)
+            VALUES (?, 'updated', ?, ?, ?)
+          ");
+          $stmt->bind_param("iiis", $editDocumentId, $userId, $fromSectionId, $payloadUpdated);
+          $stmt->execute();
+        }
 
         $conn->commit();
         $txCommitted = true;
 
+        if ($childSetupMode && $genChoice === "division_slip" && $hasOwnDivisionSlip && $myDivisionId > 0 && isset($divisionAttachId) && $divisionSlipMode === "print" && $divisionAttachId > 0) {
+          $printRedirect = PUBLIC_PATH . "/division_tracking_slip_print.php?id=" . $divisionAttachId;
+          if ($assistantModeEnabled && $actingPrincipalUserId > 0) {
+            $printRedirect .= "&acting_principal_user_id=" . $actingPrincipalUserId;
+          }
+          redirect($printRedirect);
+        }
+
         $_SESSION["documents_created_flash"] = [
           "doc_id" => $editDocumentId,
-          "tracking_no" => (string)($editDocument["tracking_no"] ?? ""),
-          "message" => "Document details updated.",
+          "tracking_no" => $resolvedTrackingNo,
+          "message" => $childSetupMode ? "Child document completed." : "Document details updated.",
           "created_at" => time(),
         ];
 
@@ -1575,6 +1783,10 @@ if (!is_array($postedProjectIdsRaw)) {
 }
 $postedProjectIds = array_values(array_unique(array_filter(array_map('intval', $postedProjectIdsRaw), static fn(int $v): bool => $v > 0)));
 $postedProjectCodesInput = trim((string)($_POST["project_codes_input"] ?? ""));
+$childAssignedProjects = [];
+if ($childSetupMode && project_codes_tables_ready($conn) && $editDocumentId > 0) {
+  $childAssignedProjects = fetch_document_projects($conn, $editDocumentId, true);
+}
 
 $contentTypeOptions = [
   "Memorandum",
@@ -1614,7 +1826,7 @@ require __DIR__ . "/../includes/layout.php";
   </div>
 <?php endif; ?>
 
-<?php if ($editDocumentId > 0 && !$editMode): ?>
+<?php if ($editDocumentId > 0 && !$editMode && !$childSetupMode): ?>
   <div class="card docFormCard addDocumentPage" style="max-width:760px;margin-top:14px;">
     <div class="docFormHead addDocHeader">
       <div>
@@ -1631,12 +1843,14 @@ require __DIR__ . "/../includes/layout.php";
 <div class="card docFormCard addDocumentPage" style="max-width:1040px;margin-top:14px;">
   <div class="docFormHead addDocHeader">
     <div>
-      <div class="addDocEyebrow"><?= $editMode ? "Document Correction" : "Document Intake" ?></div>
-      <h2 style="margin:6px 0 0;"><?= $editMode ? "Edit Document Details" : "Add New Document" ?></h2>
+      <div class="addDocEyebrow"><?= $childSetupMode ? "Child Document Setup" : ($editMode ? "Document Correction" : "Document Intake") ?></div>
+      <h2 style="margin:6px 0 0;"><?= $childSetupMode ? "Complete Child Document" : ($editMode ? "Edit Document Details" : "Add New Document") ?></h2>
       <div class="mini addDocLead">
-        <?= $editMode
+        <?= $childSetupMode
+          ? "This document was created from a parent document. Define what this child document becomes before routing or generating files."
+          : ($editMode
           ? "Correct the document details before it is routed. Tracking number stays unchanged."
-          : "Fill in the basic details first, then choose destinations and optional auto-generated files." ?>
+          : "Fill in the basic details first, then choose destinations and optional auto-generated files.") ?>
       </div>
     </div>
     <div class="addDocRequiredNote">
@@ -1648,12 +1862,16 @@ require __DIR__ . "/../includes/layout.php";
     <?php if ($editMode): ?>
       <input type="hidden" name="edit_id" value="<?= (int)$editDocumentId ?>">
     <?php endif; ?>
+    <?php if ($childSetupMode): ?>
+      <input type="hidden" name="edit_id" value="<?= (int)$editDocumentId ?>">
+      <input type="hidden" name="mode" value="child_setup">
+    <?php endif; ?>
     <?php if ($assistantModeEnabled && $actingPrincipalUserId > 0): ?>
       <input type="hidden" name="acting_principal_user_id" value="<?= (int)$actingPrincipalUserId ?>">
     <?php endif; ?>
     <input type="hidden" name="remove_saved_attachment" value="0" id="removeSavedAttachmentInput">
     <input type="hidden" name="destination_builder_contract" value="0" id="destinationBuilderContractInput">
-    <?php $postedCreationMode = $editMode ? "review" : (string)($_POST["creation_mode_choice"] ?? $_POST["creation_mode"] ?? "review"); ?>
+    <?php $postedCreationMode = ($editMode || $childSetupMode) ? "review" : (string)($_POST["creation_mode_choice"] ?? $_POST["creation_mode"] ?? "review"); ?>
     <input type="hidden" name="creation_mode" value="<?= htmlspecialchars($postedCreationMode) ?>" id="creationModeInput">
 
     <section class="addDocSection addDocSection-basic span2">
@@ -1663,6 +1881,18 @@ require __DIR__ . "/../includes/layout.php";
           <p>Core document details used across routing, tracking, and generated files.</p>
         </div>
       </div>
+
+      <?php if ($childSetupMode): ?>
+        <div class="authField span2" style="margin-bottom:14px; padding:14px 16px; border:1px solid rgba(15,23,42,.10); border-radius:16px; background:#f8fafc;">
+          <div style="font-size:12px; font-weight:900; color:#0f365d; text-transform:uppercase; letter-spacing:.05em;">Inherited Context</div>
+          <div style="margin-top:6px; font-size:14px; font-weight:800; color:#0f172a;">
+            Parent: <?= htmlspecialchars((string)($childParentSummary["parent_tracking_no"] ?? ("Document #" . (int)($editDocument["parent_document_id"] ?? 0)))) ?>
+          </div>
+          <div class="mini" style="margin-top:6px;">
+            Parent linkage and source context stay connected. Set this child document's own subject, type, dates, attachment, and division-slip behavior here.
+          </div>
+        </div>
+      <?php endif; ?>
 
       <div class="addDocSectionGrid addDocBasicGrid">
         <div class="authField">
@@ -1738,18 +1968,34 @@ require __DIR__ . "/../includes/layout.php";
         </div>
 
         <div class="authField addDocFieldWide">
-          <label>Project Codes <span class="mini" style="font-weight:700;">(optional)</span></label>
-          <textarea
-            name="project_codes_input"
-            class="search"
-            rows="4"
-            placeholder="Enter one or more project codes (separate by comma or new line)"
-            style="height:auto; min-height:110px; padding:10px 12px;"
-          ><?= htmlspecialchars($postedProjectCodesInput) ?></textarea>
-          <?php foreach ($postedProjectIds as $postedProjectId): ?>
-            <input type="hidden" name="project_ids[]" value="<?= (int)$postedProjectId ?>">
-          <?php endforeach; ?>
-          <div class="mini">You can enter brand-new project codes here. Existing matches are reused automatically.</div>
+          <label>Project Codes <span class="mini" style="font-weight:700;"><?= $childSetupMode ? "(linked from split)" : "(optional)" ?></span></label>
+          <?php if ($childSetupMode): ?>
+            <div style="display:flex; flex-wrap:wrap; gap:8px; min-height:44px; align-items:flex-start; padding:10px 12px; border:1px solid rgba(15,23,42,.12); border-radius:14px; background:#f8fafc;">
+              <?php if ($childAssignedProjects !== []): ?>
+                <?php foreach ($childAssignedProjects as $projectRow): ?>
+                  <span class="chip incoming"><?= htmlspecialchars((string)($projectRow["project_code"] ?? "PROJECT")) ?></span>
+                <?php endforeach; ?>
+              <?php else: ?>
+                <span class="mini">No linked project code.</span>
+              <?php endif; ?>
+            </div>
+            <?php foreach ($postedProjectIds as $postedProjectId): ?>
+              <input type="hidden" name="project_ids[]" value="<?= (int)$postedProjectId ?>">
+            <?php endforeach; ?>
+            <div class="mini">The split-linked project stays attached to this child document.</div>
+          <?php else: ?>
+            <textarea
+              name="project_codes_input"
+              class="search"
+              rows="4"
+              placeholder="Enter one or more project codes (separate by comma or new line)"
+              style="height:auto; min-height:110px; padding:10px 12px;"
+            ><?= htmlspecialchars($postedProjectCodesInput) ?></textarea>
+            <?php foreach ($postedProjectIds as $postedProjectId): ?>
+              <input type="hidden" name="project_ids[]" value="<?= (int)$postedProjectId ?>">
+            <?php endforeach; ?>
+            <div class="mini">You can enter brand-new project codes here. Existing matches are reused automatically.</div>
+          <?php endif; ?>
         </div>
 
         <?php if ($editMode && $hasOwnDivisionSlip): ?>
@@ -1773,7 +2019,8 @@ require __DIR__ . "/../includes/layout.php";
       </div>
     </section>
 
-    <?php if (!$editMode): ?>
+    <?php if (!$editMode || $childSetupMode): ?>
+    <?php if (!$editMode && !$childSetupMode): ?>
     <section class="addDocSection span2">
       <div class="addDocSectionHead">
         <div>
@@ -1838,12 +2085,13 @@ require __DIR__ . "/../includes/layout.php";
         </div>
       </div>
     </section>
+    <?php endif; ?>
 
     <section class="addDocSection span2">
       <div class="addDocSectionHead">
         <div>
           <h3>Auto-generate</h3>
-          <p>Optional PDFs you can generate right away while saving the document.</p>
+          <p><?= $childSetupMode ? "Optional files for this child document. Division-slip behavior matches Add Document." : "Optional PDFs you can generate right away while saving the document." ?></p>
         </div>
       </div>
 
@@ -1853,7 +2101,7 @@ require __DIR__ . "/../includes/layout.php";
         <?php
           $choice = (string)($_POST["gen_choice"] ?? "none");
           $displayChoices = ['none'];
-          if ($canGenerateTransmittalMemo) {
+          if ($canGenerateTransmittalMemo && !$childSetupMode) {
             $displayChoices[] = 'transmittal';
           }
           if ($hasOwnDivisionSlip) {
@@ -1870,7 +2118,7 @@ require __DIR__ . "/../includes/layout.php";
           None
         </label>
 
-        <?php if ($canGenerateTransmittalMemo): ?>
+        <?php if ($canGenerateTransmittalMemo && !$childSetupMode): ?>
           <label style="display:flex;align-items:center;gap:8px;font-weight:800;margin-top:8px;">
             <input type="radio" name="gen_choice" value="transmittal" <?= ($choice === "transmittal") ? "checked" : "" ?>>
             Transmittal Memo
@@ -1986,7 +2234,9 @@ require __DIR__ . "/../includes/layout.php";
     <?php endif; ?>
 
     <div class="docActions span2 addDocActions">
-      <?php if ($editMode): ?>
+      <?php if ($childSetupMode): ?>
+        <button type="submit" class="btnComp">Save Child Document</button>
+      <?php elseif ($editMode): ?>
         <button type="submit" class="btnComp">Save Changes</button>
       <?php else: ?>
       <button type="submit" class="btnComp" data-creation-mode-submit="route_now" id="btnSubmitRouteNow">Save and Route Now</button>
@@ -1994,7 +2244,7 @@ require __DIR__ . "/../includes/layout.php";
       <?php endif; ?>
       <a href="<?= PUBLIC_PATH ?>/documents.php" class="btnGhost" style="text-decoration:none;">Cancel</a>
     </div>
-    <?php if (!$editMode): ?>
+    <?php if (!$editMode || $childSetupMode): ?>
     </section>
     <?php endif; ?>
   </form>
@@ -2003,12 +2253,13 @@ require __DIR__ . "/../includes/layout.php";
 
 <script>
   window.addDocumentConfig = <?= json_encode([
-    "editMode" => $editMode,
+    "editMode" => ($editMode || $childSetupMode),
+    "childSetupMode" => $childSetupMode,
     "hasOwnDivisionSlip" => $hasOwnDivisionSlip,
-    "canGenerateTransmittalMemo" => $canGenerateTransmittalMemo,
+    "canGenerateTransmittalMemo" => ($canGenerateTransmittalMemo && !$childSetupMode),
     "apiPath" => API_PATH,
     "divisionTrackingLookupUrl" => API_PATH . "/division_tracking_duplicate_lookup.php",
-    "excludeDocumentId" => $editMode ? (int)$editDocumentId : 0,
+    "excludeDocumentId" => ($editMode || $childSetupMode) ? (int)$editDocumentId : 0,
     "sectionLabels" => $sectionLabelMap,
     "sectionMeta" => $sectionMetaMap,
     "divisionChiefTargets" => $divisionChiefTargets,
