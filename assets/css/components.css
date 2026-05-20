@@ -3709,7 +3709,8 @@ body[data-theme="dark"] .forwardDeadlineWrap {
 
 @media (max-width: 980px) {
   .drawer {
-    width: 100vw;
+    width: clamp(280px, 75vw, 420px);
+    max-width: calc(100vw - 56px);
     border-left: 0;
   }
 
@@ -3774,6 +3775,27 @@ body[data-theme="dark"] .forwardDeadlineWrap {
 }
 
 @media (max-width: 640px) {
+  .drawerTabs {
+    gap: 6px;
+    padding: 10px 12px;
+  }
+
+  .drawerTab {
+    padding: 8px 6px;
+    font-size: 10.5px;
+    gap: 5px;
+  }
+
+  .drawerTabIcon {
+    width: 20px;
+    height: 20px;
+  }
+
+  .drawerBody {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
   .ackSummaryHead,
   .ackSummaryPerson,
   .tGroupHead {

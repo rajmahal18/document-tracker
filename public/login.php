@@ -123,6 +123,15 @@ require __DIR__ . "/../includes/layout.php";
       </ul>
     </div>
 
+    <div class="asideBox loginV1Install">
+      <p class="asideTitle">Install on your phone</p>
+      <ul>
+        <li><strong>Android:</strong> Open in Chrome, tap the browser menu, then choose <strong>Install app</strong> or <strong>Add to Home screen</strong>.</li>
+        <li><strong>iPhone:</strong> Open in Safari, tap <strong>Share</strong>, then choose <strong>Add to Home Screen</strong>.</li>
+        <li>It gives you faster access to Document Tracker without opening a desktop or laptop.</li>
+      </ul>
+    </div>
+
     <div class="asideBox loginV1Support">
       <p class="asideTitle">Need help?</p>
       <ul>

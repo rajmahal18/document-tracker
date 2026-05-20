@@ -764,7 +764,7 @@ body[data-theme="dark"] a:not(.appSideNav a):not(.mobileScanFab):not(.docsAddBtn
     letter-spacing: .08em;
   }
 
-  .drawer { width: 100vw; border-left: 0; }
+  .drawer { width: clamp(280px, 75vw, 420px); max-width: calc(100vw - 56px); border-left: 0; }
   .drawerHeader { padding-top: calc(14px + env(safe-area-inset-top)); }
   .kv { grid-template-columns: 1fr; gap: 6px; }
   .drawerActions { justify-content: stretch; }

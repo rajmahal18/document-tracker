@@ -69,6 +69,15 @@
   color: #0b3a66;
 }
 
+.loginV1Install {
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.96), rgba(255, 255, 255, 0.98));
+  border-color: rgba(147, 197, 253, 0.45);
+}
+
+.loginV1Install strong {
+  color: #0b3a66;
+}
+
 .loginV1Aside ul {
   margin: 0;
   padding-left: 18px;
