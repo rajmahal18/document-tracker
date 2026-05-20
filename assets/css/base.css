@@ -17,9 +17,17 @@
   --drawer-width: min(340px, calc(100vw - 24px));
 }
 
+html {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: clip;
+}
+
 body {
   margin: 0;
   position: relative;
+  width: 100%;
+  max-width: 100%;
   background:
     radial-gradient(circle at top right, rgba(232,119,34,0.08), transparent 24%),
     radial-gradient(circle at top left, rgba(11,58,102,0.08), transparent 24%),
@@ -28,7 +36,7 @@ body {
   font-family: 'Inter', sans-serif;
   letter-spacing: -0.2px;
   -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 body[data-theme="dark"] {
@@ -84,7 +92,10 @@ textarea {
 body::before {
   content: "";
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
   background-image: url("../mpw.png");
   background-repeat: no-repeat;
   background-size: cover;
@@ -93,6 +104,7 @@ body::before {
   opacity: 0.07;
   pointer-events: none;
   z-index: 0;
+  overflow: hidden;
 }
 
 .topbar,

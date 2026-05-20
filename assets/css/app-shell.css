@@ -1639,6 +1639,8 @@ body[data-theme="dark"] .qrStatusPill { background: rgba(96,165,250,0.12); color
   gap: 10px;
   color: #64748b;
   opacity: 1 !important;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .appUserSummaryText {
@@ -1646,6 +1648,7 @@ body[data-theme="dark"] .qrStatusPill { background: rgba(96,165,250,0.12); color
   flex-direction: column;
   gap: 1px;
   min-width: 0;
+  max-width: 100%;
   line-height: 1.25;
 }
 
@@ -1659,6 +1662,7 @@ body[data-theme="dark"] .qrStatusPill { background: rgba(96,165,250,0.12); color
   color: #8a97aa;
   font-size: 12px;
   font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .appUserSummaryMuted {
@@ -1716,11 +1720,18 @@ body[data-theme="dark"] .appAvatar {
 @media (max-width: 640px) {
   .appUserSummary {
     align-items: flex-start;
+    max-width: 100%;
   }
 
   .appAvatarMd {
     width: 34px;
     height: 34px;
     font-size: 11px;
+  }
+
+  .appUserSummaryText b,
+  .appUserSummaryMuted {
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 }

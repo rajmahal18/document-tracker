@@ -1978,7 +1978,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
 
 <?php $hasActiveFilters = ($search !== "" || $statusGet !== "" || $date_from !== "" || $date_to !== "" || $quick !== "" || ($sort !== "" && $sort !== "workflow")); ?>
 <style>
-.docsTopRail{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 14px}.docsViewTabs{display:flex;gap:10px;flex-wrap:wrap;margin:0;flex:1 1 auto}.docsViewTab{padding:10px 14px;border-radius:12px;border:1px solid rgba(15,23,42,.12);background:#fff;color:#0f172a;text-decoration:none;font-weight:700}.docsViewTab.isActive{background:#0f172a;color:#fff}.docsAssistantBar{display:flex;gap:10px;align-items:center;justify-content:flex-end;flex:0 1 auto;min-width:min(100%,560px);margin:0;padding:8px 10px;border:1px solid rgba(11,58,102,.12);border-radius:18px;background:linear-gradient(135deg,rgba(255,255,255,.98),rgba(243,248,252,.98) 56%,rgba(231,240,249,.98));box-shadow:0 12px 28px rgba(15,23,42,.06),inset 0 1px 0 rgba(255,255,255,.72)}.docsAssistantBadge{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:0 10px;border-radius:999px;background:linear-gradient(135deg,#0b3a66,#1d5a91);color:#fff;font-size:11px;font-weight:900;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;box-shadow:0 8px 18px rgba(11,58,102,.18)}.docsAssistantIdentity{display:flex;align-items:center;gap:10px;min-width:0;flex:0 1 auto;padding:6px 8px 6px 6px;border-radius:14px;background:rgba(255,255,255,.78);border:1px solid rgba(255,255,255,.86)}.docsAssistantIdentity .appAvatar{box-shadow:0 6px 16px rgba(15,23,42,.12)}.docsAssistantField{display:block;min-width:0}.docsAssistantBar label,.docsAssistantFieldLabel{display:block;font-size:10px;font-weight:900;color:#486581;margin-bottom:4px;letter-spacing:.05em;text-transform:uppercase}.docsAssistantBar select{width:min(100%,250px);padding:9px 34px 9px 12px;border-radius:12px;border:1px solid rgba(15,23,42,.1);background:#fff;color:#0f172a;font-weight:700;box-shadow:inset 0 1px 0 rgba(255,255,255,.72)}.docsAssistantHint{display:grid;gap:2px;min-width:0;max-width:250px;line-height:1.3;flex:0 1 250px}.docsAssistantHint strong{font-size:12px;color:#0f172a;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.docsAssistantHint span{font-size:11px;color:#64748b}@media(max-width:980px){.docsTopRail{align-items:stretch}.docsViewTabs{flex:1 1 100%}.docsAssistantBar{flex:1 1 100%;justify-content:flex-start}}@media(max-width:640px){.docsAssistantBar{align-items:stretch;flex-wrap:wrap;padding:12px}.docsAssistantBadge{min-height:30px}.docsAssistantIdentity{width:100%}.docsAssistantField{flex:1}.docsAssistantBar select{width:100%;min-width:0}.docsAssistantHint{max-width:none;flex:1 1 100%}}
+.docsTopRail{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 14px;min-width:0}.docsViewTabs{display:flex;gap:10px;flex-wrap:wrap;margin:0;flex:1 1 auto;min-width:0;max-width:100%}.docsViewTab{padding:10px 14px;border-radius:12px;border:1px solid rgba(15,23,42,.12);background:#fff;color:#0f172a;text-decoration:none;font-weight:700;max-width:100%}.docsViewTab.isActive{background:#0f172a;color:#fff}.docsAssistantBar{display:flex;gap:10px;align-items:center;justify-content:flex-end;flex:0 1 720px;width:100%;max-width:720px;min-width:0;margin:0;padding:8px 10px;border:1px solid rgba(11,58,102,.12);border-radius:18px;background:linear-gradient(135deg,rgba(255,255,255,.98),rgba(243,248,252,.98) 56%,rgba(231,240,249,.98));box-shadow:0 12px 28px rgba(15,23,42,.06),inset 0 1px 0 rgba(255,255,255,.72)}.docsAssistantBadge{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:0 10px;border-radius:999px;background:linear-gradient(135deg,#0b3a66,#1d5a91);color:#fff;font-size:11px;font-weight:900;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;box-shadow:0 8px 18px rgba(11,58,102,.18);max-width:100%}.docsAssistantIdentity{display:flex;align-items:center;gap:10px;min-width:0;flex:1 1 280px;padding:6px 8px 6px 6px;border-radius:14px;background:rgba(255,255,255,.78);border:1px solid rgba(255,255,255,.86);max-width:100%}.docsAssistantIdentity .appAvatar{box-shadow:0 6px 16px rgba(15,23,42,.12)}.docsAssistantField{display:block;min-width:0;max-width:100%}.docsAssistantBar label,.docsAssistantFieldLabel{display:block;font-size:10px;font-weight:900;color:#486581;margin-bottom:4px;letter-spacing:.05em;text-transform:uppercase}.docsAssistantBar select{width:100%;max-width:100%;padding:9px 34px 9px 12px;border-radius:12px;border:1px solid rgba(15,23,42,.1);background:#fff;color:#0f172a;font-weight:700;box-shadow:inset 0 1px 0 rgba(255,255,255,.72)}.docsAssistantHint{display:grid;gap:2px;min-width:0;max-width:260px;line-height:1.3;flex:1 1 210px}.docsAssistantHint strong{font-size:12px;color:#0f172a;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.docsAssistantHint span{font-size:11px;color:#64748b;overflow-wrap:anywhere}@media(max-width:980px){.docsTopRail{align-items:stretch}.docsViewTabs{flex:1 1 100%}.docsAssistantBar{flex:1 1 100%;max-width:100%;justify-content:flex-start}}@media(max-width:640px){.docsTopRail,.docsViewTabs,.docsAssistantBar{width:100%;max-width:100%}.docsAssistantBadge,.docsAssistantHint,.docsAssistantIdentity .appAvatar,.docsAssistantFieldLabel{display:none}.docsAssistantBar{align-items:stretch;flex-wrap:nowrap;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;gap:0}.docsAssistantIdentity{width:100%;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;display:block}.docsAssistantField{display:block;width:100%;flex:1}.docsAssistantBar select{width:100%;max-width:none;min-width:0}}
 .forwardModalCard{width:min(100%,760px);max-width:calc(100vw - 24px);max-height:min(88vh,820px);box-sizing:border-box;overflow:hidden}
 .forwardModalBody{display:grid;gap:12px;overflow-x:hidden}
 .forwardCompactToolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -2282,7 +2282,31 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
         <input type="hidden" name="status" value="<?= htmlspecialchars($statusGet) ?>">
         <input type="hidden" name="from" value="<?= htmlspecialchars($date_from) ?>">
         <input type="hidden" name="to" value="<?= htmlspecialchars($date_to) ?>">
+
+        <?php if (!$isScopedDocumentsView): ?>
+        <div class="control docsQuickFiltersMobile">
+          <label for="docsQuickFilterMobileSelect" class="docsQuickFiltersMobileLabel">Quick view</label>
+          <select id="docsQuickFilterMobileSelect" class="select docsQuickFiltersMobileSelect" name="quick" onchange="this.form.submit()">
+            <option value="" <?= $quick === '' ? 'selected' : '' ?>>All visible (<?= (int)$stats['active'] + (int)$stats['released'] + (int)$stats['archived'] ?>)</option>
+            <?php if ($adminModeEnabled): ?>
+              <option value="active" <?= $quick === 'active' ? 'selected' : '' ?>>Active (<?= $stats['active'] ?>)</option>
+              <option value="released" <?= $quick === 'released' ? 'selected' : '' ?>>Closed (<?= $stats['released'] ?>)</option>
+              <option value="archived" <?= $quick === 'archived' ? 'selected' : '' ?>>Archived (<?= $stats['archived'] ?>)</option>
+            <?php else: ?>
+              <option value="incoming" <?= $quick === 'incoming' ? 'selected' : '' ?>>Incoming (<?= $stats['incoming'] ?>)</option>
+              <option value="pending" <?= $quick === 'pending' ? 'selected' : '' ?>>Pending (<?= $stats['pending'] ?>)</option>
+              <option value="completed" <?= $quick === 'completed' ? 'selected' : '' ?>>Completed (<?= $stats['completed'] ?>)</option>
+            <?php endif; ?>
+            <option value="overdue" <?= $quick === 'overdue' ? 'selected' : '' ?>>Overdue (<?= $stats['overdue'] ?>)</option>
+            <?php if (!$adminModeEnabled): ?>
+              <option value="released" <?= $quick === 'released' ? 'selected' : '' ?>>Closed (<?= $stats['released'] ?>)</option>
+              <option value="archived" <?= $quick === 'archived' ? 'selected' : '' ?>>Archived (<?= $stats['archived'] ?>)</option>
+            <?php endif; ?>
+          </select>
+        </div>
+        <?php else: ?>
         <input type="hidden" name="quick" value="<?= htmlspecialchars($quick) ?>">
+        <?php endif; ?>
 
         <div class="control docsSearchControl">
           <label>Search documents</label>
@@ -2817,7 +2841,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
               "UTF-8"
             ) ?>'
           >
-            <td data-label="My status">
+            <td data-label="My status" class="docStatusCol">
               <div class="docStatusCell">
                 <span class="<?= htmlspecialchars($myStatusChipClass) ?>">
                   <?= htmlspecialchars($myStatusLabel) ?>
@@ -2833,7 +2857,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
               </div>
             </td>
 
-            <td data-label="Document">
+            <td data-label="Document" class="docInfoCol">
               <div class="docInfoCell">
                 <div class="docInfoTitle"><?= htmlspecialchars((string)$d["subject"]) ?></div>
                 <div class="docInfoMeta">
@@ -2857,7 +2881,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
               </div>
             </td>
 
-            <td data-label="Route">
+            <td data-label="Route" class="routeCol">
               <div class="routeInfoCell">
                 <div class="routeLine">
                   <span class="routeLabel"><?= htmlspecialchars($routeLine1Label) ?></span>
@@ -2878,7 +2902,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
               </div>
             </td>
 
-            <td data-label="Doc state">
+            <td data-label="Doc state" class="docStateCol">
               <div class="docStateCell">
                 <div class="docStateMain <?= htmlspecialchars($docStateToneClass) ?>">
                   <span class="docStateDot"></span>
@@ -2888,7 +2912,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
               </div>
             </td>
 
-            <td data-label="Latest remark">
+            <td data-label="Latest remark" class="latestRemarkCol <?= $latestRemarkForList !== '' ? 'hasContent' : 'isEmpty' ?>">
               <div class="latestRemarkCell<?= $latestRemarkForList !== '' ? ' hasRemark' : '' ?>">
                 <?php if ($latestRemarkForList !== ''): ?>
                   <div class="latestRemarkText" title="<?= htmlspecialchars($latestRemarkForList) ?>">
@@ -2900,7 +2924,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
               </div>
             </td>
 
-            <td data-label="Deadline">
+            <td data-label="Deadline" class="deadlineCol">
               <div class="deadlineCell <?= htmlspecialchars($deadlineBadgeClass) ?>">
                 <div class="deadlineBadge <?= htmlspecialchars($deadlineBadgeClass) ?>"><?= htmlspecialchars($deadlineBadgeText) ?></div>
                 <?php foreach ($deadlineMetaLines as $deadlineMetaLine): ?>
@@ -2909,7 +2933,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
               </div>
             </td>
 
-            <td data-label="Requester">
+            <td data-label="Requester" class="requesterCol">
               <div class="requesterCell">
                 <div class="requesterName"><?= htmlspecialchars((string)$d["requester"]) ?></div>
                 <div class="requesterMeta"><?= htmlspecialchars($activityText) ?></div>
