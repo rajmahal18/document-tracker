@@ -2647,7 +2647,7 @@
     }
 
     elAttachments.innerHTML = `
-      <div class="attachList" style="display:flex; flex-direction:column; gap:10px;">
+      <div class="attachList attachListStack">
         ${items.map((a) => {
           const name = a.original_name || a.filename || `Attachment #${a.id || ""}`;
           const note = clean(a.note);
@@ -2666,19 +2666,28 @@
           const dlUrl = `${PUBLIC}/download_attachment.php?id=${Number(a.id || 0)}${principalQs}`;
 
           return `
-            <div class="attachCard" style="border:1px solid rgba(0,0,0,.08); border-radius:12px; padding:12px; background:#fff;">
-              <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start;">
-                <div style="min-width:0;">
-                  <div style="font-weight:900; line-height:1.25; word-break:break-word;">${esc(name)}</div>
-                  ${superseded ? `<div class="mini" style="margin-top:5px; color:#b45309; font-weight:900;">Superseded - visible here, excluded from full document view</div>` : ""}
-                  ${meta ? `<div class="mini" style="opacity:.7; margin-top:4px;">${esc(meta)}</div>` : ""}
-                  ${scopeLabel ? `<div class="mini" style="margin-top:6px;"><strong>Scope:</strong> ${esc(scopeLabel)}</div>` : ""}
-                  ${note ? `<div class="mini" style="margin-top:8px;"><strong>Note:</strong> ${esc(note)}</div>` : ""}
+            <div class="attachCard">
+              <div class="attachCardHead">
+                <div class="attachCardInfo">
+                  <a href="#" class="attachLink attachCardName" data-view-url="${esc(viewUrl)}" data-dl-url="${esc(dlUrl)}" data-mime="${esc(a.mime || "")}" data-name="${esc(name)}">${esc(name)}</a>
+                  ${superseded ? `<div class="mini attachCardWarn">Superseded - visible here, excluded from full document view</div>` : ""}
+                  ${meta ? `<div class="mini attachCardMeta">${esc(meta)}</div>` : ""}
+                  ${scopeLabel ? `<div class="mini attachCardScope"><strong>Scope:</strong> ${esc(scopeLabel)}</div>` : ""}
+                  ${note ? `<div class="mini attachCardNote"><strong>Note:</strong> ${esc(note)}</div>` : ""}
+                  <div class="attachCardActionsMobile">
+                    <a href="#" class="attachLink attachCardTextAction view" data-view-url="${esc(viewUrl)}" data-dl-url="${esc(dlUrl)}" data-mime="${esc(a.mime || "")}" data-name="${esc(name)}">View</a>
+                    <a href="${esc(dlUrl)}" class="attachCardTextAction download" target="_blank" rel="noopener">Download</a>
+                    ${canAdminDeleteAttachments ? `<button type="button" class="attachCardTextAction delete attachDeleteBtn" data-attachment-id="${Number(a.id || 0)}" data-attachment-name="${esc(name)}">Delete</button>` : ""}
+                  </div>
                 </div>
-                <div style="display:flex; gap:8px; flex-shrink:0;">
-                  <a href="#" class="attachLink btn btnSm" data-view-url="${esc(viewUrl)}" data-dl-url="${esc(dlUrl)}" data-mime="${esc(a.mime || "")}" data-name="${esc(name)}">View</a>
-                  <a href="${esc(dlUrl)}" class="btn btnSm btnGhost" target="_blank" rel="noopener">Download</a>
-                  ${canAdminDeleteAttachments ? `<button type="button" class="btn btnSm btnGhost attachDeleteBtn" data-attachment-id="${Number(a.id || 0)}" data-attachment-name="${esc(name)}" style="color:#b91c1c; border-color:rgba(220,38,38,.14);">Delete</button>` : ""}
+                <div class="attachCardActions">
+                  <a href="#" class="attachLink attachActionBtn view" data-view-url="${esc(viewUrl)}" data-dl-url="${esc(dlUrl)}" data-mime="${esc(a.mime || "")}" data-name="${esc(name)}" aria-label="View attachment" title="View">
+                    <span class="attachActionBtnIcon" aria-hidden="true">&#128065;</span>
+                  </a>
+                  <a href="${esc(dlUrl)}" class="attachActionBtn download" target="_blank" rel="noopener" aria-label="Download attachment" title="Download">
+                    <span class="attachActionBtnIcon" aria-hidden="true">&#8681;</span>
+                  </a>
+                  ${canAdminDeleteAttachments ? `<button type="button" class="attachActionBtn delete attachDeleteBtn" data-attachment-id="${Number(a.id || 0)}" data-attachment-name="${esc(name)}" aria-label="Delete attachment" title="Delete"><span class="attachActionBtnIcon" aria-hidden="true">&#128465;</span></button>` : ""}
                 </div>
               </div>
             </div>

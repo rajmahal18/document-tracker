@@ -1945,6 +1945,127 @@ body:not([data-theme]) #d_timeline .tLineNote {
   background: color-mix(in srgb, var(--app-surface-strong, #fff) 88%, transparent);
 }
 
+.attachListStack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.attachCard {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 12px;
+  padding: 12px;
+  background: #fff;
+}
+
+.attachCardHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.attachCardInfo {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.attachCardName {
+  font-weight: 900;
+  line-height: 1.25;
+  color: #0f172a;
+  word-break: break-word;
+}
+
+.attachCardMeta,
+.attachCardScope,
+.attachCardNote,
+.attachCardWarn {
+  margin-top: 5px;
+}
+
+.attachCardMeta {
+  opacity: .72;
+}
+
+.attachCardWarn {
+  color: #b45309;
+  font-weight: 900;
+}
+
+.attachCardActionsMobile {
+  display: none;
+  margin-top: 8px;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.attachCardTextAction {
+  font-size: 11px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+button.attachCardTextAction {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.attachCardTextAction.view { color: #1d4ed8; }
+.attachCardTextAction.download { color: #0f766e; }
+.attachCardTextAction.delete { color: #b42318; }
+
+.attachCardActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.attachActionBtn {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  background: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: transform .12s ease, background .12s ease, border-color .12s ease, color .12s ease;
+}
+
+.attachActionBtn:hover {
+  transform: translateY(-1px);
+}
+
+.attachActionBtnIcon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.attachActionBtn.view {
+  color: #1d4ed8;
+  border-color: rgba(37, 99, 235, 0.18);
+  background: rgba(239, 246, 255, 0.92);
+}
+
+.attachActionBtn.download {
+  color: #0f766e;
+  border-color: rgba(13, 148, 136, 0.18);
+  background: rgba(240, 253, 250, 0.95);
+}
+
+.attachActionBtn.delete {
+  color: #b42318;
+  border-color: rgba(220, 38, 38, 0.16);
+  background: rgba(254, 242, 242, 0.96);
+}
+
 .aRow {
   padding: 8px;
   border-radius: 10px;
@@ -3095,6 +3216,10 @@ body[data-theme="dark"] .attachCard .btnGhost:hover {
   color: #ffffff;
 }
 
+body[data-theme="dark"] .attachCardTextAction.view { color: #9cc4ff; }
+body[data-theme="dark"] .attachCardTextAction.download { color: #7dd3c7; }
+body[data-theme="dark"] .attachCardTextAction.delete { color: #fda4af; }
+
 body[data-theme="dark"] .aRow:hover {
   background: rgba(125, 183, 255, 0.09);
 }
@@ -3775,6 +3900,30 @@ body[data-theme="dark"] .forwardDeadlineWrap {
 }
 
 @media (max-width: 640px) {
+  .attachCard {
+    padding: 10px;
+  }
+
+  .attachCardHead {
+    gap: 10px;
+  }
+
+  .attachCardActions { display: none; }
+
+  .attachCardActionsMobile {
+    display: flex;
+  }
+
+  .attachActionBtn {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+  }
+
+  .attachActionBtnIcon {
+    font-size: 16px;
+  }
+
   .drawerTabs {
     gap: 6px;
     padding: 10px 12px;
