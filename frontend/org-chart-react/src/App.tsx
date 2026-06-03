@@ -4,12 +4,77 @@ import { EditOrgUserModal } from './components/EditOrgUserModal'
 import { ArrowLeftIcon, ArrowRightIcon } from './components/Icons'
 import { PersonInfoModal } from './components/PersonInfoModal'
 import { TopToolbar } from './components/TopToolbar'
+import { useLazyMount } from './hooks/useLazyMount'
 import { countVisiblePeople, countVisibleSections, divisionMatches } from './lib/org-helpers'
 import { getBootstrapData, updateOrgUser } from './lib/app-bridge'
-import type { OrgUser, UpdateOrgUserPayload } from './types/org'
+import type { OrgDivision, OrgUser, UpdateOrgUserPayload } from './types/org'
 import mpwLogo from './assets/mpwlogo1.png'
 
 const bootstrap = getBootstrapData()
+
+type LazyDivisionPanelProps = {
+  division: OrgDivision
+  index: number
+  query: string
+  viewerDivisionId: number
+  forceExpandMembers: boolean
+  expandedSections: Record<number, boolean>
+  onToggleSection: (sectionId: number) => void
+  onViewUser: (user: OrgUser) => void
+  onEdit: (user: OrgUser) => void
+}
+
+function LazyDivisionPanel({
+  division,
+  index,
+  query,
+  viewerDivisionId,
+  forceExpandMembers,
+  expandedSections,
+  onToggleSection,
+  onViewUser,
+  onEdit,
+}: LazyDivisionPanelProps) {
+  const eager = query.trim().length > 0 || index < 2 || division.id === viewerDivisionId
+  const lazyPanel = useLazyMount<HTMLDivElement>({ enabled: !eager, rootMargin: '280px 120px 280px 120px', threshold: 0.01 })
+  const isReady = eager || lazyPanel.isMounted
+
+  return (
+    <div
+      ref={lazyPanel.ref}
+      className="org-division-panel org-reveal"
+      style={{ animationDelay: `${Math.min(index * 70, 280)}ms` }}
+    >
+      {isReady ? (
+        <DivisionBlock
+          division={division}
+          query={query}
+          revealOrder={index + 1}
+          forceExpandMembers={forceExpandMembers}
+          expandedSections={expandedSections}
+          onToggleSection={onToggleSection}
+          onViewUser={onViewUser}
+          onEdit={onEdit}
+        />
+      ) : (
+        <div className="org-shell org-division-placeholder" aria-hidden="true">
+          <div className="org-placeholder-line w-40" />
+          <div className="org-placeholder-line w-64" />
+          <div className="org-placeholder-chip-row">
+            <div className="org-placeholder-chip" />
+            <div className="org-placeholder-chip" />
+            <div className="org-placeholder-chip" />
+          </div>
+          <div className="org-placeholder-grid">
+            <div className="org-placeholder-row" />
+            <div className="org-placeholder-row" />
+            <div className="org-placeholder-row" />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function App() {
   const [query, setQuery] = useState('')
@@ -121,18 +186,18 @@ export default function App() {
             ) : null}
             <div className="org-division-panel-rail" ref={divisionRailRef}>
               {visibleDivisions.map((division, index) => (
-                <div className="org-division-panel org-reveal" key={division.id} style={{ animationDelay: `${Math.min(index * 70, 280)}ms` }}>
-                  <DivisionBlock
-                    division={division}
-                    query={query}
-                    revealOrder={index + 1}
-                    forceExpandMembers={forceExpandMembers}
-                    expandedSections={expandedSections}
-                    onToggleSection={(sectionId) => setExpandedSections((current) => ({ ...current, [sectionId]: !current[sectionId] }))}
-                    onViewUser={setViewedUser}
-                    onEdit={openEdit}
-                  />
-                </div>
+                <LazyDivisionPanel
+                  key={division.id}
+                  division={division}
+                  index={index}
+                  query={query}
+                  viewerDivisionId={bootstrap.viewerDivisionId}
+                  forceExpandMembers={forceExpandMembers}
+                  expandedSections={expandedSections}
+                  onToggleSection={(sectionId) => setExpandedSections((current) => ({ ...current, [sectionId]: !current[sectionId] }))}
+                  onViewUser={setViewedUser}
+                  onEdit={openEdit}
+                />
               ))}
             </div>
           </section>

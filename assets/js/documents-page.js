@@ -232,6 +232,16 @@
   const btnActionRequestSigned = document.getElementById("btnActionRequestSigned");
   const btnActionRequestApproved = document.getElementById("btnActionRequestApproved");
   const btnActionRequestRejected = document.getElementById("btnActionRequestRejected");
+  const actionRequestDecisionConfirmModal = document.getElementById("actionRequestDecisionConfirmModal");
+  const actionRequestDecisionConfirmModalBackdrop = document.getElementById("actionRequestDecisionConfirmModalBackdrop");
+  const actionRequestDecisionConfirmModalClose = document.getElementById("actionRequestDecisionConfirmModalClose");
+  const actionRequestDecisionConfirmTitle = document.getElementById("actionRequestDecisionConfirmTitle");
+  const actionRequestDecisionConfirmSub = document.getElementById("actionRequestDecisionConfirmSub");
+  const actionRequestDecisionConfirmSummary = document.getElementById("actionRequestDecisionConfirmSummary");
+  const actionRequestDecisionConfirmNotes = document.getElementById("actionRequestDecisionConfirmNotes");
+  const actionRequestDecisionConfirmMsg = document.getElementById("actionRequestDecisionConfirmMsg");
+  const btnActionRequestDecisionConfirmCancel = document.getElementById("btnActionRequestDecisionConfirmCancel");
+  const btnActionRequestDecisionConfirm = document.getElementById("btnActionRequestDecisionConfirm");
 
   const forwardDeadlineGrid = document.getElementById("forwardDeadlineGrid");
   const forwardDocumentDeadlineWrap = document.getElementById("forwardDocumentDeadlineWrap");
@@ -360,6 +370,7 @@
   let attachmentForwardAttachmentOptions = [];
   let attachmentForwardRecipientCache = new Map();
   let currentActionRequestDecision = "";
+  let actionRequestDecisionSubmitting = false;
   let currentPayload = null;
   let currentBranchMode = false;
   let currentBranches = [];
@@ -2141,6 +2152,19 @@
     return key || 'Open';
   }
 
+  function actionRequestDecisionToneClass(decision) {
+    const key = (decision || "").toString().trim().toUpperCase();
+    if (key === "APPROVED") return "btnGreen";
+    if (key === "REJECTED") return "btnComp";
+    return "btnSecondary";
+  }
+
+  function setActionRequestDecisionButtonsDisabled(disabled) {
+    [btnActionRequestSigned, btnActionRequestApproved, btnActionRequestRejected, btnActionRequestDecisionCancel].forEach((btn) => {
+      if (btn) btn.disabled = !!disabled;
+    });
+  }
+
   function renderAttachmentForwardStatusPanel() {
     if (!drawerAttachmentForwardStatus) return;
     const summary = Array.isArray(currentPayload?.attachment_forward_task_summary)
@@ -2977,6 +3001,8 @@
       if (recModal?.classList.contains("open")) return closeRecipientsModal();
       if (pendingRemarksModal?.classList.contains("open")) return setPendingRemarksEditing(false);
       if (divisionSlipModal?.classList.contains("open")) return closeDivisionSlipModal();
+      if (actionRequestDecisionConfirmModal?.classList.contains("open")) return closeActionRequestDecisionConfirmModal();
+      if (actionRequestDecisionModal?.classList.contains("open")) return closeActionRequestDecisionModal();
       if (releaseModal?.classList.contains("open")) return closeReleaseModal();
       if (shareVisibilityModal?.classList.contains("open")) return closeShareVisibilityModal();
       if (forwardModal?.classList.contains("open")) return closeForwardModal();
@@ -4702,18 +4728,21 @@
     }
   }
 
-  async function submitActionRequestDecision(decision) {
+  async function submitActionRequestDecision(decision = currentActionRequestDecision) {
     const docId = Number(currentPayload?.id || elId?.value || 0);
     const branch = currentBranchMode ? getSelectedBranch() : null;
-    if (!docId || !decision) return;
+    const normalizedDecision = (decision || "").toString().trim().toUpperCase();
+    if (!docId || !normalizedDecision) return;
 
-    const buttons = [btnActionRequestSigned, btnActionRequestApproved, btnActionRequestRejected];
-    buttons.forEach((btn) => { if (btn) btn.disabled = true; });
+    actionRequestDecisionSubmitting = true;
+    setActionRequestDecisionButtonsDisabled(true);
+    if (btnActionRequestDecisionConfirm) btnActionRequestDecisionConfirm.disabled = true;
+    if (btnActionRequestDecisionConfirmCancel) btnActionRequestDecisionConfirmCancel.disabled = true;
 
     const form = appendActingPrincipal(new FormData(), currentPayload);
     form.append("document_id", String(docId));
     if (currentBranchMode && Number(branch?.id || 0) > 0) form.append("branch_id", String(Number(branch.id || 0)));
-    form.append("decision", decision);
+    form.append("decision", normalizedDecision);
     form.append("notes", (elActionRequestDecisionNotes?.value || "").toString().trim());
     form.append("csrf_token", window.__CSRF__ || "");
 
@@ -4726,10 +4755,10 @@
 
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.ok) {
-        if (actionRequestDecisionModalMsg) {
-          actionRequestDecisionModalMsg.textContent = data?.error || `Failed to respond. (${res.status})`;
-          actionRequestDecisionModalMsg.className = "modalMsg error";
-          actionRequestDecisionModalMsg.style.display = "";
+        if (actionRequestDecisionConfirmMsg) {
+          actionRequestDecisionConfirmMsg.textContent = data?.error || `Failed to respond. (${res.status})`;
+          actionRequestDecisionConfirmMsg.className = "modalMsg error";
+          actionRequestDecisionConfirmMsg.style.display = "";
         } else {
           window.DTToast?.error(data?.error || `Failed to respond. (${res.status})`) || console.warn(data?.error || `Failed to respond. (${res.status})`);
         }
@@ -4737,19 +4766,23 @@
       }
 
       window.DTToast?.success(data?.message || "Request updated.") || console.log(data?.message || "Request updated.");
+      closeActionRequestDecisionConfirmModal();
       closeActionRequestDecisionModal();
       saveDrawerRestoreState(docId, currentBranchMode && Number(branch?.id || 0) > 0 ? Number(branch.id || 0) : 0);
       setTimeout(() => location.reload(), 900);
     } catch {
-      if (actionRequestDecisionModalMsg) {
-        actionRequestDecisionModalMsg.textContent = "Failed to respond (network error).";
-        actionRequestDecisionModalMsg.className = "modalMsg error";
-        actionRequestDecisionModalMsg.style.display = "";
+      if (actionRequestDecisionConfirmMsg) {
+        actionRequestDecisionConfirmMsg.textContent = "Failed to respond (network error).";
+        actionRequestDecisionConfirmMsg.className = "modalMsg error";
+        actionRequestDecisionConfirmMsg.style.display = "";
       } else {
         window.DTToast?.error("Failed to respond (network error).") || console.warn("Failed to respond (network error).");
       }
     } finally {
-      buttons.forEach((btn) => { if (btn) btn.disabled = false; });
+      actionRequestDecisionSubmitting = false;
+      setActionRequestDecisionButtonsDisabled(false);
+      if (btnActionRequestDecisionConfirm) btnActionRequestDecisionConfirm.disabled = false;
+      if (btnActionRequestDecisionConfirmCancel) btnActionRequestDecisionConfirmCancel.disabled = false;
     }
   }
 
@@ -4970,6 +5003,8 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
   function openActionRequestDecisionModal() {
     if (!actionRequestDecisionModal || !currentCanActionRequestRespond) return;
     currentActionRequestDecision = "";
+    actionRequestDecisionSubmitting = false;
+    setActionRequestDecisionButtonsDisabled(false);
     if (elActionRequestDecisionNotes) elActionRequestDecisionNotes.value = "";
     if (actionRequestDecisionModalMsg) {
       actionRequestDecisionModalMsg.textContent = "";
@@ -4977,17 +5012,67 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
       actionRequestDecisionModalMsg.style.display = "none";
     }
     if (actionRequestDecisionPrompt) {
-      actionRequestDecisionPrompt.textContent = "Pick one action for this received request.";
+      actionRequestDecisionPrompt.textContent = "Add optional notes, then choose an action below.";
     }
     actionRequestDecisionModal.classList.add("open");
     actionRequestDecisionModal.setAttribute("aria-hidden", "false");
-    btnActionRequestSigned?.focus();
+    btnActionRequestDecisionCancel?.focus();
   }
 
   function closeActionRequestDecisionModal() {
     if (!actionRequestDecisionModal) return;
+    if (actionRequestDecisionConfirmModal) {
+      actionRequestDecisionConfirmModal.classList.remove("open");
+      actionRequestDecisionConfirmModal.setAttribute("aria-hidden", "true");
+    }
     actionRequestDecisionModal.classList.remove("open");
     actionRequestDecisionModal.setAttribute("aria-hidden", "true");
+  }
+
+  function openActionRequestDecisionConfirmModal(decision) {
+    if (!actionRequestDecisionConfirmModal || !decision || actionRequestDecisionSubmitting) return;
+    currentActionRequestDecision = (decision || "").toString().trim().toUpperCase();
+    const decisionLabel = actionRequestStatusLabel(currentActionRequestDecision);
+    const notes = (elActionRequestDecisionNotes?.value || "").toString().trim();
+
+    if (actionRequestDecisionConfirmTitle) {
+      actionRequestDecisionConfirmTitle.textContent = `${decisionLabel} this request?`;
+    }
+    if (actionRequestDecisionConfirmSub) {
+      actionRequestDecisionConfirmSub.textContent = `This will send your ${decisionLabel.toLowerCase()} response to the requester.`;
+    }
+    if (actionRequestDecisionConfirmSummary) {
+      actionRequestDecisionConfirmSummary.textContent = `You are about to mark this request as ${decisionLabel.toLowerCase()}. Please confirm before sending.`;
+    }
+    if (actionRequestDecisionConfirmNotes) {
+      if (notes) {
+        actionRequestDecisionConfirmNotes.style.display = "";
+        actionRequestDecisionConfirmNotes.innerHTML = `<strong>Notes to include</strong><br>${esc(notes).replace(/\n/g, "<br>")}`;
+      } else {
+        actionRequestDecisionConfirmNotes.textContent = "";
+        actionRequestDecisionConfirmNotes.style.display = "none";
+      }
+    }
+    if (actionRequestDecisionConfirmMsg) {
+      actionRequestDecisionConfirmMsg.textContent = "";
+      actionRequestDecisionConfirmMsg.className = "modalMsg";
+      actionRequestDecisionConfirmMsg.style.display = "none";
+    }
+    if (btnActionRequestDecisionConfirm) {
+      btnActionRequestDecisionConfirm.className = actionRequestDecisionToneClass(currentActionRequestDecision);
+      btnActionRequestDecisionConfirm.textContent = `Confirm ${decisionLabel}`;
+      btnActionRequestDecisionConfirm.disabled = false;
+    }
+
+    actionRequestDecisionConfirmModal.classList.add("open");
+    actionRequestDecisionConfirmModal.setAttribute("aria-hidden", "false");
+    btnActionRequestDecisionConfirm?.focus();
+  }
+
+  function closeActionRequestDecisionConfirmModal() {
+    if (!actionRequestDecisionConfirmModal || actionRequestDecisionSubmitting) return;
+    actionRequestDecisionConfirmModal.classList.remove("open");
+    actionRequestDecisionConfirmModal.setAttribute("aria-hidden", "true");
   }
 
   function openReleaseModal() {
@@ -5373,9 +5458,13 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
   actionRequestDecisionModalClose?.addEventListener("click", closeActionRequestDecisionModal);
   btnActionRequestDecisionCancel?.addEventListener("click", closeActionRequestDecisionModal);
   actionRequestDecisionModalBackdrop?.addEventListener("click", closeActionRequestDecisionModal);
-  btnActionRequestSigned?.addEventListener("click", () => submitActionRequestDecision("SIGNED"));
-  btnActionRequestApproved?.addEventListener("click", () => submitActionRequestDecision("APPROVED"));
-  btnActionRequestRejected?.addEventListener("click", () => submitActionRequestDecision("REJECTED"));
+  btnActionRequestSigned?.addEventListener("click", () => openActionRequestDecisionConfirmModal("SIGNED"));
+  btnActionRequestApproved?.addEventListener("click", () => openActionRequestDecisionConfirmModal("APPROVED"));
+  btnActionRequestRejected?.addEventListener("click", () => openActionRequestDecisionConfirmModal("REJECTED"));
+  actionRequestDecisionConfirmModalClose?.addEventListener("click", closeActionRequestDecisionConfirmModal);
+  btnActionRequestDecisionConfirmCancel?.addEventListener("click", closeActionRequestDecisionConfirmModal);
+  actionRequestDecisionConfirmModalBackdrop?.addEventListener("click", closeActionRequestDecisionConfirmModal);
+  btnActionRequestDecisionConfirm?.addEventListener("click", () => submitActionRequestDecision());
   attachmentDeleteModalClose?.addEventListener("click", closeAttachmentDeleteModal);
   btnAttachmentDeleteCancel?.addEventListener("click", closeAttachmentDeleteModal);
   attachmentDeleteModalBackdrop?.addEventListener("click", closeAttachmentDeleteModal);

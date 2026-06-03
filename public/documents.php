@@ -353,7 +353,7 @@ function documents_latest_activity_line(
 
   if ($title === '') {
     $title = trim((string)($doc['activity_text'] ?? '')) !== '' ? trim((string)$doc['activity_text']) : 'Document activity';
-    $detail = trim((string)($doc['requester'] ?? '')) !== '' ? 'Requester: ' . trim((string)$doc['requester']) : '';
+    $detail = '';
     $at = $latestAt;
     $badge = 'STATUS';
   }
@@ -556,6 +556,26 @@ $hasRealBranchesPredicate = "EXISTS (
 
 $myIsOriginPredicate = "d.created_by_user_id = {$myUid}";
 
+$myHasOpenActionRequestPendingReceivePredicate = (workflow_action_requests_enabled($conn) && $myUid > 0)
+  ? "EXISTS (
+      SELECT 1
+      FROM document_action_requests dar_inbox
+      WHERE dar_inbox.document_id = d.id
+        AND dar_inbox.recipient_user_id = {$myUid}
+        AND dar_inbox.task_status = 'PENDING_RECEIVE'
+    )"
+  : "0";
+
+$myHasOpenActionRequestInProgressPredicate = (workflow_action_requests_enabled($conn) && $myUid > 0)
+  ? "EXISTS (
+      SELECT 1
+      FROM document_action_requests dar_pending
+      WHERE dar_pending.document_id = d.id
+        AND dar_pending.recipient_user_id = {$myUid}
+        AND dar_pending.task_status = 'IN_PROGRESS'
+    )"
+  : "0";
+
 $myHasOpenInboundPredicate = "EXISTS (
   SELECT 1
   FROM routes r_in
@@ -587,7 +607,8 @@ $myHasOpenInboundPredicate = "EXISTS (
         )
       )
     )
-)";
+)
+OR ({$myHasOpenActionRequestPendingReceivePredicate})";
 
 $myHasActionableRolePredicate = "(
   (
@@ -654,6 +675,7 @@ $myHasActionableRolePredicate = "(
       )
     )
   )
+  OR ({$myHasOpenActionRequestInProgressPredicate})
 )";
 
 $myHasParticipationPredicate = "(
@@ -3283,7 +3305,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
                     <span><?= htmlspecialchars((string)$latestActivity["at_display"]) ?></span>
                     <span class="docMetaDot">•</span>
                   <?php endif; ?>
-                  <span>Requester: <?= htmlspecialchars((string)$d["requester"]) ?></span>
+                  <span>Requester: <strong class="requesterValueStrong"><?= htmlspecialchars((string)$d["requester"]) ?></strong></span>
                 </div>
               </div>
             </td>
@@ -3730,13 +3752,7 @@ $end   = min($totalPages, $page + 2);
     </div>
 
     <div class="modalBody forwardModalBody">
-      <div id="actionRequestDecisionPrompt" class="mini" style="margin-bottom:10px; opacity:.8;">Pick one action for this received request.</div>
-
-      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px;">
-        <button type="button" class="btnSecondary" id="btnActionRequestSigned">Signed</button>
-        <button type="button" class="btnGreen" id="btnActionRequestApproved">Approved</button>
-        <button type="button" class="btnComp" id="btnActionRequestRejected">Reject</button>
-      </div>
+      <div id="actionRequestDecisionPrompt" class="mini" style="margin-bottom:10px; opacity:.8;">Add optional notes, then choose an action below.</div>
 
       <div class="drawerActionRemarks" style="margin-top:12px;">
         <label for="d_action_request_decision_notes" class="drawerActionRemarksLabel">Notes (optional)</label>
@@ -3745,8 +3761,39 @@ $end   = min($totalPages, $page + 2);
       <div id="actionRequestDecisionModalMsg" class="modalMsg" style="display:none;"></div>
     </div>
 
-    <div class="modalFooter">
+    <div class="modalFooter actionRequestDecisionFooter">
       <button id="btnActionRequestDecisionCancel" type="button" class="btnSecondary">Cancel</button>
+      <div class="actionRequestDecisionFooterActions">
+        <button type="button" class="btnSecondary" id="btnActionRequestSigned">Signed</button>
+        <button type="button" class="btnGreen" id="btnActionRequestApproved">Approved</button>
+        <button type="button" class="btnComp" id="btnActionRequestRejected">Reject</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="actionRequestDecisionConfirmModal" class="modalWrap" aria-hidden="true">
+  <div id="actionRequestDecisionConfirmModalBackdrop" class="modalBackdrop"></div>
+  <div class="modalCard forwardModalCard" style="max-width:560px;">
+    <div class="modalHeader">
+      <div>
+        <h3 id="actionRequestDecisionConfirmTitle">Confirm response</h3>
+        <div class="attSub mini" id="actionRequestDecisionConfirmSub">Review the selected outcome before sending your response.</div>
+      </div>
+      <button id="actionRequestDecisionConfirmModalClose" class="modalClose" type="button">×</button>
+    </div>
+
+    <div class="modalBody forwardModalBody">
+      <div id="actionRequestDecisionConfirmSummary" class="mini" style="line-height:1.6; color:#475467;">
+        You are about to send this request response.
+      </div>
+      <div id="actionRequestDecisionConfirmNotes" class="actionRequestDecisionConfirmNotes" style="display:none;"></div>
+      <div id="actionRequestDecisionConfirmMsg" class="modalMsg" style="display:none;"></div>
+    </div>
+
+    <div class="modalFooter">
+      <button id="btnActionRequestDecisionConfirmCancel" type="button" class="btnSecondary">Back</button>
+      <button id="btnActionRequestDecisionConfirm" type="button" class="btnComp">Confirm</button>
     </div>
   </div>
 </div>

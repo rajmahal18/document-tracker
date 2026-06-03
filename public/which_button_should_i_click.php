@@ -104,6 +104,22 @@ require __DIR__ . '/../includes/layout.php';
     </div>
 
     <div class="buttonGuideRow">
+      <div class="buttonGuidePreview"><button type="button" class="btnSecondary" data-no-loading>Share visibility</button></div>
+      <div>
+        <div class="buttonGuideDesc" data-en="Use this when another person only needs to see the document for reference. Your current actionable lane stays with you." data-tl="Gamitin mo ito kapag kailangan lang makita ng ibang tao yung document for reference. Nasa'yo pa rin ang actionable lane.">Use this when another person only needs to see the document for reference. Your current actionable lane stays with you.</div>
+        <div class="buttonGuideTip" data-en="Best when you want others informed without transferring responsibility." data-tl="Maganda ito kapag gusto mo lang silang ma-inform nang hindi nililipat ang responsibility.">Best when you want others informed without transferring responsibility.</div>
+      </div>
+    </div>
+
+    <div class="buttonGuideRow">
+      <div class="buttonGuidePreview"><button type="button" class="btnSecondary" data-no-loading>Request signature/approval</button></div>
+      <div>
+        <div class="buttonGuideDesc" data-en="Use this when the document still stays in your lane, but you need a specific recipient to sign, approve, or reject first." data-tl="Gamitin mo ito kapag nasa lane mo pa rin ang document pero kailangan mo munang magpa-sign, approve, o reject sa specific na tao.">Use this when the document still stays in your lane, but you need a specific recipient to sign, approve, or reject first.</div>
+        <div class="buttonGuideTip" data-en="Normal sender actions stay locked until the requested recipient responds." data-tl="Mala-lock ang normal sender actions hanggang sumagot ang pinagre-requestan mo.">Normal sender actions stay locked until the requested recipient responds.</div>
+      </div>
+    </div>
+
+    <div class="buttonGuideRow">
       <div class="buttonGuidePreview"><button type="button" class="btnSecondary" id="btnToggleAttachmentForward" data-no-loading>Forward attach</button></div>
       <div>
         <div class="buttonGuideDesc" data-en="Use this for selective routing. The main document stays with you, while specific attachment files are sent as task lanes to recipients." data-tl="Gamitin mo ito kung specific files lang ang ipapagawa mo. Nasa'yo pa rin yung main document, pero may mapapasa kang attachments sa iba bilang task.">Use this for selective routing. The main document stays with you, while specific attachment files are sent as task lanes to recipients.</div>
@@ -129,6 +145,13 @@ require __DIR__ . '/../includes/layout.php';
       <div class="buttonGuidePreview"><button type="button" class="btnComp" id="btnAttachmentTaskDone" data-no-loading>Task done</button></div>
       <div>
         <div class="buttonGuideDesc" data-en="Use this after finishing your attachment-forward task so the sender sees your lane as completed." data-tl="Ito yung pindutin mo kapag tapos mo na yung attachment task mo para makita ng sender na done ka na.">Use this after finishing your attachment-forward task so the sender sees your lane as completed.</div>
+      </div>
+    </div>
+
+    <div class="buttonGuideRow">
+      <div class="buttonGuidePreview"><button type="button" class="btnComp" id="btnActionRequestRespond" data-no-loading>Respond</button></div>
+      <div>
+        <div class="buttonGuideDesc" data-en="Use this only after you already clicked Received on a signature/approval request. This opens your Signed, Approved, or Reject response flow." data-tl="Gamitin mo lang ito pagkatapos mong i-click ang Received sa signature/approval request. Dito mo pipiliin kung Signed, Approved, o Reject.">Use this only after you already clicked Received on a signature/approval request. This opens your Signed, Approved, or Reject response flow.</div>
       </div>
     </div>
 
@@ -178,6 +201,28 @@ require __DIR__ . '/../includes/layout.php';
       <div class="buttonGuidePreview"><button type="button" class="btnSecondary" id="btnRegenerateDivisionSlip" data-no-loading>Generate latest slip</button></div>
       <div>
         <div class="buttonGuideDesc" data-en="Use this to generate the latest division tracking slip version when you need an updated print or attachment copy." data-tl="Gamitin mo ito para gumawa ng latest version ng division tracking slip kapag kailangan ng updated print or attachment copy.">Use this to generate the latest division tracking slip version when you need an updated print or attachment copy.</div>
+      </div>
+    </div>
+
+    <div class="buttonGuideRow">
+      <div class="buttonGuidePreview"><button type="button" class="btnSecondary" id="btnGenerateDivisionSlipPage2" data-no-loading>Generate slip 2nd page</button></div>
+      <div>
+        <div class="buttonGuideDesc" data-en="Use this when the first division tracking slip page is already full and you need a continuation page for additional movement rows." data-tl="Gamitin mo ito kapag puno na ang first page ng division tracking slip at kailangan mo ng continuation page para sa dagdag na movement rows.">Use this when the first division tracking slip page is already full and you need a continuation page for additional movement rows.</div>
+      </div>
+    </div>
+
+    <div class="buttonGuideRow">
+      <div class="buttonGuidePreview"><button type="button" class="btnSecondary" id="btnSplitProjects" data-no-loading>Split by project</button></div>
+      <div>
+        <div class="buttonGuideDesc" data-en="Use this when one document covers multiple project codes and you want to create separate child documents per selected project." data-tl="Gamitin mo ito kapag iisang document pero maraming project code at gusto mong gumawa ng hiwa-hiwalay na child document kada selected project.">Use this when one document covers multiple project codes and you want to create separate child documents per selected project.</div>
+        <div class="buttonGuideTip" data-en="This keeps the parent document for reference while the selected projects get their own child workflows." data-tl="Mananatili ang parent document for reference habang magkakaroon ng sariling child workflows ang selected projects.">This keeps the parent document for reference while the selected projects get their own child workflows.</div>
+      </div>
+    </div>
+
+    <div class="buttonGuideRow">
+      <div class="buttonGuidePreview"><button type="button" class="btnSecondary" id="btnEditDocumentDetails" data-no-loading>Edit details</button></div>
+      <div>
+        <div class="buttonGuideDesc" data-en="Use this only when the document is still in the safe editable stage and you need to correct core document information such as requester, subject, or type." data-tl="Gamitin mo lang ito kapag nasa safe editable stage pa ang document at kailangan mong itama ang core details gaya ng requester, subject, o type.">Use this only when the document is still in the safe editable stage and you need to correct core document information such as requester, subject, or type.</div>
       </div>
     </div>
 

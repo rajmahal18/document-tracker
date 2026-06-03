@@ -653,10 +653,63 @@ body[data-theme="dark"] .docsCalendarWeekBtn {
   white-space: nowrap;
 }
 
+.actionRequestDecisionFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.actionRequestDecisionFooterActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+
+.actionRequestDecisionFooterActions > button {
+  min-width: 124px;
+}
+
+.actionRequestDecisionConfirmNotes {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(11, 58, 102, 0.12);
+  background: rgba(11, 58, 102, 0.04);
+  color: #0b2742;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 640px) {
+  .actionRequestDecisionFooter {
+    align-items: stretch;
+  }
+
+  .actionRequestDecisionFooterActions {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .actionRequestDecisionFooterActions > button,
+  .actionRequestDecisionFooter > .btnSecondary {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+}
+
 /* Keep modals opened from the documents drawer above the drawer layer. */
 #forwardModal .modalBackdrop,
 #attachmentForwardModal .modalBackdrop,
 #attachmentTaskDoneModal .modalBackdrop,
+#actionRequestDecisionModal .modalBackdrop,
+#actionRequestDecisionConfirmModal .modalBackdrop,
 #releaseModal .modalBackdrop,
 #endHereModal .modalBackdrop,
 #attModal .attBackdrop,
@@ -667,6 +720,8 @@ body[data-theme="dark"] .docsCalendarWeekBtn {
 #forwardModal .modalCard,
 #attachmentForwardModal .modalCard,
 #attachmentTaskDoneModal .modalCard,
+#actionRequestDecisionModal .modalCard,
+#actionRequestDecisionConfirmModal .modalCard,
 #releaseModal .modalCard,
 #endHereModal .modalCard,
 #attModal .attDialog,
@@ -814,6 +869,7 @@ body[data-theme="dark"] .docsCalendarWeekBtn {
 .requesterBadgeRow { display: flex; flex-wrap: wrap; gap: 6px; }
 .requesterName { font-size: 14px; line-height: 1.35; font-weight: 800; color: #101828; }
 .requesterCell .requesterName { overflow-wrap: anywhere; }
+.requesterValueStrong { font-weight: 900; color: #0f172a; }
 .docsEmptyState { padding: 34px 18px !important; text-align: center; color: #667085; }
 .docsRowJustFocused {
   animation: docsRowFocusFlash 2.2s ease;
