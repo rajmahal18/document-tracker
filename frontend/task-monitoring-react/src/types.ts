@@ -84,6 +84,8 @@ export type TmsTask = {
   linked_project_title?: string
   assignees_text?: string
   can_edit?: boolean
+  can_delete?: boolean
+  permissions?: TmsTaskPermissions
 }
 
 export type TmsUser = {
@@ -121,8 +123,21 @@ export type TmsBootstrap = {
   tablesReady: boolean
 }
 
+export type TmsTaskPermissions = {
+  can_edit_task: boolean
+  can_delete_task: boolean
+  can_edit_protected_fields: boolean
+  can_edit_progress: boolean
+  uses_protected_rules: boolean
+  is_creator: boolean
+  is_owner: boolean
+  is_assignee: boolean
+  is_primary_assignee: boolean
+}
+
 export type TmsTaskDetail = TmsTask & {
   assignee_user_ids: number[]
+  permissions: TmsTaskPermissions
 }
 
 declare global {

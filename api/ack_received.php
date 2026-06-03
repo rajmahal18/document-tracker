@@ -138,11 +138,18 @@ try {
   }
 
   $isAttachmentForwardRoute = false;
+  $isActionRequestRoute = false;
   if (workflow_attachment_forwarding_enabled($conn)) {
     $stmtTaskRoute = $conn->prepare("\n      SELECT 1\n      FROM attachment_forward_tasks\n      WHERE route_id = ?\n        AND task_status = 'PENDING_RECEIVE'\n      LIMIT 1\n    ");
     $stmtTaskRoute->bind_param("i", $routeId);
     $stmtTaskRoute->execute();
     $isAttachmentForwardRoute = (bool)$stmtTaskRoute->get_result()->fetch_row();
+  }
+  if (workflow_action_requests_enabled($conn)) {
+    $stmtReqRoute = $conn->prepare("\n      SELECT 1\n      FROM document_action_requests\n      WHERE route_id = ?\n        AND task_status = 'PENDING_RECEIVE'\n      LIMIT 1\n    ");
+    $stmtReqRoute->bind_param("i", $routeId);
+    $stmtReqRoute->execute();
+    $isActionRequestRoute = (bool)$stmtReqRoute->get_result()->fetch_row();
   }
 
   if (!$isAttachmentForwardRoute && $routeKind === 'ACTION') {
@@ -162,8 +169,10 @@ try {
       workflow_grant_visibility($conn, $docId, $principalUserId, 'PARTICIPANT', $branchId, $actualUserId);
     }
     workflow_mark_attachment_forward_tasks_received_for_route($conn, $routeId);
+    workflow_mark_action_requests_received_for_route($conn, $routeId);
   } else {
     workflow_mark_attachment_forward_tasks_received_for_route($conn, $routeId);
+    workflow_mark_action_requests_received_for_route($conn, $routeId);
     $stmt = $conn->prepare("
       INSERT IGNORE INTO document_participants
         (document_id, section_id, added_via, added_by_user_id)
@@ -184,6 +193,7 @@ try {
   }
 
   $payload = json_encode([
+    "kind" => $isActionRequestRoute ? "action_request_received" : ($isAttachmentForwardRoute ? "attachment_forward_received" : ""),
     "remarks" => $eventRemarks,
     "receive_mode" => $docHasRealBranches ? 'user' : $receiveMode,
     "route_kind" => $routeKind,

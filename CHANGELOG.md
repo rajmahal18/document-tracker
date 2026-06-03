@@ -7,14 +7,37 @@ Summary: Keep small ongoing work under [Unreleased]. Promote it to a numbered ve
 Summary: Ongoing improvements that are not yet packaged into a released patch.
 
 ### Added
+- A signature/approval request workflow from the Forward picker, with a dedicated receiver response flow for Signed, Approved, or Rejected outcomes.
+- A latest-activity cue in the documents list and drawer overview, so users can immediately see why a document is in their queue and what happened most recently.
 
 ### Changed
+- Task Monitoring now enforces lead-assignee editing rules on existing monitoring records, so progress-driven workflows no longer let any editor change protected task details after assignment.
+- DTS now locks sender-side forward and lifecycle actions while a signature/approval request is still waiting to be received or answered.
+- Add Document now supports separate incoming vs outgoing division tracking slip numbering, while keeping the original incoming sequence unchanged.
+- The default non-admin documents sort is now `My next action`, which keeps the existing work buckets but orders them by the latest activity affecting the viewer before deadline tie-breakers.
 
 ### Fixed
+- Task Monitoring now keeps progress updates with the lead assignee on progress-based workflows, while still allowing assigned operators to update non-protected fields like remarks and reference-driven status inputs.
+- Task Monitoring task deletion and edit access now follow the task's actual assignee context instead of relying only on creator ownership.
+- Signature/approval requests now keep a clean audit trail by storing each request-and-response cycle as its own task record instead of mutating old request history.
+- Sender-side drawer lifecycle buttons now stay hidden while a signature/approval request is still waiting for the receiver's response, including section-lane view.
+- Sender/requester drawer action buttons now stay hidden while a signature/approval request is still pending receive or pending response.
+- Division tracking duplicate checks now treat `PPD` and `PPDOUT` as separate namespaces, so matching date/sequence pairs no longer collide across incoming and outgoing slips.
+- Division tracking now restores a DB-level scope-aware guard for normal numbers, while still allowing intentionally forced duplicates to exist as explicit duplicate overrides.
+- The documents list now keeps recently forwarded, shared, requested, or received items easier to spot by surfacing their latest relevant activity text and by briefly focusing the row when the drawer restores after an action.
+- Add Document now rolls back the whole create flow when optional PDF generation fails, so a document is no longer left behind without its requested division slip or transmittal output.
 
 ### Removed
 
 ### Affected Areas
+- Task Monitoring
+- Task Monitoring Permissions
+- Task Monitoring Edit Flow
+- Documents List
+- Documents Drawer
+- Forward / Share Visibility Flow
+- Receive Flow
+- Timeline / Audit Trail
 
 ### Breaking Changes
 

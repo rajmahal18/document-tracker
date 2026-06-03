@@ -683,12 +683,12 @@ body[data-theme="dark"] .docsCalendarWeekBtn {
 }
 
 .docsColStatus { width: 11%; }
-.docsColDocument { width: 22%; }
-.docsColRoute { width: 21%; }
+.docsColDocument { width: 21%; }
+.docsColRoute { width: 20%; }
 .docsColState { width: 10%; }
-.docsColRemark { width: 18%; }
+.docsColRemark { width: 15%; }
 .docsColDeadline { width: 9%; }
-.docsColRequester { width: 9%; }
+.docsColRequester { width: 14%; }
 
 .docsTableModern th,
 .docsTableModern td {
@@ -811,8 +811,24 @@ body[data-theme="dark"] .docsCalendarWeekBtn {
 }
 .daysPill.warn { background: rgba(243,156,18,.11); border-color: rgba(243,156,18,.38); color: #b66a00; }
 .daysPill.danger { background: rgba(217,45,32,.11); border-color: rgba(217,45,32,.30); color: #b42318; }
+.requesterBadgeRow { display: flex; flex-wrap: wrap; gap: 6px; }
 .requesterName { font-size: 14px; line-height: 1.35; font-weight: 800; color: #101828; }
+.requesterCell .requesterName { overflow-wrap: anywhere; }
 .docsEmptyState { padding: 34px 18px !important; text-align: center; color: #667085; }
+.docsRowJustFocused {
+  animation: docsRowFocusFlash 2.2s ease;
+}
+
+@keyframes docsRowFocusFlash {
+  0% {
+    box-shadow:
+      0 0 0 2px rgba(21, 112, 239, 0.18),
+      0 14px 30px rgba(21, 112, 239, 0.18);
+  }
+  100% {
+    box-shadow: none;
+  }
+}
 
 .docsTableModern td[data-label="Latest remark"],
 .docsTableModern th:nth-child(5) {
@@ -1013,6 +1029,10 @@ body[data-theme="dark"] .docsTableModern th {
 body[data-theme="dark"] .docsTableModern td {
   color: #edf5ff;
   border-color: rgba(160, 181, 205, 0.12);
+}
+
+body[data-theme="dark"] .requesterName {
+  color: #f4f8ff;
 }
 
 body[data-theme="dark"] .latestRemarkCell.hasRemark {

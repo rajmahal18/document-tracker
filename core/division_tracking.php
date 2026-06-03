@@ -276,9 +276,10 @@ function ensure_division_tracking_tables(mysqli $conn): void
   $conn->query("CREATE TABLE IF NOT EXISTS division_tracking_sequences (
     division_id INT NOT NULL,
     tracking_date DATE NOT NULL,
+    tracking_scope VARCHAR(16) NOT NULL DEFAULT 'INCOMING',
     last_number SMALLINT UNSIGNED NOT NULL DEFAULT 0,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (division_id, tracking_date),
+    PRIMARY KEY (division_id, tracking_date, tracking_scope),
     CONSTRAINT fk_division_tracking_seq_division FOREIGN KEY (division_id) REFERENCES divisions(id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
@@ -286,22 +287,27 @@ function ensure_division_tracking_tables(mysqli $conn): void
     id INT NOT NULL AUTO_INCREMENT,
     document_id INT NOT NULL,
     division_id INT NOT NULL,
+    tracking_scope VARCHAR(16) NOT NULL DEFAULT 'INCOMING',
     tracking_no VARCHAR(32) NOT NULL,
+    duplicate_guard_no VARCHAR(32) DEFAULT NULL,
     tracking_date DATE NOT NULL,
     sequence_no SMALLINT UNSIGNED NOT NULL,
     is_manual TINYINT(1) NOT NULL DEFAULT 0,
+    is_duplicate_override TINYINT(1) NOT NULL DEFAULT 0,
     created_by_user_id INT DEFAULT NULL,
     updated_by_user_id INT DEFAULT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     UNIQUE KEY uq_doc_division_tracking_doc_division (document_id, division_id),
-    UNIQUE KEY uq_doc_division_tracking_no (division_id, tracking_no),
+    UNIQUE KEY uq_doc_division_tracking_scope_guard (division_id, tracking_scope, duplicate_guard_no),
     KEY idx_doc_division_tracking_doc (document_id),
     KEY idx_doc_division_tracking_division (division_id),
     CONSTRAINT fk_doc_division_tracking_doc FOREIGN KEY (document_id) REFERENCES documents(id),
     CONSTRAINT fk_doc_division_tracking_division FOREIGN KEY (division_id) REFERENCES divisions(id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+  ensure_division_tracking_scope_columns($conn);
 
   ensure_document_division_tracking_duplicate_override_support($conn);
 
@@ -319,6 +325,62 @@ function ensure_division_tracking_tables(mysqli $conn): void
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 }
 
+function ensure_division_tracking_scope_columns(mysqli $conn): void
+{
+  $dbResult = $conn->query('SELECT DATABASE()');
+  $dbRow = $dbResult ? $dbResult->fetch_row() : null;
+  $dbName = trim((string)($dbRow[0] ?? ''));
+  if ($dbName === '') {
+    return;
+  }
+
+  $stmt = $conn->prepare("
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = ?
+      AND table_name = 'division_tracking_sequences'
+      AND column_name = 'tracking_scope'
+  ");
+  $stmt->bind_param('s', $dbName);
+  $stmt->execute();
+  $hasSequenceScope = (int)($stmt->get_result()->fetch_row()[0] ?? 0) > 0;
+  if (!$hasSequenceScope) {
+    $conn->query("ALTER TABLE division_tracking_sequences ADD COLUMN tracking_scope VARCHAR(16) NOT NULL DEFAULT 'INCOMING' AFTER tracking_date");
+  }
+
+  $stmt = $conn->prepare("
+    SELECT column_name
+    FROM information_schema.key_column_usage
+    WHERE table_schema = ?
+      AND table_name = 'division_tracking_sequences'
+      AND constraint_name = 'PRIMARY'
+    ORDER BY ordinal_position ASC
+  ");
+  $stmt->bind_param('s', $dbName);
+  $stmt->execute();
+  $pkCols = array_map(
+    static fn(array $row): string => (string)($row['column_name'] ?? ''),
+    $stmt->get_result()->fetch_all(MYSQLI_ASSOC) ?: []
+  );
+  if ($pkCols !== ['division_id', 'tracking_date', 'tracking_scope']) {
+    $conn->query('ALTER TABLE division_tracking_sequences DROP PRIMARY KEY, ADD PRIMARY KEY (division_id, tracking_date, tracking_scope)');
+  }
+
+  $stmt = $conn->prepare("
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = ?
+      AND table_name = 'document_division_tracking'
+      AND column_name = 'tracking_scope'
+  ");
+  $stmt->bind_param('s', $dbName);
+  $stmt->execute();
+  $hasDocumentScope = (int)($stmt->get_result()->fetch_row()[0] ?? 0) > 0;
+  if (!$hasDocumentScope) {
+    $conn->query("ALTER TABLE document_division_tracking ADD COLUMN tracking_scope VARCHAR(16) NOT NULL DEFAULT 'INCOMING' AFTER division_id");
+  }
+}
+
 function ensure_document_division_tracking_duplicate_override_support(mysqli $conn): void
 {
   $dbResult = $conn->query('SELECT DATABASE()');
@@ -327,6 +389,66 @@ function ensure_document_division_tracking_duplicate_override_support(mysqli $co
   if ($dbName === '') {
     return;
   }
+
+  $stmt = $conn->prepare("
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = ?
+      AND table_name = 'document_division_tracking'
+      AND column_name = 'is_duplicate_override'
+  ");
+  $stmt->bind_param('s', $dbName);
+  $stmt->execute();
+  $hasDuplicateOverride = (int)($stmt->get_result()->fetch_row()[0] ?? 0) > 0;
+  if (!$hasDuplicateOverride) {
+    $conn->query("ALTER TABLE document_division_tracking ADD COLUMN is_duplicate_override TINYINT(1) NOT NULL DEFAULT 0 AFTER is_manual");
+  }
+
+  $stmt = $conn->prepare("
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = ?
+      AND table_name = 'document_division_tracking'
+      AND column_name = 'duplicate_guard_no'
+  ");
+  $stmt->bind_param('s', $dbName);
+  $stmt->execute();
+  $hasDuplicateGuard = (int)($stmt->get_result()->fetch_row()[0] ?? 0) > 0;
+  if (!$hasDuplicateGuard) {
+    $conn->query("ALTER TABLE document_division_tracking ADD COLUMN duplicate_guard_no VARCHAR(32) DEFAULT NULL AFTER tracking_no");
+  }
+
+  $conn->query("
+    UPDATE document_division_tracking ddt
+    JOIN (
+      SELECT
+        division_id,
+        COALESCE(tracking_scope, 'INCOMING') AS tracking_scope,
+        tracking_no,
+        MIN(id) AS keeper_id
+      FROM document_division_tracking
+      GROUP BY division_id, COALESCE(tracking_scope, 'INCOMING'), tracking_no
+      HAVING COUNT(*) > 1
+    ) dup
+      ON dup.division_id = ddt.division_id
+     AND dup.tracking_scope = COALESCE(ddt.tracking_scope, 'INCOMING')
+     AND dup.tracking_no = ddt.tracking_no
+    SET
+      ddt.is_duplicate_override = CASE WHEN ddt.id = dup.keeper_id THEN 0 ELSE 1 END,
+      ddt.duplicate_guard_no = CASE WHEN ddt.id = dup.keeper_id THEN ddt.tracking_no ELSE NULL END
+  ");
+
+  $conn->query("
+    UPDATE document_division_tracking
+    SET duplicate_guard_no = CASE
+      WHEN COALESCE(is_duplicate_override, 0) = 1 THEN NULL
+      ELSE tracking_no
+    END
+    WHERE
+      (COALESCE(is_duplicate_override, 0) = 1 AND duplicate_guard_no IS NOT NULL)
+      OR
+      (COALESCE(is_duplicate_override, 0) <> 1 AND COALESCE(duplicate_guard_no, '') <> tracking_no)
+  ");
 
   $stmt = $conn->prepare("
     SELECT COUNT(*)
@@ -354,6 +476,20 @@ function ensure_document_division_tracking_duplicate_override_support(mysqli $co
     }
 
     $conn->query('ALTER TABLE document_division_tracking DROP INDEX uq_doc_division_tracking_no');
+  }
+
+  $stmt = $conn->prepare("
+    SELECT COUNT(*)
+    FROM information_schema.statistics
+    WHERE table_schema = ?
+      AND table_name = 'document_division_tracking'
+      AND index_name = 'uq_doc_division_tracking_scope_guard'
+  ");
+  $stmt->bind_param('s', $dbName);
+  $stmt->execute();
+  $hasScopedGuard = (int)($stmt->get_result()->fetch_row()[0] ?? 0) > 0;
+  if (!$hasScopedGuard) {
+    $conn->query('ALTER TABLE document_division_tracking ADD UNIQUE INDEX uq_doc_division_tracking_scope_guard (division_id, tracking_scope, duplicate_guard_no)');
   }
 }
 
@@ -396,6 +532,53 @@ function get_user_division_meta(mysqli $conn, int $sectionId): ?array
 function is_supported_division_tracking_code(?string $code): bool
 {
   return in_array(strtoupper(trim((string)$code)), ['PPD', 'SDD', 'SPD'], true);
+}
+
+function normalize_division_tracking_scope(?string $scope): string
+{
+  return strtoupper(trim((string)$scope)) === 'OUTGOING' ? 'OUTGOING' : 'INCOMING';
+}
+
+function build_division_tracking_prefix(string $divisionCode, ?string $scope = null): string
+{
+  $divisionCode = strtoupper(trim($divisionCode));
+  $scope = normalize_division_tracking_scope($scope);
+  return $scope === 'OUTGOING' ? ($divisionCode . 'OUT') : $divisionCode;
+}
+
+function build_division_tracking_number_from_parts(string $divisionCode, string $scope, string $datePart, int $sequenceNo): string
+{
+  return sprintf('%s %s%02d', build_division_tracking_prefix($divisionCode, $scope), $datePart, $sequenceNo);
+}
+
+function division_tracking_receipt_label(?string $scope): string
+{
+  return normalize_division_tracking_scope($scope) === 'OUTGOING' ? 'Created by:' : 'Received by:';
+}
+
+function division_tracking_received_datetime_label(?string $scope): string
+{
+  return normalize_division_tracking_scope($scope) === 'OUTGOING' ? 'Created Date and Time:' : 'Received Date and Time:';
+}
+
+function infer_division_tracking_scope(string $divisionCode, string $trackingNo): ?string
+{
+  $normalized = strtoupper(preg_replace('/\s+/', '', trim($trackingNo)) ?? '');
+  if ($normalized === '') {
+    return null;
+  }
+
+  $outgoingPrefix = build_division_tracking_prefix($divisionCode, 'OUTGOING');
+  if (str_starts_with($normalized, $outgoingPrefix)) {
+    return 'OUTGOING';
+  }
+
+  $incomingPrefix = build_division_tracking_prefix($divisionCode, 'INCOMING');
+  if (str_starts_with($normalized, $incomingPrefix)) {
+    return 'INCOMING';
+  }
+
+  return null;
 }
 
 function division_tracking_attachment_note(string $divisionCode): string
@@ -530,32 +713,33 @@ function resolve_transmittal_recipients(mysqli $conn): array
   return $out;
 }
 
-function get_next_division_tracking_number(mysqli $conn, int $divisionId, ?DateTimeImmutable $now = null): string
+function get_next_division_tracking_number(mysqli $conn, int $divisionId, ?DateTimeImmutable $now = null, ?string $scope = null): string
 {
   ensure_division_tracking_tables($conn);
   $meta = get_division_meta($conn, $divisionId);
   if (!$meta || !is_supported_division_tracking_code($meta['code'])) {
     throw new RuntimeException('Division tracking is not enabled for this division.');
   }
+  $scope = normalize_division_tracking_scope($scope);
   $now = $now ?? new DateTimeImmutable('now', new DateTimeZone('Asia/Manila'));
   $trackingDate = $now->format('Y-m-d');
 
   $conn->begin_transaction();
   try {
-    $stmt = $conn->prepare("INSERT INTO division_tracking_sequences (division_id, tracking_date, last_number)
-      VALUES (?, ?, 0)
+    $stmt = $conn->prepare("INSERT INTO division_tracking_sequences (division_id, tracking_date, tracking_scope, last_number)
+      VALUES (?, ?, ?, 0)
       ON DUPLICATE KEY UPDATE division_id = division_id");
-    $stmt->bind_param('is', $divisionId, $trackingDate);
+    $stmt->bind_param('iss', $divisionId, $trackingDate, $scope);
     $stmt->execute();
 
-    $stmt = $conn->prepare("SELECT last_number FROM division_tracking_sequences WHERE division_id = ? AND tracking_date = ? FOR UPDATE");
-    $stmt->bind_param('is', $divisionId, $trackingDate);
+    $stmt = $conn->prepare("SELECT last_number FROM division_tracking_sequences WHERE division_id = ? AND tracking_date = ? AND tracking_scope = ? FOR UPDATE");
+    $stmt->bind_param('iss', $divisionId, $trackingDate, $scope);
     $stmt->execute();
     $stmt->get_result()->fetch_assoc();
-    $next = find_next_available_division_tracking_sequence($conn, $divisionId, $trackingDate);
+    $next = find_next_available_division_tracking_sequence($conn, $divisionId, $trackingDate, $scope);
 
-    $stmt = $conn->prepare("UPDATE division_tracking_sequences SET last_number = ? WHERE division_id = ? AND tracking_date = ?");
-    $stmt->bind_param('iis', $next, $divisionId, $trackingDate);
+    $stmt = $conn->prepare("UPDATE division_tracking_sequences SET last_number = ? WHERE division_id = ? AND tracking_date = ? AND tracking_scope = ?");
+    $stmt->bind_param('iiss', $next, $divisionId, $trackingDate, $scope);
     $stmt->execute();
     $conn->commit();
   } catch (Throwable $e) {
@@ -563,17 +747,19 @@ function get_next_division_tracking_number(mysqli $conn, int $divisionId, ?DateT
     throw $e;
   }
 
-  return sprintf('%s %s%02d', $meta['code'], $now->format('mdy'), $next);
+  return build_division_tracking_number_from_parts((string)$meta['code'], $scope, $now->format('mdy'), $next);
 }
 
-function find_next_available_division_tracking_sequence(mysqli $conn, int $divisionId, string $trackingDate): int
+function find_next_available_division_tracking_sequence(mysqli $conn, int $divisionId, string $trackingDate, ?string $scope = null): int
 {
+  $scope = normalize_division_tracking_scope($scope);
   $stmt = $conn->prepare("SELECT sequence_no
     FROM document_division_tracking
     WHERE division_id = ?
       AND tracking_date = ?
+      AND tracking_scope = ?
     ORDER BY sequence_no ASC");
-  $stmt->bind_param('is', $divisionId, $trackingDate);
+  $stmt->bind_param('iss', $divisionId, $trackingDate, $scope);
   $stmt->execute();
   $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
@@ -594,17 +780,18 @@ function find_next_available_division_tracking_sequence(mysqli $conn, int $divis
   throw new RuntimeException('All division tracking numbers for this date are already in use.');
 }
 
-function preview_next_division_tracking_number(mysqli $conn, int $divisionId, ?DateTimeImmutable $now = null): string
+function preview_next_division_tracking_number(mysqli $conn, int $divisionId, ?DateTimeImmutable $now = null, ?string $scope = null): string
 {
   ensure_division_tracking_tables($conn);
   $meta = get_division_meta($conn, $divisionId);
   if (!$meta || !is_supported_division_tracking_code($meta['code'])) {
     return '';
   }
+  $scope = normalize_division_tracking_scope($scope);
   $now = $now ?? new DateTimeImmutable('now', new DateTimeZone('Asia/Manila'));
   $trackingDate = $now->format('Y-m-d');
-  $next = find_next_available_division_tracking_sequence($conn, $divisionId, $trackingDate);
-  return sprintf('%s %s%02d', $meta['code'], $now->format('mdy'), $next);
+  $next = find_next_available_division_tracking_sequence($conn, $divisionId, $trackingDate, $scope);
+  return build_division_tracking_number_from_parts((string)$meta['code'], $scope, $now->format('mdy'), $next);
 }
 
 function parse_and_validate_division_tracking_no(
@@ -612,7 +799,8 @@ function parse_and_validate_division_tracking_no(
   int $divisionId,
   string $trackingNo,
   ?int $excludeDocumentId = null,
-  bool $allowDuplicate = false
+  bool $allowDuplicate = false,
+  ?string $scope = null
 ): array
 {
   ensure_division_tracking_tables($conn);
@@ -621,9 +809,34 @@ function parse_and_validate_division_tracking_no(
     throw new RuntimeException('Division tracking is not enabled for this division.');
   }
   $trackingNo = strtoupper(trim($trackingNo));
-  $pattern = '/^' . preg_quote($meta['code'], '/') . '\s+(\d{6})(\d{2})$/';
-  if (!preg_match($pattern, $trackingNo, $m)) {
-    throw new RuntimeException('Division tracking number must follow the format ' . $meta['code'] . ' MMDDYYNN.');
+  $candidateScopes = [];
+  $normalizedScope = $scope !== null ? normalize_division_tracking_scope($scope) : null;
+  if ($normalizedScope !== null) {
+    $candidateScopes[] = $normalizedScope;
+  } else {
+    $inferredScope = infer_division_tracking_scope((string)$meta['code'], $trackingNo);
+    if ($inferredScope !== null) {
+      $candidateScopes[] = $inferredScope;
+    }
+    $candidateScopes[] = 'INCOMING';
+    $candidateScopes[] = 'OUTGOING';
+    $candidateScopes = array_values(array_unique($candidateScopes));
+  }
+
+  $matchedScope = null;
+  $m = null;
+  foreach ($candidateScopes as $candidateScope) {
+    $prefix = preg_quote(build_division_tracking_prefix((string)$meta['code'], $candidateScope), '/');
+    $pattern = '/^' . $prefix . '\s*(\d{6})(\d{2})$/';
+    if (preg_match($pattern, $trackingNo, $matches)) {
+      $matchedScope = $candidateScope;
+      $m = $matches;
+      break;
+    }
+  }
+
+  if ($matchedScope === null || !is_array($m)) {
+    throw new RuntimeException('Division tracking number must follow the format ' . $meta['code'] . ' MMDDYYNN or ' . $meta['code'] . 'OUT MMDDYYNN.');
   }
   $datePart = $m[1];
   $seq = (int)$m[2];
@@ -635,9 +848,11 @@ function parse_and_validate_division_tracking_no(
     throw new RuntimeException('Division tracking number sequence must be between 01 and 99.');
   }
 
+  $canonicalTrackingNo = build_division_tracking_number_from_parts((string)$meta['code'], $matchedScope, $datePart, $seq);
+
   $sql = "SELECT document_id FROM document_division_tracking WHERE division_id = ? AND tracking_no = ?";
   $types = 'is';
-  $params = [$divisionId, $trackingNo];
+  $params = [$divisionId, $canonicalTrackingNo];
   if ($excludeDocumentId !== null && $excludeDocumentId > 0) {
     $sql .= " AND document_id <> ?";
     $types .= 'i';
@@ -652,7 +867,8 @@ function parse_and_validate_division_tracking_no(
   }
 
   return [
-    'tracking_no' => $trackingNo,
+    'tracking_no' => $canonicalTrackingNo,
+    'tracking_scope' => $matchedScope,
     'tracking_date' => $dt->format('Y-m-d'),
     'sequence_no' => $seq,
   ];
@@ -665,34 +881,40 @@ function upsert_document_division_tracking(
   string $trackingNo,
   int $actorUserId,
   bool $isManual = false,
-  bool $allowDuplicate = false
+  bool $allowDuplicate = false,
+  ?string $scope = null
 ): void
 {
-  $parsed = parse_and_validate_division_tracking_no($conn, $divisionId, $trackingNo, $documentId, $allowDuplicate);
+  $parsed = parse_and_validate_division_tracking_no($conn, $divisionId, $trackingNo, $documentId, $allowDuplicate, $scope);
+  $duplicateOverride = $allowDuplicate ? 1 : 0;
+  $duplicateGuardNo = $allowDuplicate ? null : (string)$parsed['tracking_no'];
   $stmt = $conn->prepare("INSERT INTO document_division_tracking
-    (document_id, division_id, tracking_no, tracking_date, sequence_no, is_manual, created_by_user_id, updated_by_user_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    (document_id, division_id, tracking_scope, tracking_no, duplicate_guard_no, tracking_date, sequence_no, is_manual, is_duplicate_override, created_by_user_id, updated_by_user_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE
+      tracking_scope = VALUES(tracking_scope),
       tracking_no = VALUES(tracking_no),
+      duplicate_guard_no = VALUES(duplicate_guard_no),
       tracking_date = VALUES(tracking_date),
       sequence_no = VALUES(sequence_no),
       is_manual = VALUES(is_manual),
+      is_duplicate_override = VALUES(is_duplicate_override),
       updated_by_user_id = VALUES(updated_by_user_id)");
   $manual = $isManual ? 1 : 0;
-  $stmt->bind_param('iissiiii', $documentId, $divisionId, $parsed['tracking_no'], $parsed['tracking_date'], $parsed['sequence_no'], $manual, $actorUserId, $actorUserId);
+  $stmt->bind_param('iissssiiiii', $documentId, $divisionId, $parsed['tracking_scope'], $parsed['tracking_no'], $duplicateGuardNo, $parsed['tracking_date'], $parsed['sequence_no'], $manual, $duplicateOverride, $actorUserId, $actorUserId);
   $stmt->execute();
 
   $currentLast = 0;
-  $stmt = $conn->prepare('SELECT last_number FROM division_tracking_sequences WHERE division_id = ? AND tracking_date = ? LIMIT 1');
-  $stmt->bind_param('is', $divisionId, $parsed['tracking_date']);
+  $stmt = $conn->prepare('SELECT last_number FROM division_tracking_sequences WHERE division_id = ? AND tracking_date = ? AND tracking_scope = ? LIMIT 1');
+  $stmt->bind_param('iss', $divisionId, $parsed['tracking_date'], $parsed['tracking_scope']);
   $stmt->execute();
   $row = $stmt->get_result()->fetch_assoc();
   $currentLast = (int)($row['last_number'] ?? 0);
   if ($parsed['sequence_no'] > $currentLast) {
-    $stmt = $conn->prepare("INSERT INTO division_tracking_sequences (division_id, tracking_date, last_number)
-      VALUES (?, ?, ?)
+    $stmt = $conn->prepare("INSERT INTO division_tracking_sequences (division_id, tracking_date, tracking_scope, last_number)
+      VALUES (?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE last_number = GREATEST(last_number, VALUES(last_number))");
-    $stmt->bind_param('isi', $divisionId, $parsed['tracking_date'], $parsed['sequence_no']);
+    $stmt->bind_param('issi', $divisionId, $parsed['tracking_date'], $parsed['tracking_scope'], $parsed['sequence_no']);
     $stmt->execute();
   }
 }
@@ -731,6 +953,16 @@ function find_document_by_division_tracking_no(mysqli $conn, int $divisionId, st
     return null;
   }
 
+  $meta = get_division_meta($conn, $divisionId);
+  if ($meta) {
+    try {
+      $parsed = parse_and_validate_division_tracking_no($conn, $divisionId, $trackingNo, $excludeDocumentId, true);
+      $trackingNo = (string)($parsed['tracking_no'] ?? $trackingNo);
+    } catch (Throwable $e) {
+      $trackingNo = strtoupper(preg_replace('/\s+/', '', $trackingNo) ?? $trackingNo);
+    }
+  }
+
   $sql = "
     SELECT
       d.id AS document_id,
@@ -739,7 +971,7 @@ function find_document_by_division_tracking_no(mysqli $conn, int $divisionId, st
     FROM document_division_tracking ddt
     JOIN documents d ON d.id = ddt.document_id
     WHERE ddt.division_id = ?
-      AND UPPER(TRIM(ddt.tracking_no)) = ?
+      AND REPLACE(UPPER(TRIM(ddt.tracking_no)), ' ', '') = REPLACE(?, ' ', '')
   ";
   if ($excludeDocumentId > 0) {
     $sql .= " AND ddt.document_id <> ?";

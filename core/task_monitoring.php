@@ -262,11 +262,123 @@ function tms_fetch_users_for_assignment(mysqli $conn): array
 
 function tms_user_can_edit_task(mysqli $conn, array $task, int $userId): bool
 {
+  return tms_task_permissions($conn, $task, $userId)['can_edit_task'];
+}
+
+function tms_task_primary_assignee_user_id(array $task): int
+{
+  $assignees = $task['assignees'] ?? null;
+  if (is_array($assignees)) {
+    foreach ($assignees as $assignee) {
+      if ((int)($assignee['is_primary'] ?? 0) === 1 && (int)($assignee['user_id'] ?? 0) > 0) {
+        return (int)$assignee['user_id'];
+      }
+    }
+
+    foreach ($assignees as $assignee) {
+      if ((int)($assignee['user_id'] ?? 0) > 0) {
+        return (int)$assignee['user_id'];
+      }
+    }
+  }
+
+  if (isset($task['viewer_is_primary_assignee'])) {
+    return (int)($task['viewer_is_primary_assignee'] ?? 0) === 1 ? (int)($task['owner_user_id'] ?? 0) : 0;
+  }
+
+  return (int)($task['owner_user_id'] ?? 0);
+}
+
+function tms_task_has_assignee(array $task): bool
+{
+  $assignees = $task['assignees'] ?? null;
+  if (is_array($assignees)) {
+    foreach ($assignees as $assignee) {
+      if ((int)($assignee['user_id'] ?? 0) > 0) {
+        return true;
+      }
+    }
+  }
+
+  if (array_key_exists('viewer_is_assignee', $task)) {
+    return (int)($task['viewer_is_assignee'] ?? 0) === 1 || (int)($task['owner_user_id'] ?? 0) > 0;
+  }
+
+  return (int)($task['owner_user_id'] ?? 0) > 0;
+}
+
+function tms_user_is_task_assignee(array $task, int $userId): bool
+{
   if ($userId <= 0) return false;
-  if (tms_user_can_manage_all($conn, $userId)) return true;
-  if ((int)($task['created_by_user_id'] ?? 0) === $userId) return true;
-  if ((int)($task['owner_user_id'] ?? 0) === $userId) return true;
+
+  $assignees = $task['assignees'] ?? null;
+  if (is_array($assignees)) {
+    foreach ($assignees as $assignee) {
+      if ((int)($assignee['user_id'] ?? 0) === $userId) {
+        return true;
+      }
+    }
+  }
+
+  if (array_key_exists('viewer_is_assignee', $task)) {
+    return (int)($task['viewer_is_assignee'] ?? 0) === 1;
+  }
+
+  return (int)($task['owner_user_id'] ?? 0) === $userId;
+}
+
+function tms_user_is_task_primary_assignee(array $task, int $userId): bool
+{
+  if ($userId <= 0) return false;
+
+  $primaryAssigneeUserId = tms_task_primary_assignee_user_id($task);
+  if ($primaryAssigneeUserId > 0) {
+    return $primaryAssigneeUserId === $userId;
+  }
+
+  if (array_key_exists('viewer_is_primary_assignee', $task)) {
+    return (int)($task['viewer_is_primary_assignee'] ?? 0) === 1;
+  }
+
   return false;
+}
+
+function tms_task_uses_protected_edit_rules(array $task): bool
+{
+  return trim((string)($task['workflow_rule'] ?? '')) === 'progress_remaining';
+}
+
+function tms_task_permissions(mysqli $conn, array $task, int $userId): array
+{
+  $manageAll = $userId > 0 && tms_user_can_manage_all($conn, $userId);
+  $canEditProtectedByProfile = $userId > 0 && tms_user_can_edit_protected($conn, $userId);
+  $isCreator = (int)($task['created_by_user_id'] ?? 0) === $userId;
+  $isOwner = (int)($task['owner_user_id'] ?? 0) === $userId;
+  $isAssignee = tms_user_is_task_assignee($task, $userId);
+  $isPrimaryAssignee = tms_user_is_task_primary_assignee($task, $userId);
+  $hasAssignee = tms_task_has_assignee($task);
+  $usesProtectedRules = tms_task_uses_protected_edit_rules($task);
+
+  $canEditTask = $manageAll || $isOwner || $isAssignee || ($isCreator && !$hasAssignee);
+  $canDeleteTask = $canEditTask;
+  $canEditProtectedFields = !$canEditTask
+    ? false
+    : (!$usesProtectedRules || $manageAll || $canEditProtectedByProfile || $isPrimaryAssignee);
+  $canEditProgress = !$canEditTask
+    ? false
+    : (!$usesProtectedRules || $manageAll || $isPrimaryAssignee);
+
+  return [
+    'can_edit_task' => $canEditTask,
+    'can_delete_task' => $canDeleteTask,
+    'can_edit_protected_fields' => $canEditProtectedFields,
+    'can_edit_progress' => $canEditProgress,
+    'uses_protected_rules' => $usesProtectedRules,
+    'is_creator' => $isCreator,
+    'is_owner' => $isOwner,
+    'is_assignee' => $isAssignee,
+    'is_primary_assignee' => $isPrimaryAssignee,
+  ];
 }
 
 function tms_fetch_tasks(mysqli $conn, array $filters, int $viewerUserId): array
@@ -362,6 +474,8 @@ function tms_fetch_tasks(mysqli $conn, array $filters, int $viewerUserId): array
       t.completed_at,
       t.created_at,
       t.updated_at,
+      MAX(CASE WHEN ta.user_id = ? THEN 1 ELSE 0 END) AS viewer_is_assignee,
+      MAX(CASE WHEN ta.user_id = ? AND ta.is_primary = 1 THEN 1 ELSE 0 END) AS viewer_is_primary_assignee,
       COALESCE(creator.full_name, '') AS created_by_name,
       COALESCE(owner.full_name, '') AS owner_name,
       COALESCE(p.project_code, '') AS linked_project_code,
@@ -388,8 +502,10 @@ function tms_fetch_tasks(mysqli $conn, array $filters, int $viewerUserId): array
   ";
 
   $stmt = $conn->prepare($sql);
-  if ($types !== '') {
-    $stmt->bind_param($types, ...$params);
+  $bindTypes = 'ii' . $types;
+  $bindParams = array_merge([$viewerUserId, $viewerUserId], $params);
+  if ($bindTypes !== '') {
+    $stmt->bind_param($bindTypes, ...$bindParams);
   }
   $stmt->execute();
   $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC) ?: [];
@@ -404,7 +520,11 @@ function tms_fetch_tasks(mysqli $conn, array $filters, int $viewerUserId): array
     $row['owner_user_id'] = isset($row['owner_user_id']) ? (int)$row['owner_user_id'] : null;
     $row['remaining_workdays'] = isset($row['remaining_workdays']) ? (int)$row['remaining_workdays'] : null;
     $row['progress_percent'] = isset($row['progress_percent']) ? (float)$row['progress_percent'] : null;
-    $row['can_edit'] = tms_user_can_edit_task($conn, $row, $viewerUserId);
+    $row['viewer_is_assignee'] = (int)($row['viewer_is_assignee'] ?? 0);
+    $row['viewer_is_primary_assignee'] = (int)($row['viewer_is_primary_assignee'] ?? 0);
+    $permissions = tms_task_permissions($conn, $row, $viewerUserId);
+    $row['can_edit'] = $permissions['can_edit_task'];
+    $row['can_delete'] = $permissions['can_delete_task'];
   }
   unset($row);
 

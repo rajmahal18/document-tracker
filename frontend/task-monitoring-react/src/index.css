@@ -973,6 +973,28 @@ textarea {
   font-weight: 800;
 }
 
+.tms-field-help {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #64748b;
+}
+
+.tms-field-help.is-warning {
+  color: #9a3412;
+}
+
+.tms-form-callout {
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid #fed7aa;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 .tms-form-message.is-ok {
   background: #ecfdf3;
   color: #166534;

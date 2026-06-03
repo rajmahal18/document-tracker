@@ -175,6 +175,16 @@ $isActualPpdUser = ($actualDivisionCode === 'PPD') || str_contains($actualDivisi
 $myUserId    = $assistantModeEnabled ? (int)($activeAssistantPrincipal['id'] ?? 0) : $actualUserId;
 $mySectionId = $assistantModeEnabled ? (int)($activeAssistantPrincipal['section_id'] ?? 0) : $actualSectionId;
 $isChief     = $assistantModeEnabled ? in_array((string)($activeAssistantPrincipal['authority_role'] ?? ''), ['director','division_head','section_head'], true) : $actualIsChief;
+$actionRequestViewerUserIds = $assistantModeEnabled && $actualUserId > 0 && $actualUserId !== $myUserId
+  ? [$myUserId, $actualUserId]
+  : [$myUserId];
+$activityActorUserIds = array_values(array_unique(array_filter([
+  $myUserId,
+  $assistantModeEnabled ? $actualUserId : 0,
+], static fn($value): bool => (int)$value > 0)));
+$activityActorUserIdsSql = $activityActorUserIds !== []
+  ? implode(',', array_map(static fn($value): string => (string)((int)$value), $activityActorUserIds))
+  : '0';
 
 if ($contentScope !== '' && !$isActualPpdUser) {
   http_response_code(403);
@@ -210,6 +220,151 @@ $projectCodesReady = project_codes_tables_ready($conn);
 $allowedSorts = ["", "workflow", "newest", "urgent", "overdue_longest", "oldest"];
 if (!in_array($sort, $allowedSorts, true)) {
   $sort = "";
+}
+
+function documents_format_activity_stamp(string $raw): string
+{
+  $raw = trim($raw);
+  if ($raw === '') {
+    return '';
+  }
+
+  $ts = strtotime($raw);
+  if ($ts === false) {
+    return '';
+  }
+
+  $today = date('Y-m-d');
+  if (date('Y-m-d', $ts) === $today) {
+    return 'Today ' . date('g:i A', $ts);
+  }
+
+  if (date('Y', $ts) === date('Y')) {
+    return date('M d', $ts) . ' • ' . date('g:i A', $ts);
+  }
+
+  return date('M d, Y', $ts) . ' • ' . date('g:i A', $ts);
+}
+
+function documents_latest_activity_line(
+  array $doc,
+  array $actionRequestSummary,
+  array $attachmentForwardTaskSummary,
+  bool $myHasOpenInbound,
+  bool $myHasActionableRole,
+  bool $myIsForReference,
+  bool $myIsVisibleOnly,
+  bool $myIsOrigin,
+  bool $flatAttachmentSenderWaiting,
+  bool $flatAttachmentRecipientPendingReceive,
+  bool $flatAttachmentRecipientInProgress,
+  bool $flatActionRequestSenderWaiting,
+  bool $flatActionRequestRecipientPendingReceive,
+  bool $flatActionRequestRecipientInProgress
+): array {
+  $incomingFrom = trim((string)($doc['my_latest_incoming_from_label'] ?? ''));
+  $incomingAt = trim((string)($doc['my_latest_incoming_sent_at'] ?? ''));
+  $incomingKind = strtoupper(trim((string)($doc['my_latest_incoming_route_kind'] ?? 'ACTION')));
+  $receivedFrom = trim((string)($doc['my_latest_received_from_label'] ?? ''));
+  $receivedAt = trim((string)($doc['my_latest_received_at'] ?? ''));
+  $sentTo = trim((string)($doc['my_latest_sent_to_label'] ?? ''));
+  $sentAt = trim((string)($doc['my_latest_sent_at'] ?? ''));
+  $latestAt = trim((string)($doc['my_latest_activity_at'] ?? ''));
+
+  $title = '';
+  $detail = '';
+  $at = '';
+  $badge = '';
+
+  $latestActionRequest = is_array($actionRequestSummary[0] ?? null) ? $actionRequestSummary[0] : [];
+  $latestAttachmentTask = is_array($attachmentForwardTaskSummary[0] ?? null) ? $attachmentForwardTaskSummary[0] : [];
+
+  if ($flatActionRequestRecipientPendingReceive) {
+    $title = 'Signature/approval requested from you';
+    $detail = trim((string)($latestActionRequest['sender_name'] ?? '')) !== ''
+      ? 'Requested by ' . trim((string)$latestActionRequest['sender_name'])
+      : ($incomingFrom !== '' ? 'Requested by ' . $incomingFrom : 'Waiting for your receive');
+    $at = trim((string)($latestActionRequest['created_at'] ?? '')) ?: $incomingAt;
+    $badge = 'REQUESTED';
+  } elseif ($flatActionRequestRecipientInProgress) {
+    $title = 'You received a signature/approval request';
+    $detail = $receivedFrom !== '' ? 'Requested by ' . $receivedFrom : 'Awaiting your decision';
+    $at = trim((string)($latestActionRequest['received_at'] ?? '')) ?: $receivedAt;
+    $badge = 'RECEIVED';
+  } elseif ($flatActionRequestSenderWaiting) {
+    $recipient = trim((string)($latestActionRequest['recipient_name'] ?? ''));
+    if ($recipient === '') {
+      $recipient = trim((string)($latestActionRequest['recipient_section_name'] ?? ''));
+    }
+    $title = $recipient !== ''
+      ? 'Waiting for signature/approval from ' . $recipient
+      : 'Waiting for signature/approval response';
+    $detail = 'Your request is still open';
+    $at = trim((string)($latestActionRequest['created_at'] ?? '')) ?: $sentAt;
+    $badge = 'WAITING';
+  } elseif ($flatAttachmentRecipientPendingReceive) {
+    $title = 'Attachment forwarded to you';
+    $detail = trim((string)($latestAttachmentTask['sender_name'] ?? '')) !== ''
+      ? 'Sent by ' . trim((string)$latestAttachmentTask['sender_name'])
+      : ($incomingFrom !== '' ? 'Sent by ' . $incomingFrom : 'Waiting for your receive');
+    $at = trim((string)($latestAttachmentTask['created_at'] ?? '')) ?: $incomingAt;
+    $badge = 'ATTACHMENT';
+  } elseif ($flatAttachmentRecipientInProgress) {
+    $title = 'You received an attachment task';
+    $detail = $receivedFrom !== '' ? 'Forwarded by ' . $receivedFrom : 'Attachment task is with you';
+    $at = trim((string)($latestAttachmentTask['received_at'] ?? '')) ?: $receivedAt;
+    $badge = 'RECEIVED';
+  } elseif ($flatAttachmentSenderWaiting) {
+    $recipient = trim((string)($latestAttachmentTask['recipient_name'] ?? ''));
+    if ($recipient === '') {
+      $recipient = trim((string)($latestAttachmentTask['recipient_section_name'] ?? ''));
+    }
+    $title = $recipient !== ''
+      ? 'Waiting for attachment from ' . $recipient
+      : 'Waiting for attachment completion';
+    $detail = 'Your attachment-forward task is still open';
+    $at = trim((string)($latestAttachmentTask['created_at'] ?? '')) ?: $sentAt;
+    $badge = 'WAITING';
+  } elseif ($myHasOpenInbound) {
+    $title = $incomingKind === 'REFERENCE'
+      ? 'Shared with you'
+      : 'Forwarded to you';
+    $detail = $incomingFrom !== '' ? 'From ' . $incomingFrom : 'Waiting for your receive';
+    $at = $incomingAt;
+    $badge = $incomingKind === 'REFERENCE' ? 'SHARED' : 'FORWARDED';
+  } elseif ($myHasActionableRole) {
+    $title = 'You received this for action';
+    $detail = $receivedFrom !== '' ? 'From ' . $receivedFrom : 'Already with you for action';
+    $at = $receivedAt !== '' ? $receivedAt : $incomingAt;
+    $badge = 'WITH YOU';
+  } elseif ($myIsForReference || $myIsVisibleOnly) {
+    $title = $incomingKind === 'REFERENCE'
+      ? 'Shared with you'
+      : 'Visible in your workflow';
+    $detail = $incomingFrom !== '' ? 'From ' . $incomingFrom : 'You can monitor this document';
+    $at = $incomingAt !== '' ? $incomingAt : $latestAt;
+    $badge = $incomingKind === 'REFERENCE' ? 'SHARED' : 'VISIBLE';
+  } elseif ($myIsOrigin) {
+    $title = $sentTo !== '' ? 'You sent this to ' . $sentTo : 'Created by your lane';
+    $detail = 'Origin document';
+    $at = $sentAt !== '' ? $sentAt : $latestAt;
+    $badge = 'ORIGIN';
+  }
+
+  if ($title === '') {
+    $title = trim((string)($doc['activity_text'] ?? '')) !== '' ? trim((string)$doc['activity_text']) : 'Document activity';
+    $detail = trim((string)($doc['requester'] ?? '')) !== '' ? 'Requester: ' . trim((string)$doc['requester']) : '';
+    $at = $latestAt;
+    $badge = 'STATUS';
+  }
+
+  return [
+    'badge' => $badge,
+    'title' => $title,
+    'detail' => $detail,
+    'at_raw' => $at,
+    'at_display' => documents_format_activity_stamp($at),
+  ];
 }
 
 $allowedQuicks = $adminModeEnabled
@@ -900,6 +1055,29 @@ $sql = "
       ORDER BY r_div_recv.received_at DESC, r_div_recv.id DESC
       LIMIT 1
     ), '') AS my_division_latest_received_by,
+    COALESCE(r_me_incoming.sent_at, '') AS my_latest_incoming_sent_at,
+    COALESCE(r_me_incoming.route_kind, '') AS my_latest_incoming_route_kind,
+    COALESCE(
+      NULLIF(TRIM(u_me_incoming_sender.full_name), ''),
+      NULLIF(TRIM(sf_me_incoming.name), ''),
+      ''
+    ) AS my_latest_incoming_from_label,
+    COALESCE(r_me_received.received_at, '') AS my_latest_received_at,
+    COALESCE(r_me_received.route_kind, '') AS my_latest_received_route_kind,
+    COALESCE(NULLIF(TRIM(sf_me_received.name), ''), '') AS my_latest_received_from_label,
+    COALESCE(r_me_sent.sent_at, '') AS my_latest_sent_at,
+    COALESCE(r_me_sent.route_kind, '') AS my_latest_sent_route_kind,
+    COALESCE(
+      NULLIF(TRIM(u_me_sent_to.full_name), ''),
+      NULLIF(TRIM(st_me_sent.name), ''),
+      ''
+    ) AS my_latest_sent_to_label,
+    GREATEST(
+      COALESCE(r_me_incoming.sent_at, '1000-01-01 00:00:00'),
+      COALESCE(r_me_received.received_at, '1000-01-01 00:00:00'),
+      COALESCE(r_me_sent.sent_at, '1000-01-01 00:00:00'),
+      COALESCE(d.created_at, '1000-01-01 00:00:00')
+    ) AS my_latest_activity_at,
     COALESCE((
       SELECT d_origin.code
       FROM sections s_origin_div
@@ -1358,6 +1536,56 @@ $sql = "
       LIMIT 1
    )
   LEFT JOIN sections sf_last ON sf_last.id = r_last.from_section_id
+
+  LEFT JOIN routes r_me_incoming
+    ON r_me_incoming.id = (
+      SELECT r_in_touch.id
+      FROM routes r_in_touch
+      WHERE r_in_touch.document_id = d.id
+        AND r_in_touch.cancelled_at IS NULL
+        AND (
+          r_in_touch.to_user_id = {$myUid}
+          OR (
+            r_in_touch.to_user_id IS NULL
+            AND {$myChiefInt} = 1
+            AND r_in_touch.to_section_id = {$mySid}
+          )
+        )
+      ORDER BY r_in_touch.sent_at DESC, r_in_touch.id DESC
+      LIMIT 1
+   )
+  LEFT JOIN sections sf_me_incoming ON sf_me_incoming.id = r_me_incoming.from_section_id
+  LEFT JOIN users u_me_incoming_sender ON u_me_incoming_sender.id = r_me_incoming.sent_by_user_id
+
+  LEFT JOIN routes r_me_received
+    ON r_me_received.id = (
+      SELECT r_recv_touch.id
+      FROM routes r_recv_touch
+      WHERE r_recv_touch.document_id = d.id
+        AND r_recv_touch.cancelled_at IS NULL
+        AND r_recv_touch.received_at IS NOT NULL
+        AND r_recv_touch.received_by_user_id IN ({$activityActorUserIdsSql})
+      ORDER BY r_recv_touch.received_at DESC, r_recv_touch.id DESC
+      LIMIT 1
+   )
+  LEFT JOIN sections sf_me_received ON sf_me_received.id = r_me_received.from_section_id
+
+  LEFT JOIN routes r_me_sent
+    ON r_me_sent.id = (
+      SELECT r_sent_touch.id
+      FROM routes r_sent_touch
+      WHERE r_sent_touch.document_id = d.id
+        AND r_sent_touch.cancelled_at IS NULL
+        AND (
+          r_sent_touch.sent_by_user_id IN ({$activityActorUserIdsSql})
+          OR r_sent_touch.from_user_id IN ({$activityActorUserIdsSql})
+          " . ($assistantModeEnabled ? "OR r_sent_touch.from_section_id = {$mySid}" : "") . "
+        )
+      ORDER BY r_sent_touch.sent_at DESC, r_sent_touch.id DESC
+      LIMIT 1
+   )
+  LEFT JOIN sections st_me_sent ON st_me_sent.id = r_me_sent.to_section_id
+  LEFT JOIN users u_me_sent_to ON u_me_sent_to.id = r_me_sent.to_user_id
 ";
 
 if ($where) $sql .= " WHERE " . implode(" AND ", $where);
@@ -1375,6 +1603,7 @@ $orderBySql = $adminModeEnabled
       WHEN d.current_status = 'ARCHIVED' THEN 3
       ELSE 4
     END ASC,
+    my_latest_activity_at DESC,
     CASE WHEN effective_deadline_at IS NULL THEN 1 ELSE 0 END ASC,
     effective_deadline_at ASC,
     d.updated_at DESC,
@@ -1416,7 +1645,7 @@ $orderBySql = $adminModeEnabled
       WHEN d.current_status = 'ARCHIVED' THEN 8
       ELSE 9
     END ASC,
-
+    my_latest_activity_at DESC,
     CASE WHEN effective_deadline_at IS NULL THEN 1 ELSE 0 END ASC,
     effective_deadline_at ASC,
     d.updated_at DESC,
@@ -2318,7 +2547,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
         <div class="control docsSortControl">
           <label><?= htmlspecialchars($documentsSortLabel) ?></label>
           <select class="select" name="sort">
-            <option value="workflow" <?= ($sort === "" || $sort === "workflow") ? "selected" : "" ?>><?= $adminModeEnabled ? 'Status then deadline' : 'My work priority' ?></option>
+            <option value="workflow" <?= ($sort === "" || $sort === "workflow") ? "selected" : "" ?>><?= $adminModeEnabled ? 'Status then deadline' : 'My next action' ?></option>
             <option value="urgent" <?= $sort === "urgent" ? "selected" : "" ?>>Nearest effective deadline</option>
             <option value="overdue_longest" <?= $sort === "overdue_longest" ? "selected" : "" ?>>Overdue first</option>
             <option value="newest" <?= $sort === "newest" ? "selected" : "" ?>>Newest document date</option>
@@ -2385,7 +2614,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
           <th>Doc State</th>
           <th>Latest Remark</th>
           <th>Deadline</th>
-          <th>Requester</th>
+          <th>Latest activity</th>
         </tr>
       </thead>
       <tbody>
@@ -2691,13 +2920,29 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
               "attachment_forward_can_mark_done" => 0,
               "attachment_forward_task_status" => "",
             ];
+            $flatActionRequestMeta = [
+              "action_request_source_branch" => 0,
+              "action_request_recipient_branch" => 0,
+              "action_request_open_task_count" => 0,
+              "action_request_can_decide" => 0,
+              "action_request_task_status" => "",
+            ];
             $attachmentForwardTaskSummary = [];
+            $actionRequestSummary = [];
             if (workflow_attachment_forwarding_enabled($conn) && $myUserId > 0) {
               if ($hasRealBranches) {
                 $attachmentForwardTaskSummary = workflow_get_attachment_forward_task_summary($conn, (int)$d["id"], $myUserId);
               } else {
                 $flatAttachmentForwardMeta = workflow_get_document_attachment_forward_task_meta($conn, (int)$d["id"], $myUserId);
                 $attachmentForwardTaskSummary = workflow_get_attachment_forward_task_summary($conn, (int)$d["id"], $myUserId, 0, 0);
+              }
+            }
+            if (workflow_action_requests_enabled($conn) && $myUserId > 0) {
+              if ($hasRealBranches) {
+                $actionRequestSummary = workflow_get_action_request_summary($conn, (int)$d["id"], $actionRequestViewerUserIds);
+              } else {
+                $flatActionRequestMeta = workflow_get_document_action_request_meta($conn, (int)$d["id"], $actionRequestViewerUserIds);
+                $actionRequestSummary = workflow_get_action_request_summary($conn, (int)$d["id"], $actionRequestViewerUserIds, 0, 0);
               }
             }
 
@@ -2720,6 +2965,25 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
               && !$flatAttachmentRecipientPendingReceive
               && !$flatAttachmentRecipientInProgress
               && (int)($flatAttachmentForwardMeta["attachment_forward_open_task_count"] ?? 0) === 0;
+            $flatActionRequestTaskStatus = strtoupper((string)($flatActionRequestMeta["action_request_task_status"] ?? ""));
+            $flatActionRequestIsSender = (
+              !$hasRealBranches
+              && (int)($flatActionRequestMeta["action_request_source_branch"] ?? 0) === 1
+            );
+            $flatActionRequestIsRecipient = (
+              !$hasRealBranches
+              && (int)($flatActionRequestMeta["action_request_recipient_branch"] ?? 0) === 1
+            );
+            $flatActionRequestSenderWaiting = $flatActionRequestIsSender
+              && (int)($flatActionRequestMeta["action_request_open_task_count"] ?? 0) > 0;
+            $flatActionRequestRecipientPendingReceive = $flatActionRequestIsRecipient
+              && $flatActionRequestTaskStatus === "PENDING_RECEIVE";
+            $flatActionRequestRecipientInProgress = $flatActionRequestIsRecipient
+              && $flatActionRequestTaskStatus === "IN_PROGRESS";
+            $flatActionRequestRecipientCompleted = $flatActionRequestIsRecipient
+              && !$flatActionRequestRecipientPendingReceive
+              && !$flatActionRequestRecipientInProgress
+              && (int)($flatActionRequestMeta["action_request_open_task_count"] ?? 0) === 0;
 
             if (!$hasRealBranches) {
               if ($flatAttachmentRecipientPendingReceive) {
@@ -2750,12 +3014,67 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
                 $myStatusLabel = "COMPLETE";
                 $myStatusChipClass = "chip incoming";
                 $rowToneClass = "rowToneComplete";
+              } elseif ($flatActionRequestRecipientPendingReceive) {
+                $myHasOpenInbound = true;
+                $myHasActionableRole = false;
+                $myCanChangeLifecycle = false;
+                $myStatusLabel = "INCOMING";
+                $myStatusChipClass = "chip action";
+                $rowToneClass = "rowToneIncoming";
+              } elseif ($flatActionRequestRecipientInProgress) {
+                $myHasOpenInbound = false;
+                $myHasActionableRole = false;
+                $myCanChangeLifecycle = false;
+                $myStatusLabel = "PENDING";
+                $myStatusChipClass = "chip overdue";
+                $rowToneClass = "rowTonePending";
+              } elseif ($flatActionRequestSenderWaiting) {
+                $myHasOpenInbound = false;
+                $myHasActionableRole = false;
+                $myCanChangeLifecycle = false;
+                $myStatusLabel = "PENDING";
+                $myStatusChipClass = "chip overdue";
+                $rowToneClass = "rowTonePending";
+              } elseif ($flatActionRequestRecipientCompleted) {
+                $myHasOpenInbound = false;
+                $myHasActionableRole = false;
+                $myCanChangeLifecycle = false;
+                $myStatusLabel = "COMPLETE";
+                $myStatusChipClass = "chip incoming";
+                $rowToneClass = "rowToneComplete";
               }
+            }
+
+            $latestActivity = documents_latest_activity_line(
+              $d,
+              $actionRequestSummary,
+              $attachmentForwardTaskSummary,
+              $myHasOpenInbound,
+              $myHasActionableRole,
+              $myIsForReference,
+              $myIsVisibleOnly,
+              $myIsOrigin,
+              $flatAttachmentSenderWaiting,
+              $flatAttachmentRecipientPendingReceive,
+              $flatAttachmentRecipientInProgress,
+              $flatActionRequestSenderWaiting,
+              $flatActionRequestRecipientPendingReceive,
+              $flatActionRequestRecipientInProgress
+            );
+
+            $latestActivityBadgeClass = "docMiniBadge muted";
+            if (in_array((string)($latestActivity["badge"] ?? ''), ['FORWARDED', 'RECEIVED', 'WITH YOU'], true)) {
+              $latestActivityBadgeClass = "docMiniBadge new";
+            } elseif (($latestActivity["badge"] ?? "") === "SHARED" || ($latestActivity["badge"] ?? "") === "REQUESTED") {
+              $latestActivityBadgeClass = "docMiniBadge";
+            } elseif (($latestActivity["badge"] ?? "") === "WAITING") {
+              $latestActivityBadgeClass = "docMiniBadge warn";
             }
           ?>
           <tr
             class="rowHover docsRow <?= htmlspecialchars(trim($rowToneClass . " " . $deadlineToneClass . ($isJustCreatedDoc ? " docsRowJustCreated" : ""))) ?>"
             <?= $isJustCreatedDoc ? 'data-created-doc="1"' : '' ?>
+            data-doc-id="<?= (int)$d["id"] ?>"
             data-doc='<?= htmlspecialchars(
               json_encode([
                 "id" => (int)$d["id"],
@@ -2803,6 +3122,16 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
                 "flat_attachment_recipient_pending_receive" => $flatAttachmentRecipientPendingReceive ? 1 : 0,
                 "flat_attachment_recipient_in_progress" => $flatAttachmentRecipientInProgress ? 1 : 0,
                 "flat_attachment_recipient_completed" => $flatAttachmentRecipientCompleted ? 1 : 0,
+                "action_request_open_task_count" => (int)($flatActionRequestMeta["action_request_open_task_count"] ?? 0),
+                "action_request_can_decide" => (int)($flatActionRequestMeta["action_request_can_decide"] ?? 0),
+                "action_request_recipient_branch" => (int)($flatActionRequestMeta["action_request_recipient_branch"] ?? 0),
+                "action_request_source_branch" => (int)($flatActionRequestMeta["action_request_source_branch"] ?? 0),
+                "action_request_task_status" => (string)($flatActionRequestMeta["action_request_task_status"] ?? ""),
+                "action_request_summary" => $actionRequestSummary,
+                "flat_action_request_sender_waiting" => $flatActionRequestSenderWaiting ? 1 : 0,
+                "flat_action_request_recipient_pending_receive" => $flatActionRequestRecipientPendingReceive ? 1 : 0,
+                "flat_action_request_recipient_in_progress" => $flatActionRequestRecipientInProgress ? 1 : 0,
+                "flat_action_request_recipient_completed" => $flatActionRequestRecipientCompleted ? 1 : 0,
 
                 "in_transit" => !empty($d["open_to_section_id"]) ? 1 : 0,
                 "open_to_section_id" => (int)($d["open_to_section_id"] ?? 0),
@@ -2835,6 +3164,11 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
                 "activity_label" => $activityLabel,
                 "activity_value" => $activityValue,
                 "activity_text" => $activityText,
+                "latest_activity_badge" => (string)($latestActivity["badge"] ?? ""),
+                "latest_activity_title" => (string)($latestActivity["title"] ?? ""),
+                "latest_activity_detail" => (string)($latestActivity["detail"] ?? ""),
+                "latest_activity_at" => (string)($latestActivity["at_raw"] ?? ""),
+                "latest_activity_at_display" => (string)($latestActivity["at_display"] ?? ""),
                 "acting_principal_user_id" => $assistantModeEnabled ? (int)($activeAssistantPrincipal['id'] ?? 0) : 0,
               ], JSON_UNESCAPED_UNICODE),
               ENT_QUOTES,
@@ -2933,10 +3267,24 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
               </div>
             </td>
 
-            <td data-label="Requester" class="requesterCol">
+            <td data-label="Latest activity" class="requesterCol">
               <div class="requesterCell">
-                <div class="requesterName"><?= htmlspecialchars((string)$d["requester"]) ?></div>
-                <div class="requesterMeta"><?= htmlspecialchars($activityText) ?></div>
+                <?php if (in_array((string)($latestActivity["badge"] ?? ''), ['FORWARDED', 'SHARED', 'RECEIVED', 'REQUESTED', 'WAITING', 'ATTACHMENT', 'WITH YOU'], true)): ?>
+                  <div class="requesterBadgeRow">
+                    <span class="<?= htmlspecialchars($latestActivityBadgeClass) ?>"><?= htmlspecialchars((string)$latestActivity["badge"]) ?></span>
+                  </div>
+                <?php endif; ?>
+                <div class="requesterName"><?= htmlspecialchars((string)($latestActivity["title"] ?? $activityText)) ?></div>
+                <?php if (($latestActivity["detail"] ?? '') !== ''): ?>
+                  <div class="requesterMeta"><?= htmlspecialchars((string)$latestActivity["detail"]) ?></div>
+                <?php endif; ?>
+                <div class="requesterMeta">
+                  <?php if (($latestActivity["at_display"] ?? '') !== ''): ?>
+                    <span><?= htmlspecialchars((string)$latestActivity["at_display"]) ?></span>
+                    <span class="docMetaDot">•</span>
+                  <?php endif; ?>
+                  <span>Requester: <?= htmlspecialchars((string)$d["requester"]) ?></span>
+                </div>
               </div>
             </td>
           </tr>
@@ -2970,7 +3318,7 @@ $start = max(1, $page - 2);
 $end   = min($totalPages, $page + 2);
 ?>
 
-<div class="pager">
+<div class="pager" id="docsPager">
   <div class="pagerInfo mini">
     Showing <b><?= (int)$fromRow ?></b>–<b><?= (int)$toRow ?></b> of <b><?= (int)$total ?></b>
   </div>
@@ -3085,6 +3433,14 @@ $end   = min($totalPages, $page + 2);
     <div class="kv">
       <div class="k">From</div>
       <div class="v" id="d_last_holder">—</div>
+    </div>
+
+    <div class="kv">
+      <div class="k">Latest activity</div>
+      <div class="v">
+        <div id="d_latest_activity_text">—</div>
+        <div class="mini" id="d_latest_activity_time" style="margin-top:4px; opacity:.78;"></div>
+      </div>
     </div>
 
     <div class="kv"><div class="k">Requester</div><div class="v" id="d_requester"></div></div>
@@ -3203,6 +3559,7 @@ $end   = min($totalPages, $page + 2);
 
       <button id="btnAckReceived" class="btnGreen" type="button" style="display:none;">Received</button>
       <button id="btnAttachmentTaskDone" class="btnComp" type="button" style="display:none;">Task done</button>
+      <button id="btnActionRequestRespond" class="btnComp" type="button" style="display:none;">Respond</button>
       <button id="btnEndHere" class="btnComp" type="button" style="display:none;">End Now</button>
       <button id="btnUndoEndHere" class="btnSecondary" type="button" style="display:none;">Reopen Lifecycle</button>
       <button id="btnRelease" class="btnGreen" type="button" style="display:none;">Release</button>
@@ -3210,6 +3567,8 @@ $end   = min($totalPages, $page + 2);
     </div>
     <div id="drawerAttachmentForwardHint" class="mini" style="display:none; margin-top:10px; padding:10px 12px; border-radius:12px; background:#eff6ff; border:1px solid rgba(37,99,235,.16); color:#1e3a8a;"></div>
     <div id="drawerAttachmentForwardStatus" class="mini" style="display:none; margin-top:10px; padding:12px; border-radius:12px; background:#f8fafc; border:1px solid rgba(15,23,42,.08); color:#334155;"></div>
+    <div id="drawerActionRequestHint" class="mini" style="display:none; margin-top:10px; padding:10px 12px; border-radius:12px; background:#fff7ed; border:1px solid rgba(234,88,12,.16); color:#9a3412;"></div>
+    <div id="drawerActionRequestStatus" class="mini" style="display:none; margin-top:10px; padding:12px; border-radius:12px; background:#fffaf5; border:1px solid rgba(154,52,18,.1); color:#7c2d12;"></div>
     <div id="drawerActionGuide" class="mini"><a href="<?= htmlspecialchars(PUBLIC_PATH . '/which_button_should_i_click.php', ENT_QUOTES, 'UTF-8') ?>">Which button should I click?</a></div>
   </div>
 </aside>
@@ -3307,6 +3666,87 @@ $end   = min($totalPages, $page + 2);
         <strong>Share visibility</strong>
         <span>Send a for-reference copy while the actionable lane stays with you.</span>
       </button>
+      <button type="button" class="sendTypeOption" id="btnOpenActionRequestModal">
+        <strong>Request signature/approval</strong>
+        <span>Send a receiver task and hold your next actions until they respond.</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div id="actionRequestModal" class="modalWrap" aria-hidden="true">
+  <div id="actionRequestModalBackdrop" class="modalBackdrop"></div>
+  <div class="modalCard forwardModalCard">
+    <div class="modalHeader">
+      <div>
+        <h3>Request signature/approval</h3>
+        <div class="attSub mini">Send one receiver task. Your next actions stay locked until they respond.</div>
+      </div>
+      <button id="actionRequestModalClose" class="modalClose" type="button" aria-label="Close">&times;</button>
+    </div>
+
+    <div class="modalBody forwardModalBody">
+      <label class="shareSectionLabel">Send To</label>
+
+      <select id="ar_to_section" class="select" style="min-width:100%; margin-top:6px;">
+        <option value="">-- Select section --</option>
+      </select>
+
+      <label class="shareSectionLabel" style="margin-top:10px; display:block;">Recipient</label>
+
+      <div id="ar_user_list" class="userChecklist mini"
+          style="border:1px solid rgba(0,0,0,.12); border-radius:12px; padding:10px; max-height:220px; overflow:auto;">
+        <div style="opacity:.7;">Select a section to load users...</div>
+      </div>
+
+      <div id="actionRequestRecipientPreview" class="mini" style="opacity:.75; margin-top:6px;">
+        Recipient: -
+      </div>
+
+      <div class="mini" style="margin-top:8px; opacity:.75;">Recipient must click <strong>Received</strong> first, then choose Signed, Approved, or Rejected.</div>
+
+      <div class="drawerActionRemarks" style="margin-top:12px;">
+        <label for="d_action_request_notes" class="drawerActionRemarksLabel">Request notes (optional)</label>
+        <textarea id="d_action_request_notes" class="search drawerActionRemarksInput" rows="3" placeholder="Add context before sending the request if needed"></textarea>
+      </div>
+    </div>
+
+    <div class="modalFooter">
+      <button id="btnActionRequestCancel" type="button" class="btnSecondary">Cancel</button>
+      <button id="btnActionRequestSend" type="button" class="btnComp">Send request</button>
+    </div>
+  </div>
+</div>
+
+<div id="actionRequestDecisionModal" class="modalWrap" aria-hidden="true">
+  <div id="actionRequestDecisionModalBackdrop" class="modalBackdrop"></div>
+  <div class="modalCard forwardModalCard">
+    <div class="modalHeader">
+      <div>
+        <h3>Respond to request</h3>
+        <div class="attSub mini">Choose the outcome, then add optional notes before sending.</div>
+      </div>
+      <button id="actionRequestDecisionModalClose" class="modalClose" type="button">×</button>
+    </div>
+
+    <div class="modalBody forwardModalBody">
+      <div id="actionRequestDecisionPrompt" class="mini" style="margin-bottom:10px; opacity:.8;">Pick one action for this received request.</div>
+
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px;">
+        <button type="button" class="btnSecondary" id="btnActionRequestSigned">Signed</button>
+        <button type="button" class="btnGreen" id="btnActionRequestApproved">Approved</button>
+        <button type="button" class="btnComp" id="btnActionRequestRejected">Reject</button>
+      </div>
+
+      <div class="drawerActionRemarks" style="margin-top:12px;">
+        <label for="d_action_request_decision_notes" class="drawerActionRemarksLabel">Notes (optional)</label>
+        <textarea id="d_action_request_decision_notes" class="search drawerActionRemarksInput" rows="3" placeholder="Add notes before confirming if needed"></textarea>
+      </div>
+      <div id="actionRequestDecisionModalMsg" class="modalMsg" style="display:none;"></div>
+    </div>
+
+    <div class="modalFooter">
+      <button id="btnActionRequestDecisionCancel" type="button" class="btnSecondary">Cancel</button>
     </div>
   </div>
 </div>

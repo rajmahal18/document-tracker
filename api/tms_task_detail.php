@@ -28,7 +28,7 @@ if (!$task) {
 }
 
 $actorUserId = (int)($_SESSION['user_id'] ?? 0);
-$canEdit = tms_user_can_edit_task($conn, $task, $actorUserId);
+$permissions = tms_task_permissions($conn, $task, $actorUserId);
 
 $task['id'] = (int)($task['id'] ?? 0);
 $task['task_type_id'] = (int)($task['task_type_id'] ?? 0);
@@ -36,7 +36,9 @@ $task['project_id'] = isset($task['project_id']) ? (int)$task['project_id'] : nu
 $task['document_id'] = isset($task['document_id']) ? (int)$task['document_id'] : null;
 $task['progress_percent'] = isset($task['progress_percent']) ? (float)$task['progress_percent'] : null;
 $task['remaining_workdays'] = isset($task['remaining_workdays']) ? (int)$task['remaining_workdays'] : null;
-$task['can_edit'] = $canEdit;
+$task['can_edit'] = $permissions['can_edit_task'];
+$task['can_delete'] = $permissions['can_delete_task'];
+$task['permissions'] = $permissions;
 $task['assignee_user_ids'] = [];
 
 $assignees = is_array($task['assignees'] ?? null) ? $task['assignees'] : [];

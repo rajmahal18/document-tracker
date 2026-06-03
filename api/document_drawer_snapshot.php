@@ -26,9 +26,13 @@ if (!can_view_document_family($conn, $documentId)) {
 
 $identity = effective_document_identity($conn);
 $myUserId = (int)($identity['effective_user_id'] ?? 0);
+$actualUserId = (int)($identity['actual_user_id'] ?? 0);
 $mySectionId = (int)($identity['effective_section_id'] ?? 0);
 $isChief = (bool)($identity['effective_is_chief'] ?? false);
 $isAdmin = is_admin_user() && !(bool)($identity['assistant_mode'] ?? false);
+$actionRequestViewerUserIds = (!empty($identity['assistant_mode']) && $actualUserId > 0 && $actualUserId !== $myUserId)
+  ? [$myUserId, $actualUserId]
+  : [$myUserId];
 $documentSplitParentReady = document_split_parent_link_ready($conn);
 $myDivisionMeta = get_user_division_meta($conn, $mySectionId);
 $myDivisionId = (int)($myDivisionMeta['id'] ?? 0);
@@ -193,6 +197,68 @@ if (workflow_has_table($conn, 'document_branches')) {
 $singleActionableBranch = workflow_find_single_actionable_branch($conn, $documentId, $myUserId);
 $myHasActionableRole = $singleActionableBranch ? 1 : (workflow_user_can_act_legacy_document($conn, $documentId, $myUserId, $mySectionId, $isChief, false) ? 1 : 0);
 $myCanChangeLifecycle = $singleActionableBranch ? 0 : (workflow_user_can_act_legacy_document($conn, $documentId, $myUserId, $mySectionId, $isChief, true) ? 1 : 0);
+$flatAttachmentForwardMeta = [
+  'attachment_forward_source_branch' => 0,
+  'attachment_forward_recipient_branch' => 0,
+  'attachment_forward_open_task_count' => 0,
+  'attachment_forward_can_attach' => 0,
+  'attachment_forward_can_mark_done' => 0,
+  'attachment_forward_task_status' => '',
+];
+$attachmentForwardTaskSummary = [];
+$flatActionRequestMeta = [
+  'action_request_source_branch' => 0,
+  'action_request_recipient_branch' => 0,
+  'action_request_open_task_count' => 0,
+  'action_request_can_decide' => 0,
+  'action_request_task_status' => '',
+];
+$actionRequestSummary = [];
+if ($myUserId > 0) {
+  if ($hasRealBranches) {
+    if (workflow_attachment_forwarding_enabled($conn)) {
+      $attachmentForwardTaskSummary = workflow_get_attachment_forward_task_summary($conn, $documentId, $myUserId);
+    }
+    if (workflow_action_requests_enabled($conn)) {
+      $actionRequestSummary = workflow_get_action_request_summary($conn, $documentId, $actionRequestViewerUserIds);
+    }
+  } else {
+    if (workflow_attachment_forwarding_enabled($conn)) {
+      $flatAttachmentForwardMeta = workflow_get_document_attachment_forward_task_meta($conn, $documentId, $myUserId);
+      $attachmentForwardTaskSummary = workflow_get_attachment_forward_task_summary($conn, $documentId, $myUserId, 0, 0);
+    }
+    if (workflow_action_requests_enabled($conn)) {
+      $flatActionRequestMeta = workflow_get_document_action_request_meta($conn, $documentId, $actionRequestViewerUserIds);
+      $actionRequestSummary = workflow_get_action_request_summary($conn, $documentId, $actionRequestViewerUserIds, 0, 0);
+    }
+  }
+}
+$flatAttachmentTaskStatus = strtoupper((string)($flatAttachmentForwardMeta['attachment_forward_task_status'] ?? ''));
+$flatAttachmentIsSender = (!$hasRealBranches && (int)($flatAttachmentForwardMeta['attachment_forward_source_branch'] ?? 0) === 1);
+$flatAttachmentIsRecipient = (!$hasRealBranches && (int)($flatAttachmentForwardMeta['attachment_forward_recipient_branch'] ?? 0) === 1);
+$flatAttachmentSenderWaiting = $flatAttachmentIsSender && (int)($flatAttachmentForwardMeta['attachment_forward_open_task_count'] ?? 0) > 0;
+$flatAttachmentRecipientPendingReceive = $flatAttachmentIsRecipient && $flatAttachmentTaskStatus === 'PENDING_RECEIVE';
+$flatAttachmentRecipientInProgress = $flatAttachmentIsRecipient && $flatAttachmentTaskStatus === 'IN_PROGRESS';
+$flatAttachmentRecipientCompleted = $flatAttachmentIsRecipient && !$flatAttachmentRecipientPendingReceive && !$flatAttachmentRecipientInProgress && (int)($flatAttachmentForwardMeta['attachment_forward_open_task_count'] ?? 0) === 0;
+$flatActionRequestTaskStatus = strtoupper((string)($flatActionRequestMeta['action_request_task_status'] ?? ''));
+$flatActionRequestIsSender = (!$hasRealBranches && (int)($flatActionRequestMeta['action_request_source_branch'] ?? 0) === 1);
+$flatActionRequestIsRecipient = (!$hasRealBranches && (int)($flatActionRequestMeta['action_request_recipient_branch'] ?? 0) === 1);
+$flatActionRequestSenderWaiting = $flatActionRequestIsSender && (int)($flatActionRequestMeta['action_request_open_task_count'] ?? 0) > 0;
+$flatActionRequestRecipientPendingReceive = $flatActionRequestIsRecipient && $flatActionRequestTaskStatus === 'PENDING_RECEIVE';
+$flatActionRequestRecipientInProgress = $flatActionRequestIsRecipient && $flatActionRequestTaskStatus === 'IN_PROGRESS';
+$flatActionRequestRecipientCompleted = $flatActionRequestIsRecipient && !$flatActionRequestRecipientPendingReceive && !$flatActionRequestRecipientInProgress && (int)($flatActionRequestMeta['action_request_open_task_count'] ?? 0) === 0;
+
+if (!$hasRealBranches) {
+  if ($flatAttachmentRecipientPendingReceive || $flatActionRequestRecipientPendingReceive) {
+    $myHasOpenInbound = 1;
+    $myHasActionableRole = 0;
+    $myCanChangeLifecycle = 0;
+  } elseif ($flatAttachmentRecipientInProgress || $flatAttachmentSenderWaiting || $flatActionRequestRecipientInProgress || $flatActionRequestSenderWaiting || $flatAttachmentRecipientCompleted || $flatActionRequestRecipientCompleted) {
+    $myHasOpenInbound = 0;
+    $myHasActionableRole = 0;
+    $myCanChangeLifecycle = 0;
+  }
+}
 
 $myHasParticipation = 0;
 if ((int)($doc['created_by_user_id'] ?? 0) === $myUserId) {
@@ -292,6 +358,27 @@ echo json_encode([
     'my_is_visible_only' => $isVisibleOnly,
     'my_is_for_reference' => $isForReference,
     'my_is_receive_only' => 0,
+    'attachment_forward_open_task_count' => (int)($flatAttachmentForwardMeta['attachment_forward_open_task_count'] ?? 0),
+    'attachment_forward_can_attach' => (int)($flatAttachmentForwardMeta['attachment_forward_can_attach'] ?? 0),
+    'attachment_forward_can_mark_done' => (int)($flatAttachmentForwardMeta['attachment_forward_can_mark_done'] ?? 0),
+    'attachment_forward_recipient_branch' => (int)($flatAttachmentForwardMeta['attachment_forward_recipient_branch'] ?? 0),
+    'attachment_forward_source_branch' => (int)($flatAttachmentForwardMeta['attachment_forward_source_branch'] ?? 0),
+    'attachment_forward_task_status' => (string)($flatAttachmentForwardMeta['attachment_forward_task_status'] ?? ''),
+    'attachment_forward_task_summary' => $attachmentForwardTaskSummary,
+    'flat_attachment_sender_waiting' => $flatAttachmentSenderWaiting ? 1 : 0,
+    'flat_attachment_recipient_pending_receive' => $flatAttachmentRecipientPendingReceive ? 1 : 0,
+    'flat_attachment_recipient_in_progress' => $flatAttachmentRecipientInProgress ? 1 : 0,
+    'flat_attachment_recipient_completed' => $flatAttachmentRecipientCompleted ? 1 : 0,
+    'action_request_open_task_count' => (int)($flatActionRequestMeta['action_request_open_task_count'] ?? 0),
+    'action_request_can_decide' => (int)($flatActionRequestMeta['action_request_can_decide'] ?? 0),
+    'action_request_recipient_branch' => (int)($flatActionRequestMeta['action_request_recipient_branch'] ?? 0),
+    'action_request_source_branch' => (int)($flatActionRequestMeta['action_request_source_branch'] ?? 0),
+    'action_request_task_status' => (string)($flatActionRequestMeta['action_request_task_status'] ?? ''),
+    'action_request_summary' => $actionRequestSummary,
+    'flat_action_request_sender_waiting' => $flatActionRequestSenderWaiting ? 1 : 0,
+    'flat_action_request_recipient_pending_receive' => $flatActionRequestRecipientPendingReceive ? 1 : 0,
+    'flat_action_request_recipient_in_progress' => $flatActionRequestRecipientInProgress ? 1 : 0,
+    'flat_action_request_recipient_completed' => $flatActionRequestRecipientCompleted ? 1 : 0,
     'viewer_relation_mode' => 'related_followup',
   ],
 ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);

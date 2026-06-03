@@ -251,7 +251,7 @@ try {
   if ($submittedTrackingNo !== '') {
     upsert_document_division_tracking($conn, $docId, $divisionId, $submittedTrackingNo, $actualUserId, true, $canForceDuplicateTrackingNo);
   } elseif (!$trackingRow) {
-    $defaultNo = preview_next_division_tracking_number($conn, $divisionId, new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')));
+    $defaultNo = preview_next_division_tracking_number($conn, $divisionId, new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')), 'INCOMING');
     upsert_document_division_tracking($conn, $docId, $divisionId, $defaultNo, $actualUserId, false);
   }
 } catch (Throwable $e) {
@@ -266,6 +266,7 @@ if (!$trackingRow) {
   echo json_encode(["ok" => false, "error" => "Unable to resolve division tracking number"]);
   exit;
 }
+$trackingScope = normalize_division_tracking_scope((string)($trackingRow['tracking_scope'] ?? 'INCOMING'));
 
 $originSectionId = (int)($doc['origin_section_id'] ?? 0);
 
@@ -399,6 +400,8 @@ DivisionTrackingSlip::generateA4([
   'from_label' => $fromLabel,
   'document_type' => (string)($doc['content_type'] ?? ''),
   'document_date' => (string)($doc['document_date'] ?? ''),
+  'receipt_label' => division_tracking_receipt_label($trackingScope),
+  'received_datetime_label' => division_tracking_received_datetime_label($trackingScope),
   'received_by' => $receivedBy,
   'received_datetime' => $receivedDT,
   'assigned_to' => $assignedTo,
@@ -441,6 +444,7 @@ $payload = json_encode([
   'attachment_id' => $attId,
   'file' => $orig,
   'division_code' => $divisionCode,
+  'slip_direction' => strtolower($trackingScope),
   'received_by_name' => $receivedBy,
   'received_datetime' => $receivedDT,
   'assistant_actual_user_id' => (int)($originalSlipMeta['assistant_user_id'] ?? 0) ?: null,
@@ -463,6 +467,7 @@ echo json_encode([
   'stored_name' => $storedName,
   'division_code' => $divisionCode,
   'division_tracking_no' => (string)($trackingRow['tracking_no'] ?? ''),
+  'slip_direction' => strtolower($trackingScope),
   'received_by_name' => $receivedBy,
   'received_datetime' => $receivedDT,
   'received_datetime_raw' => $initialReceiveAtRaw,

@@ -1,7 +1,7 @@
 import { startTransition, useDeferredValue, useMemo, useState, type FormEvent } from 'react'
 import { deleteTask, fetchTaskDetail, getAppConfig, getBootstrapData, saveTask } from './lib/app-bridge'
 import './index.css'
-import type { TmsBootstrap, TmsFilters, TmsProject, TmsTask, TmsTaskDetail, TmsTaskType, TmsUser } from './types'
+import type { TmsBootstrap, TmsFilters, TmsProject, TmsTask, TmsTaskDetail, TmsTaskPermissions, TmsTaskType, TmsUser } from './types'
 
 type FormState = {
   id: number
@@ -108,6 +108,24 @@ function typeConfig(taskTypes: TmsTaskType[], idOrCode: string | number | undefi
   return taskTypes.find((type) => String(type.id) === String(idOrCode) || type.code === String(idOrCode))
 }
 
+function createTaskPermissions(currentType: TmsTaskType | undefined, assigneeUserIds: string[]): TmsTaskPermissions {
+  const usesProtectedRules = currentType?.workflow_rule === 'progress_remaining'
+  const leadAssigneeId = Number(assigneeUserIds[0] || 0)
+  const isPrimaryAssignee = bootstrap.canManageAll || (leadAssigneeId > 0 && leadAssigneeId === bootstrap.viewer.id)
+
+  return {
+    can_edit_task: true,
+    can_delete_task: false,
+    can_edit_protected_fields: true,
+    can_edit_progress: !usesProtectedRules || isPrimaryAssignee,
+    uses_protected_rules: usesProtectedRules,
+    is_creator: true,
+    is_owner: false,
+    is_assignee: assigneeUserIds.includes(String(bootstrap.viewer.id)),
+    is_primary_assignee: isPrimaryAssignee,
+  }
+}
+
 function sortFocusTasks(tasks: TmsTask[]) {
   return [...tasks]
     .sort((a, b) => {
@@ -134,6 +152,7 @@ export default function App() {
   const [formError, setFormError] = useState(false)
   const [form, setForm] = useState<FormState>(defaultForm(bootstrap.filters.type ? String(typeConfig(bootstrap.taskTypes, bootstrap.filters.type)?.id ?? '') : ''))
   const [activeTaskId, setActiveTaskId] = useState<number | null>(null)
+  const [activeTaskPermissions, setActiveTaskPermissions] = useState<TmsTaskPermissions | null>(null)
 
   const deferredQuery = useDeferredValue(filters.q)
   const effectiveFilters = useMemo<TmsFilters>(() => ({ ...filters, q: deferredQuery }), [filters, deferredQuery])
@@ -182,8 +201,21 @@ export default function App() {
   }, [filteredTasks])
 
   const currentType = typeConfig(bootstrap.taskTypes, form.task_type_id)
+  const formPermissions = activeTaskPermissions ?? createTaskPermissions(currentType, form.assignee_user_ids)
   const dashboardDate = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date())
   const activeTypeLabel = filters.type ? bootstrap.taskTypes.find((type) => type.code === filters.type)?.name || 'Filtered type' : 'All task types'
+  const protectedFieldsLocked = !modalReadOnly && activeTaskId !== null && !formPermissions.can_edit_protected_fields
+  const progressLocked = !modalReadOnly && !formPermissions.can_edit_progress
+  const progressHelp = currentType?.show_progress
+    ? formPermissions.uses_protected_rules
+      ? (formPermissions.is_primary_assignee || bootstrap.canManageAll
+          ? 'Progress follows the lead assignee for this workflow.'
+          : 'Only the lead assignee can update progress for this workflow.')
+      : 'Progress is editable by assigned operators.'
+    : ''
+  const protectedHelp = protectedFieldsLocked
+    ? 'Core task details are locked here. Only the lead assignee or a protected editor can change them after creation.'
+    : ''
 
   function updateField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [key]: value }))
@@ -197,6 +229,7 @@ export default function App() {
     setFormMessage('')
     setFormError(false)
     setActiveTaskId(null)
+    setActiveTaskPermissions(null)
     setModalOpen(true)
   }
 
@@ -209,6 +242,7 @@ export default function App() {
     try {
       const detail = await fetchTaskDetail(task.id)
       hydrateForm(detail)
+      setActiveTaskPermissions(detail.permissions)
       setModalTitle(detail.can_edit ? 'Update task' : 'Task details')
       setModalReadOnly(!detail.can_edit)
       setActiveTaskId(detail.id)
@@ -307,7 +341,7 @@ export default function App() {
   }
 
   async function onDelete(task: TmsTask) {
-    if (!task.can_edit) return
+    if (!task.can_delete) return
     if (!window.confirm(`Delete ${task.project_code}? This only removes the TMS record.`)) return
 
     try {
@@ -652,7 +686,7 @@ export default function App() {
                       <button className="tms-btn tms-btn-secondary" type="button" onClick={() => void openTask(task)}>
                         {task.can_edit ? 'Open' : 'View'}
                       </button>
-                      {task.can_edit ? (
+                      {task.can_delete ? (
                         <button className="tms-btn tms-btn-ghost" type="button" onClick={() => void onDelete(task)}>
                           Delete
                         </button>
@@ -690,7 +724,7 @@ export default function App() {
                   <select
                     value={form.task_type_id}
                     onChange={(event) => updateField('task_type_id', event.target.value)}
-                    disabled={modalBusy || modalReadOnly}
+                    disabled={modalBusy || modalReadOnly || protectedFieldsLocked}
                     required
                   >
                     <option value="">Select task type</option>
@@ -704,7 +738,7 @@ export default function App() {
 
                 <label className="tms-field">
                   <span>Linked project</span>
-                  <select value={form.project_id} onChange={(event) => onSelectProject(event.target.value)} disabled={modalBusy || modalReadOnly}>
+                  <select value={form.project_id} onChange={(event) => onSelectProject(event.target.value)} disabled={modalBusy || modalReadOnly || protectedFieldsLocked}>
                     <option value="">None</option>
                     {bootstrap.projects.map((project: TmsProject) => (
                       <option key={project.id} value={project.id}>
@@ -716,27 +750,27 @@ export default function App() {
 
                 <label className="tms-field">
                   <span>Project code</span>
-                  <input value={form.project_code} onChange={(event) => updateField('project_code', event.target.value)} disabled={modalBusy || modalReadOnly} required />
+                  <input value={form.project_code} onChange={(event) => updateField('project_code', event.target.value)} disabled={modalBusy || modalReadOnly || protectedFieldsLocked} required />
                 </label>
 
                 <label className="tms-field">
                   <span>Project title</span>
-                  <input value={form.project_title} onChange={(event) => updateField('project_title', event.target.value)} disabled={modalBusy || modalReadOnly} required />
+                  <input value={form.project_title} onChange={(event) => updateField('project_title', event.target.value)} disabled={modalBusy || modalReadOnly || protectedFieldsLocked} required />
                 </label>
 
                 <label className="tms-field span-2">
                   <span>Description</span>
-                  <input value={form.description} onChange={(event) => updateField('description', event.target.value)} disabled={modalBusy || modalReadOnly} required />
+                  <input value={form.description} onChange={(event) => updateField('description', event.target.value)} disabled={modalBusy || modalReadOnly || protectedFieldsLocked} required />
                 </label>
 
                 <label className="tms-field">
                   <span>DEO</span>
-                  <input value={form.deo} onChange={(event) => updateField('deo', event.target.value)} disabled={modalBusy || modalReadOnly} />
+                  <input value={form.deo} onChange={(event) => updateField('deo', event.target.value)} disabled={modalBusy || modalReadOnly || protectedFieldsLocked} />
                 </label>
 
                 <label className="tms-field">
                   <span>LGU</span>
-                  <input value={form.lgu} onChange={(event) => updateField('lgu', event.target.value)} disabled={modalBusy || modalReadOnly} />
+                  <input value={form.lgu} onChange={(event) => updateField('lgu', event.target.value)} disabled={modalBusy || modalReadOnly || protectedFieldsLocked} />
                 </label>
 
                 <div className="tms-field span-2">
@@ -750,7 +784,7 @@ export default function App() {
                             type="checkbox"
                             checked={checked}
                             onChange={() => onToggleAssignee(String(user.id))}
-                            disabled={modalBusy || modalReadOnly}
+                            disabled={modalBusy || modalReadOnly || protectedFieldsLocked}
                           />
                           <span>{user.full_name}</span>
                           <small>{user.division_name || user.section_name}</small>
@@ -763,21 +797,21 @@ export default function App() {
                 {currentType?.show_date_surveyed ? (
                   <label className="tms-field">
                     <span>Date surveyed</span>
-                    <input type="date" value={form.date_surveyed} onChange={(event) => updateField('date_surveyed', event.target.value)} disabled={modalBusy || modalReadOnly} />
+                    <input type="date" value={form.date_surveyed} onChange={(event) => updateField('date_surveyed', event.target.value)} disabled={modalBusy || modalReadOnly || protectedFieldsLocked} />
                   </label>
                 ) : null}
 
                 {currentType?.show_date_received ? (
                   <label className="tms-field">
                     <span>Date received</span>
-                    <input type="date" value={form.date_received} onChange={(event) => updateField('date_received', event.target.value)} disabled={modalBusy || modalReadOnly} />
+                    <input type="date" value={form.date_received} onChange={(event) => updateField('date_received', event.target.value)} disabled={modalBusy || modalReadOnly || protectedFieldsLocked} />
                   </label>
                 ) : null}
 
                 {currentType?.show_date_started ? (
                   <label className="tms-field">
                     <span>Date started</span>
-                    <input type="date" value={form.date_started} onChange={(event) => updateField('date_started', event.target.value)} disabled={modalBusy || modalReadOnly} />
+                    <input type="date" value={form.date_started} onChange={(event) => updateField('date_started', event.target.value)} disabled={modalBusy || modalReadOnly || protectedFieldsLocked} />
                   </label>
                 ) : null}
 
@@ -788,7 +822,7 @@ export default function App() {
                       type="date"
                       value={form.target_completion}
                       onChange={(event) => updateField('target_completion', event.target.value)}
-                      disabled={modalBusy || modalReadOnly}
+                      disabled={modalBusy || modalReadOnly || protectedFieldsLocked}
                     />
                   </label>
                 ) : null}
@@ -803,8 +837,9 @@ export default function App() {
                       step="0.01"
                       value={form.progress_percent}
                       onChange={(event) => updateField('progress_percent', event.target.value)}
-                      disabled={modalBusy || modalReadOnly}
+                      disabled={modalBusy || modalReadOnly || progressLocked}
                     />
+                    {progressHelp ? <small className={`tms-field-help ${progressLocked ? 'is-warning' : ''}`}>{progressHelp}</small> : null}
                   </label>
                 ) : null}
 
@@ -820,6 +855,8 @@ export default function App() {
                   <textarea rows={5} value={form.remarks} onChange={(event) => updateField('remarks', event.target.value)} disabled={modalBusy || modalReadOnly} />
                 </label>
               </div>
+
+              {protectedHelp ? <div className="tms-form-callout">{protectedHelp}</div> : null}
 
               {formMessage ? <div className={`tms-form-message ${formError ? 'is-error' : 'is-ok'}`}>{formMessage}</div> : null}
 

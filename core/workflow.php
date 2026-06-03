@@ -583,8 +583,15 @@ function workflow_get_branch_state(mysqli $conn, int $documentId, int $viewerUse
         foreach ($attachmentForwardMeta as $metaKey => $metaValue) {
             $row[$metaKey] = $metaValue;
         }
+        $actionRequestMeta = workflow_get_branch_action_request_meta($conn, $documentId, (int)$row['id'], $viewerUserId);
+        foreach ($actionRequestMeta as $metaKey => $metaValue) {
+            $row[$metaKey] = $metaValue;
+        }
 
         if ((int)($row['attachment_forward_open_task_count'] ?? 0) > 0 && (int)($row['is_reference'] ?? 0) === 0) {
+            $row['can_forward'] = 0;
+        }
+        if ((int)($row['action_request_open_task_count'] ?? 0) > 0 && (int)($row['is_reference'] ?? 0) === 0) {
             $row['can_forward'] = 0;
         }
     }
@@ -972,6 +979,326 @@ function workflow_mark_attachment_forward_tasks_received_for_route(mysqli $conn,
 
     $stmt = $conn->prepare("
         UPDATE attachment_forward_tasks
+        SET task_status = 'IN_PROGRESS',
+            received_at = COALESCE(received_at, NOW()),
+            updated_at = NOW()
+        WHERE route_id = ?
+          AND task_status = 'PENDING_RECEIVE'
+    ");
+    $stmt->bind_param('i', $routeId);
+    $stmt->execute();
+}
+
+function workflow_action_requests_enabled(mysqli $conn): bool
+{
+    return workflow_has_table($conn, 'document_action_requests');
+}
+
+function workflow_branch_has_open_action_requests(mysqli $conn, int $documentId, int $senderBranchId): bool
+{
+    if ($documentId <= 0 || $senderBranchId <= 0 || !workflow_action_requests_enabled($conn)) {
+        return false;
+    }
+
+    $stmt = $conn->prepare("
+        SELECT 1
+        FROM document_action_requests dar
+        WHERE dar.document_id = ?
+          AND dar.sender_branch_id = ?
+          AND dar.task_status IN ('PENDING_RECEIVE', 'IN_PROGRESS')
+        LIMIT 1
+    ");
+    $stmt->bind_param('ii', $documentId, $senderBranchId);
+    $stmt->execute();
+    return (bool)$stmt->get_result()->fetch_row();
+}
+
+function workflow_document_has_open_action_requests(mysqli $conn, int $documentId): bool
+{
+    if ($documentId <= 0 || !workflow_action_requests_enabled($conn)) {
+        return false;
+    }
+
+    $stmt = $conn->prepare("
+        SELECT 1
+        FROM document_action_requests dar
+        WHERE dar.document_id = ?
+          AND dar.task_status IN ('PENDING_RECEIVE', 'IN_PROGRESS')
+        LIMIT 1
+    ");
+    $stmt->bind_param('i', $documentId);
+    $stmt->execute();
+    return (bool)$stmt->get_result()->fetch_row();
+}
+
+function workflow_user_has_open_action_requests_as_sender(mysqli $conn, int $documentId, int $senderUserId): bool
+{
+    if ($documentId <= 0 || $senderUserId <= 0 || !workflow_action_requests_enabled($conn)) {
+        return false;
+    }
+
+    $stmt = $conn->prepare("
+        SELECT 1
+        FROM document_action_requests dar
+        WHERE dar.document_id = ?
+          AND dar.sender_user_id = ?
+          AND dar.task_status IN ('PENDING_RECEIVE', 'IN_PROGRESS')
+        LIMIT 1
+    ");
+    $stmt->bind_param('ii', $documentId, $senderUserId);
+    $stmt->execute();
+    return (bool)$stmt->get_result()->fetch_row();
+}
+
+function workflow_normalize_viewer_user_ids(int|array $viewerUserIds): array
+{
+    if (is_int($viewerUserIds)) {
+        return $viewerUserIds > 0 ? [$viewerUserIds] : [];
+    }
+
+    $normalized = array_values(array_unique(array_filter(array_map(
+        static fn($value): int => (int)$value,
+        $viewerUserIds
+    ), static fn(int $value): bool => $value > 0)));
+
+    return $normalized;
+}
+
+function workflow_get_branch_action_request_meta(mysqli $conn, int $documentId, int $branchId, int $viewerUserId): array
+{
+    $meta = [
+        'action_request_source_branch' => 0,
+        'action_request_recipient_branch' => 0,
+        'action_request_open_task_count' => 0,
+        'action_request_can_decide' => 0,
+        'action_request_task_status' => '',
+    ];
+
+    if ($documentId <= 0 || $branchId <= 0 || $viewerUserId <= 0 || !workflow_action_requests_enabled($conn)) {
+        return $meta;
+    }
+
+    $stmt = $conn->prepare("
+        SELECT
+          SUM(CASE WHEN dar.sender_branch_id = ? THEN 1 ELSE 0 END) AS source_any_count,
+          SUM(CASE WHEN dar.sender_branch_id = ? AND dar.task_status IN ('PENDING_RECEIVE', 'IN_PROGRESS') THEN 1 ELSE 0 END) AS source_open_count,
+          SUM(CASE WHEN dar.recipient_branch_id = ? THEN 1 ELSE 0 END) AS recipient_any_count,
+          SUM(CASE WHEN dar.recipient_branch_id = ? AND dar.task_status IN ('PENDING_RECEIVE', 'IN_PROGRESS') THEN 1 ELSE 0 END) AS recipient_open_count,
+          SUM(CASE WHEN dar.recipient_branch_id = ? AND dar.recipient_user_id = ? AND dar.task_status = 'IN_PROGRESS' THEN 1 ELSE 0 END) AS recipient_in_progress_count,
+          SUM(CASE WHEN dar.recipient_branch_id = ? AND dar.recipient_user_id = ? AND dar.task_status = 'PENDING_RECEIVE' THEN 1 ELSE 0 END) AS recipient_pending_receive_count
+        FROM document_action_requests dar
+        WHERE dar.document_id = ?
+          AND (
+            dar.sender_branch_id = ?
+            OR dar.recipient_branch_id = ?
+          )
+    ");
+    $stmt->bind_param(
+        'iiiiiiiiiii',
+        $branchId,
+        $branchId,
+        $branchId,
+        $branchId,
+        $branchId,
+        $viewerUserId,
+        $branchId,
+        $viewerUserId,
+        $documentId,
+        $branchId,
+        $branchId
+    );
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc() ?: [];
+
+    $sourceAny = (int)($row['source_any_count'] ?? 0);
+    $sourceOpen = (int)($row['source_open_count'] ?? 0);
+    $recipientAny = (int)($row['recipient_any_count'] ?? 0);
+    $recipientOpen = (int)($row['recipient_open_count'] ?? 0);
+    $recipientInProgress = (int)($row['recipient_in_progress_count'] ?? 0);
+    $recipientPendingReceive = (int)($row['recipient_pending_receive_count'] ?? 0);
+
+    $meta['action_request_source_branch'] = $sourceAny > 0 ? 1 : 0;
+    $meta['action_request_recipient_branch'] = $recipientAny > 0 ? 1 : 0;
+    $meta['action_request_open_task_count'] = max($sourceOpen, $recipientOpen);
+
+    if ($recipientInProgress > 0) {
+        $meta['action_request_can_decide'] = 1;
+        $meta['action_request_task_status'] = 'IN_PROGRESS';
+    } elseif ($recipientPendingReceive > 0) {
+        $meta['action_request_task_status'] = 'PENDING_RECEIVE';
+    } elseif ($recipientOpen > 0) {
+        $meta['action_request_task_status'] = 'OPEN';
+    }
+
+    return $meta;
+}
+
+function workflow_get_document_action_request_meta(mysqli $conn, int $documentId, int|array $viewerUserIds): array
+{
+    $meta = [
+        'action_request_source_branch' => 0,
+        'action_request_recipient_branch' => 0,
+        'action_request_open_task_count' => 0,
+        'action_request_can_decide' => 0,
+        'action_request_task_status' => '',
+    ];
+
+    $viewerIds = workflow_normalize_viewer_user_ids($viewerUserIds);
+    if ($documentId <= 0 || $viewerIds === [] || !workflow_action_requests_enabled($conn)) {
+        return $meta;
+    }
+
+    $senderPlaceholders = implode(',', array_fill(0, count($viewerIds), '?'));
+    $recipientPlaceholders = implode(',', array_fill(0, count($viewerIds), '?'));
+    $types = str_repeat('i', count($viewerIds) * 6 + 1);
+    $params = array_merge(
+        $viewerIds,
+        $viewerIds,
+        $viewerIds,
+        $viewerIds,
+        $viewerIds,
+        $viewerIds,
+        [$documentId]
+    );
+
+    $stmt = $conn->prepare("
+        SELECT
+          SUM(CASE WHEN dar.sender_user_id IN ({$senderPlaceholders}) THEN 1 ELSE 0 END) AS source_any_count,
+          SUM(CASE WHEN dar.sender_user_id IN ({$senderPlaceholders}) AND dar.task_status IN ('PENDING_RECEIVE', 'IN_PROGRESS') THEN 1 ELSE 0 END) AS source_open_count,
+          SUM(CASE WHEN dar.recipient_user_id IN ({$recipientPlaceholders}) THEN 1 ELSE 0 END) AS recipient_any_count,
+          SUM(CASE WHEN dar.recipient_user_id IN ({$recipientPlaceholders}) AND dar.task_status IN ('PENDING_RECEIVE', 'IN_PROGRESS') THEN 1 ELSE 0 END) AS recipient_open_count,
+          SUM(CASE WHEN dar.recipient_user_id IN ({$recipientPlaceholders}) AND dar.task_status = 'IN_PROGRESS' THEN 1 ELSE 0 END) AS recipient_in_progress_count,
+          SUM(CASE WHEN dar.recipient_user_id IN ({$recipientPlaceholders}) AND dar.task_status = 'PENDING_RECEIVE' THEN 1 ELSE 0 END) AS recipient_pending_receive_count
+        FROM document_action_requests dar
+        WHERE dar.document_id = ?
+          AND COALESCE(dar.sender_branch_id, 0) = 0
+          AND COALESCE(dar.recipient_branch_id, 0) = 0
+    ");
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc() ?: [];
+
+    $sourceAny = (int)($row['source_any_count'] ?? 0);
+    $sourceOpen = (int)($row['source_open_count'] ?? 0);
+    $recipientAny = (int)($row['recipient_any_count'] ?? 0);
+    $recipientOpen = (int)($row['recipient_open_count'] ?? 0);
+    $recipientInProgress = (int)($row['recipient_in_progress_count'] ?? 0);
+    $recipientPendingReceive = (int)($row['recipient_pending_receive_count'] ?? 0);
+
+    $meta['action_request_source_branch'] = $sourceAny > 0 ? 1 : 0;
+    $meta['action_request_recipient_branch'] = $recipientAny > 0 ? 1 : 0;
+    $meta['action_request_open_task_count'] = max($sourceOpen, $recipientOpen);
+
+    if ($recipientInProgress > 0) {
+        $meta['action_request_can_decide'] = 1;
+        $meta['action_request_task_status'] = 'IN_PROGRESS';
+    } elseif ($recipientPendingReceive > 0) {
+        $meta['action_request_task_status'] = 'PENDING_RECEIVE';
+    } elseif ($recipientOpen > 0) {
+        $meta['action_request_task_status'] = 'OPEN';
+    }
+
+    return $meta;
+}
+
+function workflow_get_action_request_summary(mysqli $conn, int $documentId, int|array $viewerUserIds, ?int $senderBranchId = null, ?int $recipientBranchId = null): array
+{
+    $viewerIds = workflow_normalize_viewer_user_ids($viewerUserIds);
+    if ($documentId <= 0 || $viewerIds === [] || !workflow_action_requests_enabled($conn)) {
+        return [];
+    }
+
+    $viewerPlaceholders = implode(',', array_fill(0, count($viewerIds), '?'));
+    $scopeClauses = ["dar.document_id = ?", "(dar.sender_user_id IN ({$viewerPlaceholders}) OR dar.recipient_user_id IN ({$viewerPlaceholders}))"];
+    $types = 'i' . str_repeat('i', count($viewerIds) * 2);
+    $params = array_merge([$documentId], $viewerIds, $viewerIds);
+
+    if ($senderBranchId !== null) {
+        $scopeClauses[] = 'COALESCE(dar.sender_branch_id, 0) = ?';
+        $types .= 'i';
+        $params[] = max(0, (int)$senderBranchId);
+    }
+    if ($recipientBranchId !== null) {
+        $scopeClauses[] = 'COALESCE(dar.recipient_branch_id, 0) = ?';
+        $types .= 'i';
+        $params[] = max(0, (int)$recipientBranchId);
+    }
+
+    $sql = "
+        SELECT
+          dar.id,
+          dar.task_status,
+          dar.sender_user_id,
+          dar.recipient_user_id,
+          dar.sender_branch_id,
+          dar.recipient_branch_id,
+          dar.route_id,
+          dar.request_notes,
+          dar.decision_notes,
+          dar.created_at,
+          dar.received_at,
+          dar.acted_at,
+          su.full_name AS sender_name,
+          ru.full_name AS recipient_name,
+          rs.name AS recipient_section_name
+        FROM document_action_requests dar
+        LEFT JOIN users su ON su.id = dar.sender_user_id
+        LEFT JOIN users ru ON ru.id = dar.recipient_user_id
+        LEFT JOIN sections rs ON rs.id = dar.recipient_section_id
+        WHERE " . implode(' AND ', $scopeClauses) . "
+        ORDER BY
+          CASE dar.task_status
+            WHEN 'PENDING_RECEIVE' THEN 0
+            WHEN 'IN_PROGRESS' THEN 1
+            WHEN 'SIGNED' THEN 2
+            WHEN 'APPROVED' THEN 3
+            WHEN 'REJECTED' THEN 4
+            ELSE 5
+          END,
+          dar.created_at DESC,
+          dar.id DESC
+        LIMIT 50
+    ";
+
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+    $summary = [];
+    foreach ($rows as $row) {
+        $senderUserId = (int)($row['sender_user_id'] ?? 0);
+        $recipientUserId = (int)($row['recipient_user_id'] ?? 0);
+        $summary[] = [
+            'id' => (int)($row['id'] ?? 0),
+            'task_status' => (string)($row['task_status'] ?? ''),
+            'is_sender' => in_array($senderUserId, $viewerIds, true) ? 1 : 0,
+            'is_recipient' => in_array($recipientUserId, $viewerIds, true) ? 1 : 0,
+            'sender_branch_id' => (int)($row['sender_branch_id'] ?? 0),
+            'recipient_branch_id' => (int)($row['recipient_branch_id'] ?? 0),
+            'route_id' => (int)($row['route_id'] ?? 0),
+            'recipient_name' => (string)($row['recipient_name'] ?? ''),
+            'recipient_section_name' => (string)($row['recipient_section_name'] ?? ''),
+            'sender_name' => (string)($row['sender_name'] ?? ''),
+            'request_notes' => (string)($row['request_notes'] ?? ''),
+            'decision_notes' => (string)($row['decision_notes'] ?? ''),
+            'created_at' => (string)($row['created_at'] ?? ''),
+            'received_at' => (string)($row['received_at'] ?? ''),
+            'acted_at' => (string)($row['acted_at'] ?? ''),
+        ];
+    }
+
+    return $summary;
+}
+
+function workflow_mark_action_requests_received_for_route(mysqli $conn, int $routeId): void
+{
+    if ($routeId <= 0 || !workflow_action_requests_enabled($conn)) {
+        return;
+    }
+
+    $stmt = $conn->prepare("
+        UPDATE document_action_requests
         SET task_status = 'IN_PROGRESS',
             received_at = COALESCE(received_at, NOW()),
             updated_at = NOW()

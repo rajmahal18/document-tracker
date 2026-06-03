@@ -201,7 +201,7 @@ function division_slip_page2_resolve_received_defaults(mysqli $conn, int $docume
 
 $trackingRow = get_document_division_tracking($conn, $docId, $divisionId);
 if (!$trackingRow) {
-  $defaultNo = preview_next_division_tracking_number($conn, $divisionId, new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')));
+  $defaultNo = preview_next_division_tracking_number($conn, $divisionId, new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')), 'INCOMING');
   try {
     upsert_document_division_tracking($conn, $docId, $divisionId, $defaultNo, $actualUserId, false);
   } catch (Throwable $e) {
@@ -217,6 +217,7 @@ if (!$trackingRow) {
   echo json_encode(["ok" => false, "error" => "Unable to resolve division tracking number"]);
   exit;
 }
+$trackingScope = normalize_division_tracking_scope((string)($trackingRow['tracking_scope'] ?? 'INCOMING'));
 
 $originSectionId = (int)($doc['origin_section_id'] ?? 0);
 $requester = trim((string)($doc['requester'] ?? ''));
@@ -330,6 +331,8 @@ DivisionTrackingSlip::generateMovementPageA4([
   'from_label' => $fromLabel,
   'document_type' => (string)($doc['content_type'] ?? ''),
   'document_date' => (string)($doc['document_date'] ?? ''),
+  'receipt_label' => division_tracking_receipt_label($trackingScope),
+  'received_datetime_label' => division_tracking_received_datetime_label($trackingScope),
   'received_by' => $receivedBy,
   'received_datetime' => $receivedDT,
   'subject' => (string)($doc['subject'] ?? ''),

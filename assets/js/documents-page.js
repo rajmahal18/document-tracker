@@ -1,16 +1,47 @@
 (function () {
-  // Inject dark mode text color overrides for the timeline
+  // Keep timeline colors tied to the app theme, not the device's OS theme.
   const timelineStyle = document.createElement("style");
   timelineStyle.textContent = `
-    .dark .tActorName,
-    .dark .tActorTime,
-    .dark .tLineTime,
-    .dark .tLineTitle,
-    .dark .tGroupTitle,
-    .dark .tGroupSub { color: #ffffff !important; }
-    
-    @media (prefers-color-scheme: dark) {
-      .tActorName, .tActorTime, .tLineTime, .tLineTitle, .tGroupTitle, .tGroupSub { color: #ffffff !important; }
+    html[data-theme="light"] #d_timeline .tActorName,
+    html[data-theme="light"] #d_timeline .tActorTime,
+    html[data-theme="light"] #d_timeline .tLineTime,
+    html[data-theme="light"] #d_timeline .tLineTitle,
+    html[data-theme="light"] #d_timeline .tGroupTitle,
+    html[data-theme="light"] #d_timeline .tGroupSub,
+    body[data-theme="light"] #d_timeline .tActorName,
+    body[data-theme="light"] #d_timeline .tActorTime,
+    body[data-theme="light"] #d_timeline .tLineTime,
+    body[data-theme="light"] #d_timeline .tLineTitle,
+    body[data-theme="light"] #d_timeline .tGroupTitle,
+    body[data-theme="light"] #d_timeline .tGroupSub,
+    body:not([data-theme]) #d_timeline .tActorName,
+    body:not([data-theme]) #d_timeline .tActorTime,
+    body:not([data-theme]) #d_timeline .tLineTime,
+    body:not([data-theme]) #d_timeline .tLineTitle,
+    body:not([data-theme]) #d_timeline .tGroupTitle,
+    body:not([data-theme]) #d_timeline .tGroupSub {
+      color: #101828 !important;
+    }
+
+    html[data-theme="dark"] #d_timeline .tActorName,
+    html[data-theme="dark"] #d_timeline .tActorTime,
+    html[data-theme="dark"] #d_timeline .tLineTime,
+    html[data-theme="dark"] #d_timeline .tLineTitle,
+    html[data-theme="dark"] #d_timeline .tGroupTitle,
+    html[data-theme="dark"] #d_timeline .tGroupSub,
+    body[data-theme="dark"] #d_timeline .tActorName,
+    body[data-theme="dark"] #d_timeline .tActorTime,
+    body[data-theme="dark"] #d_timeline .tLineTime,
+    body[data-theme="dark"] #d_timeline .tLineTitle,
+    body[data-theme="dark"] #d_timeline .tGroupTitle,
+    body[data-theme="dark"] #d_timeline .tGroupSub,
+    .dark #d_timeline .tActorName,
+    .dark #d_timeline .tActorTime,
+    .dark #d_timeline .tLineTime,
+    .dark #d_timeline .tLineTitle,
+    .dark #d_timeline .tGroupTitle,
+    .dark #d_timeline .tGroupSub {
+      color: #ffffff !important;
     }
   `;
   document.head.appendChild(timelineStyle);
@@ -28,6 +59,8 @@
   const elDeadline = document.getElementById("d_deadline");
   const elPersonalDeadline = document.getElementById("d_personal_deadline");
   const elDeadlineCountdown = document.getElementById("d_deadline_countdown");
+  const elLatestActivityText = document.getElementById("d_latest_activity_text");
+  const elLatestActivityTime = document.getElementById("d_latest_activity_time");
   const elSubject = document.getElementById("d_subject");
   const elType = document.getElementById("d_type");
   const elProjects = document.getElementById("d_projects");
@@ -175,6 +208,30 @@
   const forwardPickerModalClose = document.getElementById("forwardPickerModalClose");
   const btnOpenForwardRouteModal = document.getElementById("btnOpenForwardRouteModal");
   const btnOpenShareVisibilityModal = document.getElementById("btnOpenShareVisibilityModal");
+  const btnOpenActionRequestModal = document.getElementById("btnOpenActionRequestModal");
+
+  const actionRequestModal = document.getElementById("actionRequestModal");
+  const actionRequestModalBackdrop = document.getElementById("actionRequestModalBackdrop");
+  const actionRequestModalClose = document.getElementById("actionRequestModalClose");
+  const selActionRequestTo = document.getElementById("ar_to_section");
+  const elActionRequestUserList = document.getElementById("ar_user_list");
+  const elActionRequestRecipientPreview = document.getElementById("actionRequestRecipientPreview");
+  const elActionRequestNotes = document.getElementById("d_action_request_notes");
+  const btnActionRequestCancel = document.getElementById("btnActionRequestCancel");
+  const btnActionRequestSend = document.getElementById("btnActionRequestSend");
+  const btnActionRequestRespond = document.getElementById("btnActionRequestRespond");
+  const drawerActionRequestHint = document.getElementById("drawerActionRequestHint");
+  const drawerActionRequestStatus = document.getElementById("drawerActionRequestStatus");
+  const actionRequestDecisionModal = document.getElementById("actionRequestDecisionModal");
+  const actionRequestDecisionModalBackdrop = document.getElementById("actionRequestDecisionModalBackdrop");
+  const actionRequestDecisionModalClose = document.getElementById("actionRequestDecisionModalClose");
+  const actionRequestDecisionPrompt = document.getElementById("actionRequestDecisionPrompt");
+  const elActionRequestDecisionNotes = document.getElementById("d_action_request_decision_notes");
+  const actionRequestDecisionModalMsg = document.getElementById("actionRequestDecisionModalMsg");
+  const btnActionRequestDecisionCancel = document.getElementById("btnActionRequestDecisionCancel");
+  const btnActionRequestSigned = document.getElementById("btnActionRequestSigned");
+  const btnActionRequestApproved = document.getElementById("btnActionRequestApproved");
+  const btnActionRequestRejected = document.getElementById("btnActionRequestRejected");
 
   const forwardDeadlineGrid = document.getElementById("forwardDeadlineGrid");
   const forwardDocumentDeadlineWrap = document.getElementById("forwardDocumentDeadlineWrap");
@@ -298,9 +355,11 @@
 
   let currentCanForward = false;
   let currentCanAttachmentForward = false;
+  let currentCanActionRequestRespond = false;
   let currentAttachmentForwardRows = [];
   let attachmentForwardAttachmentOptions = [];
   let attachmentForwardRecipientCache = new Map();
+  let currentActionRequestDecision = "";
   let currentPayload = null;
   let currentBranchMode = false;
   let currentBranches = [];
@@ -480,6 +539,14 @@
     const targetId = Number(docId || 0);
     if (targetId <= 0) return null;
 
+    const directRow = document.querySelector(`tr[data-doc-id="${targetId}"]`);
+    if (directRow) {
+      try {
+        return JSON.parse(directRow.getAttribute("data-doc") || "{}");
+      } catch {
+      }
+    }
+
     const rows = Array.from(document.querySelectorAll('tr[data-doc]'));
     for (const row of rows) {
       try {
@@ -491,6 +558,18 @@
       }
     }
     return null;
+  }
+
+  function focusVisibleDocumentRow(docId) {
+    const targetId = Number(docId || 0);
+    if (targetId <= 0) return;
+    const row = document.querySelector(`tr[data-doc-id="${targetId}"]`);
+    if (!row) return;
+    row.classList.remove("docsRowJustFocused");
+    void row.offsetWidth;
+    row.classList.add("docsRowJustFocused");
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.setTimeout(() => row.classList.remove("docsRowJustFocused"), 2200);
   }
 
   function getDrawerSwapDirection(nextPayload) {
@@ -523,13 +602,47 @@
     }, 260);
   }
 
+  async function openDocumentById(docId, options = {}) {
+    const targetId = Number(docId || 0);
+    const branchId = Number(options?.branchId || 0);
+    if (targetId <= 0) return false;
+
+    const visiblePayload = findVisibleDocumentPayload(targetId);
+    if (visiblePayload) {
+      if (branchId > 0) {
+        savePreferredBranchId(Number(visiblePayload?.id || 0), branchId);
+      }
+      focusVisibleDocumentRow(targetId);
+      openDrawer(visiblePayload);
+      return true;
+    }
+
+    try {
+      const qs = appendActingPrincipal(new URLSearchParams({ document_id: String(targetId) }), currentPayload);
+      const res = await fetch(`${API}/document_drawer_snapshot.php?${qs.toString()}`, {
+        cache: "no-store",
+        headers: { Accept: "application/json" }
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok || !data?.document) {
+        return false;
+      }
+      if (branchId > 0) {
+        savePreferredBranchId(Number(data.document?.id || 0), branchId);
+      }
+      focusVisibleDocumentRow(targetId);
+      openDrawer(data.document);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function openRelatedDocument(docId) {
     const targetId = Number(docId || 0);
     if (targetId <= 0) return;
 
-    const visiblePayload = findVisibleDocumentPayload(targetId);
-    if (visiblePayload) {
-      openDrawer(visiblePayload);
+    if (await openDocumentById(targetId)) {
       return;
     }
 
@@ -584,31 +697,12 @@
       };
     }
 
-    try {
-      const qs = appendActingPrincipal(new URLSearchParams({ document_id: String(targetId) }), currentPayload);
-      const res = await fetch(`${API}/document_drawer_snapshot.php?${qs.toString()}`, {
-        cache: "no-store",
-        headers: { Accept: "application/json" }
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.ok || !data?.document) {
-        const fallbackPayload = buildRelatedFallbackPayload(relatedSummary);
-        if (fallbackPayload) {
-          openDrawer(fallbackPayload);
-          return;
-        }
-        window.DTToast?.error?.(data?.error || "Failed to open linked document.") || console.error(data?.error || "Failed to open linked document.");
-        return;
-      }
-      openDrawer(data.document);
-    } catch {
-      const fallbackPayload = buildRelatedFallbackPayload(relatedSummary);
-      if (fallbackPayload) {
-        openDrawer(fallbackPayload);
-        return;
-      }
-      window.DTToast?.error?.("Failed to open linked document.") || console.error("Failed to open linked document.");
+    const fallbackPayload = buildRelatedFallbackPayload(relatedSummary);
+    if (fallbackPayload) {
+      openDrawer(fallbackPayload);
+      return;
     }
+    window.DTToast?.error?.("Failed to open linked document.") || console.error("Failed to open linked document.");
   }
 
   function renderRelatedDocuments(data = null) {
@@ -1037,7 +1131,7 @@
 
     if (!elPendingRemarksWrap || !elPendingRemarksPreview || !elPendingRemarksHint || !btnEditPendingRemarks) return;
 
-    const editable = !!state?.editable;
+    const editable = !!state?.editable && !currentSenderLockedByActionRequest();
     btnEditPendingRemarks.style.display = editable ? "" : "none";
 
     if (!editable) {
@@ -1316,6 +1410,9 @@
       forwarded: "Forwarded",
       attachment_forwarded: "Attachment Forwarded",
       attachment_forward_task_done: "Attachment Task Done",
+      action_request_created: "Request Sent",
+      action_request_received: "Request Received",
+      action_request_decided: "Request Responded",
       released: "Released",
       release_undone: "Undo Release",
       archived: "Archived",
@@ -1350,6 +1447,9 @@
       forwarded: "F",
       attachment_forwarded: "A",
       attachment_forward_task_done: "D",
+      action_request_created: "Q",
+      action_request_received: "R",
+      action_request_decided: "R",
       received: "R",
       attachment_added: "A",
       pending_remarks_added: "N",
@@ -1439,9 +1539,16 @@
   function currentAckLabel() {
     if (currentBranchMode) {
       const branch = getSelectedBranch();
+      if (branch && Number(branch.my_pending_route_id || 0) > 0 && Number(branch.action_request_recipient_branch || 0) === 1) {
+        return "Received";
+      }
       if (branch && Number(branch.my_pending_route_id || 0) > 0 && Number(branch.is_reference || 0) === 1) {
         return "Acknowledge";
       }
+    } else if (
+      Number(currentPayload?.flat_action_request_recipient_pending_receive || 0) === 1
+    ) {
+      return "Received";
     } else if (
       Number(currentPayload?.my_has_open_inbound || 0) === 1
       && Number(currentPayload?.is_for_reference || 0) === 1
@@ -1622,6 +1729,7 @@
       && Number(currentPayload?.flat_attachment_recipient_in_progress || 0) === 1
     );
     const canAdminAttachClosed = isAdminMode && (docStatus === "RELEASED" || docStatus === "ARCHIVED");
+    const senderLockedByRequest = currentSenderLockedByActionRequest();
 
     let canAttach = false;
     if (docStatus === "ACTIVE" || canAdminAttachClosed) {
@@ -1629,17 +1737,21 @@
         const branch = getSelectedBranch();
         canAttach = !!(
           canAdminAttachClosed
-          || isPrivileged
-          || (branch && Number(branch.can_forward || 0) === 1)
-          || (branch && Number(branch.attachment_forward_can_attach || 0) === 1)
+          || (!senderLockedByRequest && (
+            isPrivileged
+            || (branch && Number(branch.can_forward || 0) === 1)
+            || (branch && Number(branch.attachment_forward_can_attach || 0) === 1)
+          ))
         );
       } else {
         canAttach = !!(
           canAdminAttachClosed
-          || isPrivileged
-          || flatAttachmentRecipientInProgress
-          || Number(currentPayload?.my_has_actionable_role || 0) === 1
-          || Number(currentPayload?.attachment_forward_can_attach || 0) === 1
+          || (!senderLockedByRequest && (
+            isPrivileged
+            || flatAttachmentRecipientInProgress
+            || Number(currentPayload?.my_has_actionable_role || 0) === 1
+            || Number(currentPayload?.attachment_forward_can_attach || 0) === 1
+          ))
         );
       }
     }
@@ -1753,12 +1865,14 @@
     }
 
     renderAttachmentForwardStatusPanel();
+    renderActionRequestStatusPanel();
   }
 
   function applyBranchSelection(branchId) {
     currentBranchId = Number(branchId || 0);
     savePreferredBranchId(currentPayload?.id || 0, currentBranchId);
     const branch = getSelectedBranch();
+    const senderLockedByRequest = currentSenderLockedByActionRequest();
 
     renderHeaderBranchPills();
 
@@ -1774,7 +1888,9 @@
       } else {
         const bits = [];
         if (Number(branch.my_pending_route_id || 0) > 0) bits.push("Waiting for your receive");
+        else if (Number(branch.action_request_can_decide || 0) === 1) bits.push("Waiting for your signature/approval response");
         else if (Number(branch.can_forward || 0) === 1) bits.push("You can act on this lane");
+        else if (Number(branch.action_request_open_task_count || 0) > 0 && Number(branch.is_reference || 0) === 0) bits.push("Waiting for receiver response");
         else if (Number(branch.is_reference || 0) === 1) bits.push("Reference-only lane");
         else if (((branch.branch_status || "").toString().toUpperCase()) !== "ACTIVE") bits.push("Completed lane");
         else bits.push("View-only lane");
@@ -1788,7 +1904,11 @@
       }
     }
 
-    currentCanForward = !!(branch && Number(branch.can_forward || 0) === 1);
+    currentCanForward = !!(
+      branch
+      && Number(branch.can_forward || 0) === 1
+      && !senderLockedByRequest
+    );
     currentCanAttachmentForward = !!(
       branch
       && ((branch.branch_status || "").toString().toUpperCase() === "ACTIVE")
@@ -1796,6 +1916,12 @@
       && Number(branch.current_assignee_user_id || 0) > 0
       && Number(branch.current_assignee_user_id || 0) === Number((window.__CTX__ || {}).myUserId || 0)
       && Number(branch.my_pending_route_id || 0) === 0
+      && Number(branch.action_request_open_task_count || 0) === 0
+      && !senderLockedByRequest
+    );
+    currentCanActionRequestRespond = !!(
+      branch
+      && Number(branch.action_request_can_decide || 0) === 1
     );
     syncViewDocumentButton();
     refreshDrawerBranchContext();
@@ -1821,6 +1947,9 @@
         && Number(branch.attachment_forward_can_mark_done || 0) === 1
       );
       btnAttachmentTaskDone.style.display = canTaskDone ? "" : "none";
+    }
+    if (btnActionRequestRespond) {
+      btnActionRequestRespond.style.display = currentCanActionRequestRespond ? "" : "none";
     }
   }
 
@@ -1946,11 +2075,69 @@
     return Number(currentPayload?.attachment_forward_open_task_count || 0);
   }
 
+  function currentActionRequestOpenTaskCount() {
+    if (currentBranchMode) {
+      const branch = getSelectedBranch();
+      return Number(branch?.action_request_open_task_count || 0);
+    }
+    return Number(currentPayload?.action_request_open_task_count || 0);
+  }
+
+  function hasOpenSenderActionRequest() {
+    const summary = Array.isArray(currentPayload?.action_request_summary)
+      ? currentPayload.action_request_summary
+      : [];
+
+    if (currentBranchMode) {
+      const branchId = Number(getSelectedBranch()?.id || 0);
+      if (branchId <= 0) return false;
+
+      return summary.some((item) => (
+        Number(item?.is_sender || 0) === 1
+        && Number(item?.sender_branch_id || 0) === branchId
+        && ['PENDING_RECEIVE', 'IN_PROGRESS'].includes(((item?.task_status || '') + '').toUpperCase())
+      ));
+    }
+
+    return summary.some((item) => (
+      Number(item?.is_sender || 0) === 1
+      && ['PENDING_RECEIVE', 'IN_PROGRESS'].includes(((item?.task_status || '') + '').toUpperCase())
+    ));
+  }
+
+  function currentSenderLockedByActionRequest() {
+    if (hasOpenSenderActionRequest()) return true;
+
+    const openCount = currentActionRequestOpenTaskCount();
+    if (openCount <= 0) return false;
+
+    if (currentBranchMode) {
+      const branch = getSelectedBranch();
+      return !!(
+        branch
+        && Number(branch.is_reference || 0) === 0
+        && ((branch.branch_status || "").toString().toUpperCase() === "ACTIVE")
+      );
+    }
+
+    return Number(currentPayload?.my_has_actionable_role || 0) === 1;
+  }
+
   function attachmentTaskStatusLabel(status) {
     const key = (status || '').toString().trim().toUpperCase();
     if (key === 'PENDING_RECEIVE') return 'Pending receive';
     if (key === 'IN_PROGRESS') return 'In progress';
     if (key === 'DONE') return 'Done';
+    return key || 'Open';
+  }
+
+  function actionRequestStatusLabel(status) {
+    const key = (status || '').toString().trim().toUpperCase();
+    if (key === 'PENDING_RECEIVE') return 'Pending receive';
+    if (key === 'IN_PROGRESS') return 'Waiting for response';
+    if (key === 'SIGNED') return 'Signed';
+    if (key === 'APPROVED') return 'Approved';
+    if (key === 'REJECTED') return 'Rejected';
     return key || 'Open';
   }
 
@@ -1999,6 +2186,54 @@
     drawerAttachmentForwardStatus.style.display = '';
   }
 
+  function renderActionRequestStatusPanel() {
+    if (!drawerActionRequestStatus) return;
+    const summary = Array.isArray(currentPayload?.action_request_summary)
+      ? currentPayload.action_request_summary
+      : [];
+    const senderItems = summary.filter((item) => Number(item?.is_sender || 0) === 1);
+    const recipientItems = summary.filter((item) => Number(item?.is_recipient || 0) === 1);
+
+    if (!senderItems.length && !recipientItems.length) {
+      drawerActionRequestStatus.style.display = 'none';
+      drawerActionRequestStatus.innerHTML = '';
+      return;
+    }
+
+    const senderHtml = senderItems.map((item) => {
+      const who = clean(item.recipient_name) || clean(item.recipient_section_name) || 'Recipient';
+      const statusKey = (item.task_status || '').toString().toUpperCase();
+      const status = actionRequestStatusLabel(statusKey);
+      const statusClass = ['SIGNED', 'APPROVED'].includes(statusKey)
+        ? 'isDone'
+        : (statusKey === 'REJECTED' ? 'isPending' : 'isProgress');
+      return `<div class="attachmentTaskRow"><div><strong>${esc(who)}</strong><div>Waiting for response</div></div><span class="attachmentTaskStatus ${statusClass}">${esc(status)}</span></div>`;
+    }).join('');
+
+    const recipientOpenCount = recipientItems.filter((item) => ['PENDING_RECEIVE', 'IN_PROGRESS'].includes((item.task_status || '').toString().toUpperCase())).length;
+    const recipientHtml = recipientItems.length
+      ? `<div class="attachmentTaskNote">You have ${recipientOpenCount || recipientItems.length} active signature/approval request${(recipientOpenCount || recipientItems.length) === 1 ? '' : 's'} on this document.</div>`
+      : '';
+    const senderOpenCount = senderItems.filter((item) => ['PENDING_RECEIVE', 'IN_PROGRESS'].includes((item.task_status || '').toString().toUpperCase())).length;
+
+    drawerActionRequestStatus.innerHTML = `
+      <details class="attachmentTaskProgress">
+        <summary>
+          <span>
+            <span class="attachmentTaskProgressEyebrow">Signature/approval request</span>
+            <span class="attachmentTaskProgressTitle">Waiting on ${senderOpenCount} open response${senderOpenCount === 1 ? '' : 's'}.</span>
+          </span>
+          <span class="attachmentTaskProgressBadge">${senderItems.length || recipientItems.length}</span>
+        </summary>
+        <div class="attachmentTaskProgressBody">
+          ${senderItems.length ? senderHtml : ''}
+          ${recipientHtml}
+        </div>
+      </details>
+    `;
+    drawerActionRequestStatus.style.display = '';
+  }
+
   function updateAttachmentForwardMessaging() {
     const branch = currentBranchMode ? getSelectedBranch() : null;
     const openTaskCount = currentAttachmentForwardOpenTaskCount();
@@ -2030,6 +2265,19 @@
     }
   }
 
+  function updateActionRequestMessaging() {
+    const senderLockedByRequest = currentSenderLockedByActionRequest();
+
+    if (!drawerActionRequestHint) return;
+    if (senderLockedByRequest) {
+      drawerActionRequestHint.style.display = "";
+      drawerActionRequestHint.textContent = "Normal actions are locked until the receiver responds to the pending signature/approval request.";
+    } else {
+      drawerActionRequestHint.style.display = "none";
+      drawerActionRequestHint.textContent = "";
+    }
+  }
+
   function updateForwardUI() {
     const chiefCanSetDeadline = !!(window.__CTX__?.isChief);
     const isInitialRouting = Number(currentPayload?.is_initial_routing || 0) === 1;
@@ -2052,13 +2300,18 @@
       if (inputForwardPersonalDeadline) inputForwardPersonalDeadline.value = "";
       if (elForwardRemarks) elForwardRemarks.value = "";
       if (elShareRemarks) elShareRemarks.value = "";
+      if (elActionRequestNotes) elActionRequestNotes.value = "";
       closeForwardModal();
       closeForwardPickerModal();
       closeShareVisibilityModal();
+      closeActionRequestModal();
     }
     if (!currentCanAttachmentForward) {
       if (elAttachmentForwardRemarks) elAttachmentForwardRemarks.value = "";
       closeAttachmentForwardModal();
+    }
+    if (!currentCanActionRequestRespond) {
+      closeActionRequestDecisionModal();
     }
 
     if (btnAttachmentTaskDone) {
@@ -2067,8 +2320,10 @@
         : !!(Number(currentPayload?.attachment_forward_can_mark_done || 0) === 1);
       btnAttachmentTaskDone.style.display = canTaskDone ? "" : "none";
     }
+    if (btnActionRequestRespond) btnActionRequestRespond.style.display = currentCanActionRequestRespond ? "" : "none";
 
     updateAttachmentForwardMessaging();
+    updateActionRequestMessaging();
     updateForwardModeUI();
   }
 
@@ -2092,6 +2347,7 @@
     const lastEndKind = (currentPayload?.last_end_here_kind || "").toString();
     const isPrivileged = ((window.__CTX__?.myRole || "user").toString().toLowerCase() === "admin");
     const branchState = getEndHereBranchState();
+    const senderLockedByRequest = currentSenderLockedByActionRequest();
 
     let showEnd = false;
     let showUndo = false;
@@ -2099,21 +2355,26 @@
     if (currentBranchMode) {
       const branch = branchState.branch;
       const attachmentForwardRecipient = !!(branch && Number(branch.attachment_forward_recipient_branch || 0) === 1);
-      showEnd = docStatus === "ACTIVE" && branchState.canEnd && !attachmentForwardRecipient;
+      showEnd = docStatus === "ACTIVE" && branchState.canEnd && !attachmentForwardRecipient && !senderLockedByRequest;
       showUndo = branchState.canUndo;
     } else {
-      showEnd = docStatus === "ACTIVE" && flatActionable;
+      showEnd = docStatus === "ACTIVE" && flatActionable && !senderLockedByRequest;
       showUndo = docStatus === "RELEASED" && flatLifecycle && isLifecycleEndedKind(lastEndKind);
     }
 
     if (btnEndHere) btnEndHere.style.display = showEnd ? "" : "none";
     if (btnUndoEndHere) btnUndoEndHere.style.display = showUndo ? "" : "none";
 
+    if (senderLockedByRequest) {
+      if (btnRelease) btnRelease.style.display = "none";
+      if (btnArchive) btnArchive.style.display = "none";
+    }
+
     if (!options.keepModal && !showEnd && !showUndo) {
       closeEndHereModal();
     }
 
-    if (isPrivileged && !currentBranchMode && docStatus === "ACTIVE") {
+    if (!senderLockedByRequest && isPrivileged && !currentBranchMode && docStatus === "ACTIVE") {
       // Admin keeps Release/Archive as administrative lifecycle actions; End Now is for the active holder.
       if (btnEndHere) btnEndHere.style.display = flatActionable ? "" : "none";
     }
@@ -2142,6 +2403,7 @@
 
     if (selForwardTo) selForwardTo.innerHTML = html;
     if (selShareTo) selShareTo.innerHTML = html;
+    if (selActionRequestTo) selActionRequestTo.innerHTML = html;
   }
   loadSectionsOptions();
 
@@ -2260,9 +2522,19 @@
     return Array.from(elShareUserList.querySelectorAll("input.sv_user_cb"));
   }
 
+  function getAllActionRequestRecipientBoxes() {
+    if (!elActionRequestUserList) return [];
+    return Array.from(elActionRequestUserList.querySelectorAll("input.ar_user_cb"));
+  }
+
   function resetShareUsersUI(msg = "Select a section to load users...") {
     if (elShareUserList) elShareUserList.innerHTML = `<div style="opacity:.7;">${esc(msg)}</div>`;
     if (elShareRecipientsPreview) elShareRecipientsPreview.textContent = "Recipients: -";
+  }
+
+  function resetActionRequestUsersUI(msg = "Select a section to load users...") {
+    if (elActionRequestUserList) elActionRequestUserList.innerHTML = `<div style="opacity:.7;">${esc(msg)}</div>`;
+    if (elActionRequestRecipientPreview) elActionRequestRecipientPreview.textContent = "Recipient: -";
   }
 
   function getSelectedShareRecipientIds() {
@@ -2380,6 +2652,69 @@
     }
   }
 
+  function updateActionRequestMessaging() {
+    const senderLockedByRequest = currentSenderLockedByActionRequest();
+
+    if (!drawerActionRequestHint) return;
+    if (senderLockedByRequest) {
+      drawerActionRequestHint.style.display = "";
+      drawerActionRequestHint.textContent = "Normal actions are locked until the receiver responds to the pending signature/approval request.";
+    } else {
+      drawerActionRequestHint.style.display = "none";
+      drawerActionRequestHint.textContent = "";
+    }
+  }
+
+  async function loadActionRequestUsersForSection(sectionId) {
+    if (!elActionRequestUserList) return;
+
+    resetActionRequestUsersUI("Loading users...");
+
+    try {
+      const res = await fetch(`${API}/users_by_section.php?section_id=${encodeURIComponent(sectionId)}`, {
+        headers: { Accept: "application/json" }
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !Array.isArray(data) || data.length === 0) {
+        resetActionRequestUsersUI("- No users found -");
+        return;
+      }
+
+      elActionRequestUserList.innerHTML = data.map((u) => {
+        const id = Number(u.id || 0);
+        const name = clean(u.name) || `User #${id}`;
+        const initials = actorInitials(name);
+        const photoUrl = clean(u.profile_photo_url || "");
+        const chiefTag = Number(u.is_chief ? 1 : 0) === 1 ? `<span class="recipientRoleTag">Chief</span>` : "";
+        return `
+          <label class="recipientOption">
+            <input type="radio" class="ar_user_cb" name="action_request_user" value="${id}" data-user-name="${esc(name)}">
+            <span class="recipientAvatar" aria-hidden="true">
+              ${photoUrl ? `<img src="${esc(photoUrl)}" alt="" loading="lazy" decoding="async" onerror="this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='inline-flex';">` : ""}
+              <span${photoUrl ? ` style="display:none;"` : ""}>${esc(initials)}</span>
+            </span>
+            <span class="recipientMeta">
+              <span class="recipientNameRow">
+                <span class="recipientName">${esc(name)}</span>
+                ${chiefTag}
+              </span>
+              <span class="recipientSub">#${id}</span>
+            </span>
+          </label>
+        `;
+      }).join("");
+
+      getAllActionRequestRecipientBoxes().forEach((box) => {
+        box.addEventListener("change", updateActionRequestRecipientPreview);
+      });
+      updateActionRequestRecipientPreview();
+    } catch {
+      resetActionRequestUsersUI("Failed to load users");
+    }
+  }
+
   async function loadUsersForSection(sectionId) {
     if (!elUserList) return;
 
@@ -2452,6 +2787,12 @@
     if (sectionId > 0) loadShareUsersForSection(sectionId);
   });
 
+  selActionRequestTo?.addEventListener("change", () => {
+    const sectionId = Number.parseInt(selActionRequestTo.value || "0", 10) || 0;
+    resetActionRequestUsersUI();
+    if (sectionId > 0) loadActionRequestUsersForSection(sectionId);
+  });
+
   elUserList?.addEventListener("change", (e) => {
     if (e.target && e.target.classList.contains("f_user_cb")) {
       syncRecipientOptionStates();
@@ -2466,6 +2807,12 @@
       syncRecipientOptionStates(getAllShareRecipientBoxes());
       updateShareRecipientsPreview();
       updateShareNotifyEmailAvailability();
+    }
+  });
+
+  elActionRequestUserList?.addEventListener("change", (e) => {
+    if (e.target && e.target.classList.contains("ar_user_cb")) {
+      updateActionRequestRecipientPreview();
     }
   });
 
@@ -2746,6 +3093,17 @@
     } catch {
       elAttachments.textContent = "Failed to load attachments.";
     }
+  }
+
+  function updateActionRequestRecipientPreview() {
+    if (!elActionRequestRecipientPreview) return;
+    const selected = getAllActionRequestRecipientBoxes().find((b) => b.checked);
+    if (!selected) {
+      elActionRequestRecipientPreview.textContent = "Recipient: -";
+      return;
+    }
+    const name = (selected.dataset.userName || "").toString().trim() || `#${selected.value}`;
+    elActionRequestRecipientPreview.textContent = `Recipient: ${name.replace(/\s+/g, " ")}`;
   }
 
   function openAttachmentDeleteModal(attachmentId, attachmentName) {
@@ -3612,6 +3970,14 @@
     if (elTracking) elTracking.textContent = payload.tracking_display || payload.tracking_no || "";
     if (elRequester) elRequester.textContent = payload.requester || "—";
     if (elDate) elDate.textContent = payload.document_date || "—";
+    if (elLatestActivityText) {
+      elLatestActivityText.textContent = payload.latest_activity_title || payload.activity_text || "—";
+    }
+    if (elLatestActivityTime) {
+      const detail = (payload.latest_activity_detail || "").toString().trim();
+      const stamp = (payload.latest_activity_at_display || "").toString().trim();
+      elLatestActivityTime.textContent = [detail, stamp].filter(Boolean).join(" • ");
+    }
     const deadlineOutcome = ((payload.current_status || "ACTIVE").toString().toUpperCase() === "ACTIVE")
       ? ""
       : (payload.deadline_badge_text || "");
@@ -3727,6 +4093,19 @@
       : (!flatAttachmentTaskExclusive && canAckReceivedBase);
 
     const canAckReceivedPrivileged = (!currentBranchMode && inTransit && openToSectionId > 0 && mySectionId > 0 && openToSectionId === mySectionId);
+    const flatActionRequestRecipientPendingReceive = (
+      !currentBranchMode
+      && Number(payload.flat_action_request_recipient_pending_receive || 0) === 1
+    );
+    const flatActionRequestRecipientInProgress = (
+      !currentBranchMode
+      && Number(payload.flat_action_request_recipient_in_progress || 0) === 1
+    );
+    const flatActionRequestSenderWaiting = (
+      !currentBranchMode
+      && Number(payload.flat_action_request_sender_waiting || 0) === 1
+    );
+    const senderLockedByRequest = currentSenderLockedByActionRequest();
 
     let canAttach = false;
     let canForward = false;
@@ -3749,7 +4128,12 @@
       && Number(payload.attachment_forward_open_task_count || 0) > 0
       && Number(payload.my_has_actionable_role || 0) === 1
     );
-    currentCanForward = canForward && !flatAttachmentTaskLock;
+    const flatActionRequestLock = !!(
+      !currentBranchMode
+      && Number(payload.action_request_open_task_count || 0) > 0
+      && Number(payload.my_has_actionable_role || 0) === 1
+    );
+    currentCanForward = canForward && !flatAttachmentTaskLock && !flatActionRequestLock && !senderLockedByRequest;
     currentCanAttachmentForward = !!(
       !currentBranchMode
       && !flatAttachmentTaskExclusive
@@ -3757,8 +4141,16 @@
       && flatActionableByMe
       && !inTransit
       && Number(payload.my_has_open_inbound || 0) === 0
+      && !flatActionRequestLock
+      && !senderLockedByRequest
+    );
+    currentCanActionRequestRespond = !!(
+      !currentBranchMode
+      && flatActionRequestRecipientInProgress
+      && Number(payload.action_request_can_decide || 0) === 1
     );
 
+    if (senderLockedByRequest) canAttach = false;
     if (btnToggleUpload) btnToggleUpload.style.display = canAttach ? "" : "none";
     if (btnRegenerateDivisionSlip) {
       const canRegenerateSlip = !!APP.hasOwnDivisionSlip && Number(payload.can_regenerate_division_slip || 0) === 1;
@@ -3814,8 +4206,11 @@
       );
       btnAttachmentTaskDone.style.display = canTaskDoneFlat ? "" : "none";
     }
+    if (!currentBranchMode && btnActionRequestRespond) {
+      btnActionRequestRespond.style.display = currentCanActionRequestRespond ? "" : "none";
+    }
 
-    if (!currentBranchMode && flatAttachmentTaskExclusive) {
+    if (!currentBranchMode && (flatAttachmentTaskExclusive || flatActionRequestRecipientPendingReceive || flatActionRequestRecipientInProgress || flatActionRequestSenderWaiting)) {
       syncToggleLabels();
       return;
     }
@@ -3884,6 +4279,8 @@
     currentBranches = [];
     currentBranchId = 0;
     currentCanForward = false;
+    currentCanAttachmentForward = false;
+    currentCanActionRequestRespond = false;
     currentPendingRemarksState = null;
     renderPendingRemarksState(null);
     if (deadlineTicker) {
@@ -4062,6 +4459,14 @@
 
       savePreferredBranchId(docId, selectedBranchBefore);
       saveDrawerRestoreState(docId, selectedBranchBefore);
+      const nextUrl = new URL(window.location.href);
+      const currentQuick = (nextUrl.searchParams.get("quick") || "").toString().trim().toLowerCase();
+      if (currentQuick === "incoming") {
+        nextUrl.searchParams.set("quick", "pending");
+        nextUrl.searchParams.set("page", "1");
+        window.location.href = nextUrl.toString();
+        return;
+      }
       location.reload();
     } catch {
       window.DTToast?.error("Failed to acknowledge received (network error).") || console.warn("Failed to acknowledge received (network error).");
@@ -4249,6 +4654,105 @@
     }
   }
 
+  async function sendActionRequest() {
+    const docId = elId?.value;
+    const branchBeforeSend = currentBranchMode ? getSelectedBranch() : null;
+    if (!docId) return;
+
+    const toSectionId = Number.parseInt(selActionRequestTo?.value || "0", 10) || 0;
+    const selected = getAllActionRequestRecipientBoxes().find((b) => b.checked);
+    const toUserId = Number.parseInt(selected?.value || "0", 10) || 0;
+
+    if (toSectionId <= 0 || toUserId <= 0) {
+      window.DTToast?.warning("Please choose one recipient for the request.") || console.warn("Please choose one recipient for the request.");
+      return;
+    }
+
+    const form = appendActingPrincipal(new FormData(), currentPayload);
+    form.append("document_id", docId);
+    if (currentBranchMode && Number(branchBeforeSend?.id || 0) > 0) form.append("branch_id", String(Number(branchBeforeSend.id || 0)));
+    form.append("to_section_id", String(toSectionId));
+    form.append("to_user_id", String(toUserId));
+    form.append("notes", (elActionRequestNotes?.value || "").toString().trim());
+    form.append("csrf_token", window.__CSRF__ || "");
+
+    try {
+      const res = await fetch(`${API}/action_request_create.php`, {
+        method: "POST",
+        body: form,
+        headers: { Accept: "application/json" }
+      });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        window.DTToast?.error(data?.error || `Failed to send request. (${res.status})`) || console.warn(data?.error || `Failed to send request. (${res.status})`);
+        return;
+      }
+
+      if (currentBranchMode && Number(branchBeforeSend?.id || 0) > 0) {
+        savePreferredBranchId(docId, Number(branchBeforeSend.id || 0));
+        saveDrawerRestoreState(docId, Number(branchBeforeSend.id || 0));
+      } else {
+        saveDrawerRestoreState(docId, 0);
+      }
+      window.DTToast?.success(data?.message || "Signature/approval request sent.") || console.log(data?.message || "Signature/approval request sent.");
+      setTimeout(() => location.reload(), 900);
+    } catch {
+      window.DTToast?.error("Failed to send request (network error).") || console.warn("Failed to send request (network error).");
+    }
+  }
+
+  async function submitActionRequestDecision(decision) {
+    const docId = Number(currentPayload?.id || elId?.value || 0);
+    const branch = currentBranchMode ? getSelectedBranch() : null;
+    if (!docId || !decision) return;
+
+    const buttons = [btnActionRequestSigned, btnActionRequestApproved, btnActionRequestRejected];
+    buttons.forEach((btn) => { if (btn) btn.disabled = true; });
+
+    const form = appendActingPrincipal(new FormData(), currentPayload);
+    form.append("document_id", String(docId));
+    if (currentBranchMode && Number(branch?.id || 0) > 0) form.append("branch_id", String(Number(branch.id || 0)));
+    form.append("decision", decision);
+    form.append("notes", (elActionRequestDecisionNotes?.value || "").toString().trim());
+    form.append("csrf_token", window.__CSRF__ || "");
+
+    try {
+      const res = await fetch(`${API}/action_request_decide.php`, {
+        method: "POST",
+        body: form,
+        headers: { Accept: "application/json" }
+      });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        if (actionRequestDecisionModalMsg) {
+          actionRequestDecisionModalMsg.textContent = data?.error || `Failed to respond. (${res.status})`;
+          actionRequestDecisionModalMsg.className = "modalMsg error";
+          actionRequestDecisionModalMsg.style.display = "";
+        } else {
+          window.DTToast?.error(data?.error || `Failed to respond. (${res.status})`) || console.warn(data?.error || `Failed to respond. (${res.status})`);
+        }
+        return;
+      }
+
+      window.DTToast?.success(data?.message || "Request updated.") || console.log(data?.message || "Request updated.");
+      closeActionRequestDecisionModal();
+      saveDrawerRestoreState(docId, currentBranchMode && Number(branch?.id || 0) > 0 ? Number(branch.id || 0) : 0);
+      setTimeout(() => location.reload(), 900);
+    } catch {
+      if (actionRequestDecisionModalMsg) {
+        actionRequestDecisionModalMsg.textContent = "Failed to respond (network error).";
+        actionRequestDecisionModalMsg.className = "modalMsg error";
+        actionRequestDecisionModalMsg.style.display = "";
+      } else {
+        window.DTToast?.error("Failed to respond (network error).") || console.warn("Failed to respond (network error).");
+      }
+    } finally {
+      buttons.forEach((btn) => { if (btn) btn.disabled = false; });
+    }
+  }
+
   async function savePendingRouteRemarks() {
     const docId = Number(elId?.value || 0);
     if (!docId || !currentPendingRemarksState?.editable) return;
@@ -4387,26 +4891,11 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
 
   const restoreState = consumeDrawerRestoreState();
   if (restoreState?.docId) {
-    const rows = Array.from(document.querySelectorAll("[data-doc]"));
-    const match = rows.find((row) => {
-      const raw = row.getAttribute("data-doc") || "{}";
-      try {
-        const payload = JSON.parse(raw);
-        return Number(payload?.id || 0) === Number(restoreState.docId || 0);
-      } catch {
-        return false;
-      }
-    });
-
-    if (match) {
-      const raw = match.getAttribute("data-doc") || "{}";
-      let payload;
-      try { payload = JSON.parse(raw); } catch { payload = {}; }
-      if (Number(restoreState.branchId || 0) > 0) {
-        savePreferredBranchId(Number(payload?.id || 0), Number(restoreState.branchId || 0));
-      }
-      setTimeout(() => openDrawer(payload), 0);
-    }
+    setTimeout(() => {
+      void openDocumentById(Number(restoreState.docId || 0), {
+        branchId: Number(restoreState.branchId || 0),
+      });
+    }, 0);
   }
 
   btnToggleUpload?.addEventListener("click", () => {
@@ -4455,10 +4944,50 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
     selShareTo?.focus();
   }
 
+  function openActionRequestModal() {
+    if (!currentCanForward || !actionRequestModal) return;
+    closeForwardPickerModal();
+    if (selActionRequestTo) selActionRequestTo.value = "";
+    if (elActionRequestNotes) elActionRequestNotes.value = "";
+    resetActionRequestUsersUI();
+    actionRequestModal.classList.add("open");
+    actionRequestModal.setAttribute("aria-hidden", "false");
+    selActionRequestTo?.focus();
+  }
+
   function closeShareVisibilityModal() {
     if (!shareVisibilityModal) return;
     shareVisibilityModal.classList.remove("open");
     shareVisibilityModal.setAttribute("aria-hidden", "true");
+  }
+
+  function closeActionRequestModal() {
+    if (!actionRequestModal) return;
+    actionRequestModal.classList.remove("open");
+    actionRequestModal.setAttribute("aria-hidden", "true");
+  }
+
+  function openActionRequestDecisionModal() {
+    if (!actionRequestDecisionModal || !currentCanActionRequestRespond) return;
+    currentActionRequestDecision = "";
+    if (elActionRequestDecisionNotes) elActionRequestDecisionNotes.value = "";
+    if (actionRequestDecisionModalMsg) {
+      actionRequestDecisionModalMsg.textContent = "";
+      actionRequestDecisionModalMsg.className = "modalMsg";
+      actionRequestDecisionModalMsg.style.display = "none";
+    }
+    if (actionRequestDecisionPrompt) {
+      actionRequestDecisionPrompt.textContent = "Pick one action for this received request.";
+    }
+    actionRequestDecisionModal.classList.add("open");
+    actionRequestDecisionModal.setAttribute("aria-hidden", "false");
+    btnActionRequestSigned?.focus();
+  }
+
+  function closeActionRequestDecisionModal() {
+    if (!actionRequestDecisionModal) return;
+    actionRequestDecisionModal.classList.remove("open");
+    actionRequestDecisionModal.setAttribute("aria-hidden", "true");
   }
 
   function openReleaseModal() {
@@ -4794,6 +5323,7 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
   btnToggleForward?.addEventListener("click", openForwardPickerModal);
   btnOpenForwardRouteModal?.addEventListener("click", openForwardModal);
   btnOpenShareVisibilityModal?.addEventListener("click", openShareVisibilityModal);
+  btnOpenActionRequestModal?.addEventListener("click", openActionRequestModal);
   drawerTabs.forEach((tab) => {
     tab.addEventListener("click", () => setDrawerTab(tab.dataset.drawerTab || "overview"));
   });
@@ -4806,6 +5336,9 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
   shareVisibilityModalClose?.addEventListener("click", closeShareVisibilityModal);
   btnShareVisibilityCancel?.addEventListener("click", closeShareVisibilityModal);
   shareVisibilityModalBackdrop?.addEventListener("click", closeShareVisibilityModal);
+  actionRequestModalClose?.addEventListener("click", closeActionRequestModal);
+  btnActionRequestCancel?.addEventListener("click", closeActionRequestModal);
+  actionRequestModalBackdrop?.addEventListener("click", closeActionRequestModal);
   attachmentForwardModalClose?.addEventListener("click", closeAttachmentForwardModal);
   btnAttachmentForwardCancel?.addEventListener("click", closeAttachmentForwardModal);
   attachmentForwardModalBackdrop?.addEventListener("click", closeAttachmentForwardModal);
@@ -4832,10 +5365,17 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
 
   btnAckReceived?.addEventListener("click", ackReceived);
   btnAttachmentTaskDone?.addEventListener("click", openAttachmentTaskDoneModal);
+  btnActionRequestRespond?.addEventListener("click", openActionRequestDecisionModal);
   attachmentTaskDoneModalClose?.addEventListener("click", closeAttachmentTaskDoneModal);
   btnAttachmentTaskDoneCancel?.addEventListener("click", closeAttachmentTaskDoneModal);
   attachmentTaskDoneModalBackdrop?.addEventListener("click", closeAttachmentTaskDoneModal);
   btnAttachmentTaskDoneConfirm?.addEventListener("click", submitAttachmentTaskDone);
+  actionRequestDecisionModalClose?.addEventListener("click", closeActionRequestDecisionModal);
+  btnActionRequestDecisionCancel?.addEventListener("click", closeActionRequestDecisionModal);
+  actionRequestDecisionModalBackdrop?.addEventListener("click", closeActionRequestDecisionModal);
+  btnActionRequestSigned?.addEventListener("click", () => submitActionRequestDecision("SIGNED"));
+  btnActionRequestApproved?.addEventListener("click", () => submitActionRequestDecision("APPROVED"));
+  btnActionRequestRejected?.addEventListener("click", () => submitActionRequestDecision("REJECTED"));
   attachmentDeleteModalClose?.addEventListener("click", closeAttachmentDeleteModal);
   btnAttachmentDeleteCancel?.addEventListener("click", closeAttachmentDeleteModal);
   attachmentDeleteModalBackdrop?.addEventListener("click", closeAttachmentDeleteModal);
@@ -4867,6 +5407,7 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
   btnArchive?.addEventListener("click", () => updateStatus((btnArchive.dataset.nextStatus || "ARCHIVED").toUpperCase()));
   btnForward?.addEventListener("click", forwardDoc);
   btnShareVisibilitySend?.addEventListener("click", shareVisibilityDoc);
+  btnActionRequestSend?.addEventListener("click", sendActionRequest);
   btnAttachUpload?.addEventListener("click", uploadAttachment);
 
   async function regenerateDivisionSlip(triggerButton) {
@@ -5101,6 +5642,7 @@ document.addEventListener("click", function (e) {
 (function () {
   const form = document.querySelector(".docsToolbarSearch");
   const docsList = document.getElementById("docsList");
+  const docsPager = document.getElementById("docsPager");
   if (!(form instanceof HTMLFormElement)) return;
   if (!(docsList instanceof HTMLDivElement)) return;
 
@@ -5165,9 +5707,17 @@ document.addEventListener("click", function (e) {
       const parsed = new DOMParser().parseFromString(html, "text/html");
       const nextDocsList = parsed.getElementById("docsList");
       if (!(nextDocsList instanceof HTMLDivElement)) throw new Error("Results container missing");
+      const nextDocsPager = parsed.getElementById("docsPager");
       if (submitRevision !== inputRevision) return;
 
       docsList.innerHTML = nextDocsList.innerHTML;
+      if (docsPager instanceof HTMLDivElement) {
+        if (nextDocsPager instanceof HTMLDivElement) {
+          docsPager.innerHTML = nextDocsPager.innerHTML;
+        } else {
+          docsPager.innerHTML = "";
+        }
+      }
       window.DTBindDocumentRows?.(docsList);
       window.history.replaceState({}, "", url.toString());
 

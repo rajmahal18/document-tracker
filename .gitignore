@@ -17,3 +17,6 @@ node_modules/
 *.zip
 
 uploads/profile-pictures/*
+
+# temporary folders
+/.tmp_taskmonitor_zip/

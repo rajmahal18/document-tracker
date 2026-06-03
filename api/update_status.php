@@ -64,6 +64,12 @@ try {
     echo json_encode(["ok" => false, "error" => "Cannot change document lifecycle status while there are pending attachment-forward tasks."]);
     exit;
   }
+  if (workflow_document_has_open_action_requests($conn, $docId)) {
+    $conn->rollback();
+    http_response_code(409);
+    echo json_encode(["ok" => false, "error" => "Cannot change document lifecycle status while there is a pending signature/approval request."]);
+    exit;
+  }
 
   $canActOnLegacyDocument = workflow_user_can_act_legacy_document(
     $conn,

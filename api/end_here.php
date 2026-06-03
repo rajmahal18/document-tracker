@@ -94,6 +94,12 @@ try {
     echo json_encode(["ok" => false, "error" => "Cannot end this workflow while there are pending attachment-forward tasks."]);
     exit;
   }
+  if (workflow_document_has_open_action_requests($conn, $docId)) {
+    $conn->rollback();
+    http_response_code(409);
+    echo json_encode(["ok" => false, "error" => "Cannot end this workflow while there is a pending signature/approval request."]);
+    exit;
+  }
 
   if ($docHasRealBranches) {
     if ($branchIdReq <= 0) {

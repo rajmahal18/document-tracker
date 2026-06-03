@@ -29,7 +29,8 @@ if (!$task) {
 }
 
 $actorUserId = (int)($_SESSION['user_id'] ?? 0);
-if (!tms_user_can_edit_task($conn, $task, $actorUserId)) {
+$permissions = tms_task_permissions($conn, $task, $actorUserId);
+if (!$permissions['can_delete_task']) {
   http_response_code(403);
   echo json_encode(['ok' => false, 'error' => 'You are not allowed to delete this task.']);
   exit;

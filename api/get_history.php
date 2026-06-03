@@ -736,7 +736,7 @@ try {
     ], true)) {
       $eventKey = (string)$payload["kind"];
     }
-    if (in_array(($payload["kind"] ?? ""), ["attachment_forwarded", "attachment_forward_task_done"], true)) {
+    if (in_array(($payload["kind"] ?? ""), ["attachment_forwarded", "attachment_forward_task_done", "action_request_created", "action_request_decided", "action_request_received"], true)) {
       $eventKey = (string)$payload["kind"];
     }
     if (in_array(($payload["kind"] ?? ""), ["holder_progress_note_added", "holder_progress_note_updated", "holder_progress_note_cleared", "admin_closed_note_added", "admin_closed_note_updated", "admin_closed_note_cleared"], true)) {
@@ -940,11 +940,37 @@ try {
         $attachmentTaskSummary = $buildAttachmentTaskSummary($docId);
         break;
 
+      case "action_request_created":
+        $requestTarget = $firstNonEmpty([
+          $payload["to_user_name"] ?? "",
+          $payloadToUsers[0] ?? "",
+          $payload["to_section_name"] ?? "",
+        ]);
+        $title = "{$actor} requested signature/approval";
+        if ($requestTarget !== '') {
+          $title .= " from {$requestTarget}";
+        }
+        break;
+
+      case "action_request_decided":
+        $decision = strtoupper(trim((string)($payload['decision'] ?? '')));
+        $title = match ($decision) {
+          'SIGNED' => "{$actor} marked the request as signed",
+          'APPROVED' => "{$actor} marked the request as approved",
+          'REJECTED' => "{$actor} rejected the request",
+          default => "{$actor} responded to the request",
+        };
+        break;
+
       case "received":
         $title = "{$actor} received the document";
         if ($isReferenceEvent) {
           $title = "{$actor} acknowledged the shared visibility";
         }
+        break;
+
+      case "action_request_received":
+        $title = "{$actor} received the signature/approval request";
         break;
 
       case "branch_ended_here":

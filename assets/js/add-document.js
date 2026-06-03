@@ -16,6 +16,10 @@
   const canSetPersonalDeadline = !!cfg.canSetPersonalDeadline;
   const divisionTrackingLookupUrl = String(cfg.divisionTrackingLookupUrl || "");
   const excludeDocumentId = Number(cfg.excludeDocumentId || 0);
+  const divisionTrackingPreviewIncoming = String(cfg.divisionTrackingPreviewIncoming || "");
+  const divisionTrackingPreviewOutgoing = String(cfg.divisionTrackingPreviewOutgoing || "");
+  const divisionTrackingPrefixIncoming = String(cfg.divisionTrackingPrefixIncoming || "");
+  const divisionTrackingPrefixOutgoing = String(cfg.divisionTrackingPrefixOutgoing || "");
 
   const contentTypeSelect = document.getElementById("contentTypeSelect");
   const contentTypeOtherWrap = document.getElementById("contentTypeOtherWrap");
@@ -33,6 +37,10 @@
   const savedAttachmentCard = document.getElementById("savedAttachmentCard");
   const createDivisionTrackingNoInput = document.getElementById("createDivisionTrackingNo");
   const createDivisionTrackingDuplicateHint = document.getElementById("createDivisionTrackingDuplicateHint");
+  const createDivisionTrackingFormatHint = document.getElementById("createDivisionTrackingFormatHint");
+  const divisionSlipDirectionSelect = document.getElementById("divisionSlipDirectionSelect");
+  const divisionSlipReceivedLabel = document.getElementById("divisionSlipReceivedLabel");
+  const divisionSlipReceivedHint = document.getElementById("divisionSlipReceivedHint");
   const editDivisionTrackingNoInput = document.getElementById("editDivisionTrackingNo");
   const editDivisionTrackingDuplicateHint = document.getElementById("editDivisionTrackingDuplicateHint");
 
@@ -151,6 +159,46 @@
     el.style.display = on ? "flex" : "none";
   }
 
+  function selectedDivisionSlipDirection() {
+    return String(divisionSlipDirectionSelect?.value || "incoming").toLowerCase() === "outgoing" ? "outgoing" : "incoming";
+  }
+
+  function divisionSlipPreviewForDirection(direction) {
+    return direction === "outgoing" ? divisionTrackingPreviewOutgoing : divisionTrackingPreviewIncoming;
+  }
+
+  function divisionSlipPrefixForDirection(direction) {
+    return direction === "outgoing" ? divisionTrackingPrefixOutgoing : divisionTrackingPrefixIncoming;
+  }
+
+  function syncDivisionSlipDirectionState() {
+    const direction = selectedDivisionSlipDirection();
+    const preview = divisionSlipPreviewForDirection(direction);
+    const prefix = divisionSlipPrefixForDirection(direction);
+    const normalizedValue = String(createDivisionTrackingNoInput?.value || "").trim().toUpperCase().replace(/\s+/g, "");
+    const incomingPreview = divisionTrackingPreviewIncoming.trim().toUpperCase().replace(/\s+/g, "");
+    const outgoingPreview = divisionTrackingPreviewOutgoing.trim().toUpperCase().replace(/\s+/g, "");
+
+    if (createDivisionTrackingNoInput) {
+      createDivisionTrackingNoInput.placeholder = preview;
+      if (!normalizedValue || normalizedValue === incomingPreview || normalizedValue === outgoingPreview) {
+        createDivisionTrackingNoInput.value = preview;
+      }
+    }
+
+    if (createDivisionTrackingFormatHint) {
+      createDivisionTrackingFormatHint.textContent = `Format: ${prefix} MMDDYYNN. Auto-filled but editable.`;
+    }
+
+    if (divisionSlipReceivedLabel) {
+      divisionSlipReceivedLabel.innerHTML = `${direction === "outgoing" ? "Created date and time" : "Received date and time"} <span class="mini" style="font-weight:700;">(optional)</span>`;
+    }
+
+    if (divisionSlipReceivedHint) {
+      divisionSlipReceivedHint.textContent = `If filled, this is printed in the ${direction === "outgoing" ? "created date and time" : "received date and time"} box of the generated division tracking slip. Leave blank if not needed.`;
+    }
+  }
+
 
   function syncDivisionChiefQuickMode() {
     if (!destinationBuilder) return;
@@ -223,6 +271,11 @@
     if (radios.length) {
       radios.forEach((r) => r.addEventListener("change", syncGen));
       syncGen();
+    }
+
+    if (divisionSlipDirectionSelect) {
+      divisionSlipDirectionSelect.addEventListener("change", syncDivisionSlipDirectionState);
+      syncDivisionSlipDirectionState();
     }
   }
 

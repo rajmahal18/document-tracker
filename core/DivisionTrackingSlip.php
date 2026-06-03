@@ -362,12 +362,20 @@ final class DivisionTrackingSlip
     $metaValueSize = $fieldValueSize;
     $metaValueLineHeight = 3.8;
     $receivedByValueY = $metaValueY + 0.8;
+    $receiptLabel = trim((string)($data['receipt_label'] ?? 'Received by:'));
+    if ($receiptLabel === '') {
+      $receiptLabel = 'Received by:';
+    }
+    $receivedDatetimeLabel = trim((string)($data['received_datetime_label'] ?? 'Received Date and Time:'));
+    if ($receivedDatetimeLabel === '') {
+      $receivedDatetimeLabel = 'Received Date and Time:';
+    }
 
     $txt($x0 + 2, $metaLabelY, 'From (if applicable):', '', $metaLabelSize);
     $txt($xDocType + 2, $metaLabelY, 'Document Type:', '', $metaLabelSize);
     $txt($xR + 2, $metaLabelY, 'Document Date:', '', $metaLabelSize);
-    $txt($xR + $c1 + 2, $metaLabelY, 'Received by:', '', $metaLabelSize);
-    $wrap($xR + $c1 + $c2 + 2, $metaLabelY, $c3 - 4, "Received Date\nand Time:", '', $metaLabelSize, 3.1, 'L');
+    $txt($xR + $c1 + 2, $metaLabelY, $receiptLabel, '', $metaLabelSize);
+    $wrap($xR + $c1 + $c2 + 2, $metaLabelY, $c3 - 4, str_replace(' and ', "\nand ", $receivedDatetimeLabel), '', $metaLabelSize, 3.1, 'L');
 
     $from = trim((string)($data['from_label'] ?? ''));
     $docType = trim((string)($data['document_type'] ?? ($data['content_type'] ?? '')));

@@ -396,6 +396,8 @@ $myDivisionCode = "";
 $hasOwnDivisionSlip = false;
 $ownDivisionSlipLabel = "";
 $ownDivisionTrackingPreview = "";
+$ownDivisionTrackingPreviewIncoming = "";
+$ownDivisionTrackingPreviewOutgoing = "";
 
 $myDivisionMeta = get_user_division_meta($conn, $fromSectionId);
 if (is_array($myDivisionMeta)) {
@@ -405,7 +407,9 @@ if (is_array($myDivisionMeta)) {
   $hasOwnDivisionSlip = is_supported_division_tracking_code($myDivisionCode);
   if ($hasOwnDivisionSlip) {
     $ownDivisionSlipLabel = $myDivisionCode . ' Document Tracking Slip';
-    $ownDivisionTrackingPreview = preview_next_division_tracking_number($conn, $myDivisionId, new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')));
+    $ownDivisionTrackingPreviewIncoming = preview_next_division_tracking_number($conn, $myDivisionId, new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')), 'INCOMING');
+    $ownDivisionTrackingPreviewOutgoing = preview_next_division_tracking_number($conn, $myDivisionId, new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')), 'OUTGOING');
+    $ownDivisionTrackingPreview = $ownDivisionTrackingPreviewIncoming;
   }
 }
 
@@ -570,6 +574,7 @@ if ($editDocumentId > 0) {
       d.current_holder_section_id,
       d.created_by_user_id,
       COALESCE(ddt.tracking_no, '') AS division_tracking_no,
+      COALESCE(ddt.tracking_scope, 'INCOMING') AS division_tracking_scope,
       (
         SELECT COUNT(*)
         FROM document_events e_setup
@@ -644,6 +649,9 @@ if (($editMode || $childSetupMode) && $_SERVER["REQUEST_METHOD"] !== "POST") {
   $_POST["content_type"] = $childSetupMode ? "" : (string)($editDocument["content_type"] ?? "");
   $_POST["comm_type"] = $childSetupMode ? "internal" : (string)($editDocument["comm_type"] ?? "internal");
   $_POST["division_tracking_no"] = (string)($editDocument["division_tracking_no"] ?? "");
+  $_POST["division_slip_direction"] = $childSetupMode
+    ? "incoming"
+    : strtolower((string)($editDocument["division_tracking_scope"] ?? "INCOMING"));
   if ($childSetupMode) {
     $_POST["gen_choice"] = "none";
     $_POST["division_slip_mode"] = "attach";
@@ -803,18 +811,22 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
 
   $transmittalMode = (string)($_POST['transmittal_mode'] ?? 'attach');
   $divisionSlipMode = (string)($_POST['division_slip_mode'] ?? 'attach');
+  $divisionSlipDirection = normalize_division_tracking_scope((string)($_POST['division_slip_direction'] ?? 'INCOMING'));
   $divisionTrackingInput = trim((string)($_POST['division_tracking_no'] ?? ''));
   $forceDuplicateDivisionTracking = ((string)($_POST['force_duplicate_division_tracking'] ?? '') === '1');
   $divisionSlipReceivedRaw = trim((string)($_POST['division_slip_received_datetime'] ?? ''));
   $divisionSlipReceivedDatetime = format_optional_slip_received_datetime($divisionSlipReceivedRaw);
 
   if ($genChoice !== 'division_slip') {
+    $divisionSlipDirection = 'INCOMING';
     $divisionTrackingInput = '';
     $forceDuplicateDivisionTracking = false;
     $divisionSlipReceivedRaw = '';
     $divisionSlipReceivedDatetime = null;
   } elseif ($divisionTrackingInput === '' && $hasOwnDivisionSlip) {
-    $divisionTrackingInput = $ownDivisionTrackingPreview;
+    $divisionTrackingInput = $divisionSlipDirection === 'OUTGOING'
+      ? $ownDivisionTrackingPreviewOutgoing
+      : $ownDivisionTrackingPreviewIncoming;
   }
 
   if (strcasecmp((string)($_POST["content_type"] ?? ""), "Others") === 0 && $content_type_other === "") {
@@ -834,6 +846,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
   } elseif (!$routeOnCreate && $genChoice === "transmittal") {
     $error = "Transmittal Memo needs a destination. Choose Save and route now, or generate a division tracking slip instead.";
   } else {
+    if ($hasOwnDivisionSlip && $myDivisionId > 0) {
+      // Run any legacy schema self-healing before transactions start.
+      // DDL inside a transaction can trigger implicit commits and defeat rollback.
+      ensure_division_tracking_tables($conn);
+    }
+
     if ($editMode || $childSetupMode) {
       $txStarted = false;
       $txCommitted = false;
@@ -997,6 +1015,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           $qrUrl = app_url(PUBLIC_PATH . "/qr.php?t=" . urlencode($qrToken));
           $divisionTrackingRow = get_document_division_tracking($conn, $editDocumentId, $myDivisionId);
           $divisionSlipNo = trim((string)($divisionTrackingRow['tracking_no'] ?? $divisionTrackingInput));
+          $divisionSlipScope = normalize_division_tracking_scope((string)($divisionTrackingRow['tracking_scope'] ?? $divisionSlipDirection));
           $divisionHead = resolve_division_head($conn, $myDivisionId);
           $flowRows = build_division_slip_flow_rows($conn, $editDocumentId, $myDivisionId, $actualUserFullName);
           $nameEntries = build_division_name_initial_entries($conn, $myDivisionId, (int)($divisionHead['id'] ?? 0));
@@ -1011,6 +1030,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             "document_date"        => $document_date,
             "subject"              => $subject,
             "mpw_tracking_no"      => $resolvedTrackingNo,
+            "receipt_label"        => division_tracking_receipt_label($divisionSlipScope),
+            "received_datetime_label" => division_tracking_received_datetime_label($divisionSlipScope),
             "received_by"          => $actualUserFullName !== "" ? $actualUserFullName : trim((string)($_SESSION["full_name"] ?? "")),
             "received_datetime"    => (string)$divisionSlipReceivedDatetime,
             "assigned_to"          => $assignedTo,
@@ -1053,6 +1074,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             "attachment_id" => $divisionAttachId,
             "file" => $orig,
             "division_code" => $myDivisionCode,
+            "slip_direction" => strtolower($divisionSlipScope),
             "received_by_name" => $actualUserFullName !== "" ? $actualUserFullName : trim((string)($_SESSION["full_name"] ?? "")),
             "received_datetime" => (string)$divisionSlipReceivedDatetime,
             "assistant_actual_user_id" => $assistantModeEnabled ? $actualUserId : null,
@@ -1229,8 +1251,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             $myDivisionId,
             $divisionTrackingInput,
             $userId,
-            strtoupper(trim($divisionTrackingInput)) !== strtoupper(trim($ownDivisionTrackingPreview)),
-            $forceDuplicateDivisionTracking
+            strtoupper(trim($divisionTrackingInput)) !== strtoupper(trim($divisionSlipDirection === 'OUTGOING' ? $ownDivisionTrackingPreviewOutgoing : $ownDivisionTrackingPreviewIncoming)),
+            $forceDuplicateDivisionTracking,
+            $divisionSlipDirection
           );
         }
         $resolvedProjectIds = resolve_project_ids_for_document($conn, $projectIds, $projectCodes);
@@ -1453,12 +1476,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
         // 6) optional: attach initial file
         move_temp_attachment_to_document($conn, $docId, $userId, $fromSectionId);
 
-        $conn->commit();
-        $txCommitted = true;
-
-        // ========= AFTER COMMIT: generate chosen PDF and attach =========
         $transAttachId = 0;
-        $ppdAttachId = 0;
+        $divisionAttachId = 0;
+        $postCommitRedirect = "";
 
         if ($genChoice === "transmittal") {
           require_once __DIR__ . "/../core/TransmittalMemo.php";
@@ -1583,7 +1603,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           $stmt->execute();
 
           if ($transmittalMode === "print" && $transAttachId > 0) {
-            redirect(PUBLIC_PATH . "/transmittal_print.php?id=" . $transAttachId);
+            $postCommitRedirect = PUBLIC_PATH . "/transmittal_print.php?id=" . $transAttachId;
           }
         }
 
@@ -1662,6 +1682,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           $qrUrl = app_url(PUBLIC_PATH . "/qr.php?t=" . urlencode($qrToken));
           $divisionTrackingRow = get_document_division_tracking($conn, $docId, $myDivisionId);
           $divisionSlipNo = trim((string)($divisionTrackingRow['tracking_no'] ?? $divisionTrackingInput));
+          $divisionSlipScope = normalize_division_tracking_scope((string)($divisionTrackingRow['tracking_scope'] ?? $divisionSlipDirection));
           $divisionHead = resolve_division_head($conn, $myDivisionId);
           $flowRows = build_division_slip_flow_rows($conn, $docId, $myDivisionId, $actualUserFullName);
           $nameEntries = build_division_name_initial_entries($conn, $myDivisionId, (int)($divisionHead['id'] ?? 0));
@@ -1676,6 +1697,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             "document_date"        => $document_date,
             "subject"              => $subject,
             "mpw_tracking_no"      => $tracking_no,
+            "receipt_label"        => division_tracking_receipt_label($divisionSlipScope),
+            "received_datetime_label" => division_tracking_received_datetime_label($divisionSlipScope),
             "received_by"          => $actualUserFullName !== "" ? $actualUserFullName : trim((string)($_SESSION["full_name"] ?? "")),
             "received_datetime"    => (string)$divisionSlipReceivedDatetime,
             "assigned_to"          => $assignedTo,
@@ -1722,6 +1745,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             "attachment_id" => $divisionAttachId,
             "file" => $orig,
             "division_code" => $myDivisionCode,
+            "slip_direction" => strtolower($divisionSlipScope),
             "received_by_name" => $actualUserFullName !== "" ? $actualUserFullName : trim((string)($_SESSION["full_name"] ?? "")),
             "received_datetime" => (string)$divisionSlipReceivedDatetime,
             "assistant_actual_user_id" => $assistantModeEnabled ? $actualUserId : null,
@@ -1739,12 +1763,18 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           $stmt->execute();
 
           if ($divisionSlipMode === "print" && $divisionAttachId > 0) {
-            $printRedirect = PUBLIC_PATH . "/division_tracking_slip_print.php?id=" . $divisionAttachId;
+            $postCommitRedirect = PUBLIC_PATH . "/division_tracking_slip_print.php?id=" . $divisionAttachId;
             if ($assistantModeEnabled && $actingPrincipalUserId > 0) {
-              $printRedirect .= "&acting_principal_user_id=" . $actingPrincipalUserId;
+              $postCommitRedirect .= "&acting_principal_user_id=" . $actingPrincipalUserId;
             }
-            redirect($printRedirect);
           }
+        }
+
+        $conn->commit();
+        $txCommitted = true;
+
+        if ($postCommitRedirect !== "") {
+          redirect($postCommitRedirect);
         }
 
         $_SESSION["documents_created_flash"] = [
@@ -1806,6 +1836,11 @@ $contentTypeOptions = [
 
 $postedContentType = trim((string)($_POST["content_type"] ?? ""));
 $postedContentTypeOther = trim((string)($_POST["content_type_other"] ?? ""));
+$postedDivisionSlipDirection = normalize_division_tracking_scope((string)($_POST["division_slip_direction"] ?? "INCOMING"));
+$selectedDivisionTrackingPreview = $postedDivisionSlipDirection === 'OUTGOING'
+  ? $ownDivisionTrackingPreviewOutgoing
+  : $ownDivisionTrackingPreviewIncoming;
+$divisionSlipHandledAtLabel = $postedDivisionSlipDirection === 'OUTGOING' ? 'Created date and time' : 'Received date and time';
 $contentTypeSelectedValue = $postedContentType;
 if ($postedContentType !== '' && !in_array($postedContentType, $contentTypeOptions, true)) {
   $contentTypeSelectedValue = 'Others';
@@ -2008,7 +2043,7 @@ require __DIR__ . "/../includes/layout.php";
               value="<?= htmlspecialchars($_POST["division_tracking_no"] ?? "") ?>"
               placeholder="<?= htmlspecialchars($ownDivisionTrackingPreview) ?>"
             >
-            <div class="mini">Format: <?= htmlspecialchars($myDivisionCode) ?> MMDDYYNN.</div>
+            <div class="mini">Format: <?= htmlspecialchars($myDivisionCode) ?> MMDDYYNN or <?= htmlspecialchars($myDivisionCode) ?>OUT MMDDYYNN.</div>
             <div id="editDivisionTrackingDuplicateHint" class="mini" style="margin-top:6px; color:#b45309; display:none;"></div>
             <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-weight:700;">
               <input type="checkbox" name="force_duplicate_division_tracking" value="1" <?= (($_POST["force_duplicate_division_tracking"] ?? "") === "1") ? "checked" : "" ?>>
@@ -2162,9 +2197,16 @@ require __DIR__ . "/../includes/layout.php";
           </div>
 
           <div id="createDivisionTrackingWrap" style="margin-top:12px; display:<?= $divisionSlipSelected ? 'block' : 'none' ?>;">
+            <label style="font-weight:800;display:block;margin-bottom:6px;">Slip Direction</label>
+            <select id="divisionSlipDirectionSelect" name="division_slip_direction" <?= $divisionSlipSelected ? '' : 'disabled' ?>>
+              <option value="incoming" <?= $postedDivisionSlipDirection === 'INCOMING' ? 'selected' : '' ?>>Incoming</option>
+              <option value="outgoing" <?= $postedDivisionSlipDirection === 'OUTGOING' ? 'selected' : '' ?>>Outgoing</option>
+            </select>
+            <div class="mini" style="margin-top:6px;">Use <b>Outgoing</b> only for the slip created by your division during intake. Holder-generated slips after another division sends you a document should stay incoming.</div>
+
             <label style="font-weight:800;display:block;margin-bottom:6px;">Own Division Tracking Number</label>
-            <input type="text" id="createDivisionTrackingNo" name="division_tracking_no" value="<?= htmlspecialchars($_POST["division_tracking_no"] ?? $ownDivisionTrackingPreview) ?>" placeholder="<?= htmlspecialchars($ownDivisionTrackingPreview) ?>" <?= $divisionSlipSelected ? '' : 'disabled' ?>>
-            <div class="mini" style="margin-top:6px;">Format: <?= htmlspecialchars($myDivisionCode) ?> MMDDYYNN. Auto-filled but editable.</div>
+            <input type="text" id="createDivisionTrackingNo" name="division_tracking_no" value="<?= htmlspecialchars($_POST["division_tracking_no"] ?? $selectedDivisionTrackingPreview) ?>" placeholder="<?= htmlspecialchars($selectedDivisionTrackingPreview) ?>" <?= $divisionSlipSelected ? '' : 'disabled' ?>>
+            <div id="createDivisionTrackingFormatHint" class="mini" style="margin-top:6px;">Format: <?= htmlspecialchars(build_division_tracking_prefix($myDivisionCode, $postedDivisionSlipDirection)) ?> MMDDYYNN. Auto-filled but editable.</div>
             <div id="createDivisionTrackingDuplicateHint" class="mini" style="margin-top:6px; color:#b45309; display:none;"></div>
             <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-weight:700;">
               <input type="checkbox" name="force_duplicate_division_tracking" value="1" <?= (($_POST["force_duplicate_division_tracking"] ?? "") === "1") ? "checked" : "" ?> <?= $divisionSlipSelected ? '' : 'disabled' ?>>
@@ -2173,14 +2215,14 @@ require __DIR__ . "/../includes/layout.php";
           </div>
 
           <div id="divisionSlipReceivedWrap" style="margin-top:12px; display:<?= $divisionSlipSelected ? 'grid' : 'none' ?>; gap:6px;">
-            <label style="font-weight:800;">Received date and time <span class="mini" style="font-weight:700;">(optional)</span></label>
+            <label id="divisionSlipReceivedLabel" style="font-weight:800;"><?= htmlspecialchars($divisionSlipHandledAtLabel) ?> <span class="mini" style="font-weight:700;">(optional)</span></label>
             <input
               type="datetime-local"
               name="division_slip_received_datetime"
               value="<?= htmlspecialchars($_POST["division_slip_received_datetime"] ?? "") ?>"
               <?= $divisionSlipSelected ? '' : 'disabled' ?>
             >
-            <div class="mini">If filled, this is printed in the received date/time box of the generated division tracking slip. Leave blank if not needed.</div>
+            <div id="divisionSlipReceivedHint" class="mini">If filled, this is printed in the <?= htmlspecialchars(strtolower($divisionSlipHandledAtLabel)) ?> box of the generated division tracking slip. Leave blank if not needed.</div>
           </div>
         <?php endif; ?>
       </div>
@@ -2256,6 +2298,10 @@ require __DIR__ . "/../includes/layout.php";
     "editMode" => ($editMode || $childSetupMode),
     "childSetupMode" => $childSetupMode,
     "hasOwnDivisionSlip" => $hasOwnDivisionSlip,
+    "divisionTrackingPreviewIncoming" => $ownDivisionTrackingPreviewIncoming,
+    "divisionTrackingPreviewOutgoing" => $ownDivisionTrackingPreviewOutgoing,
+    "divisionTrackingPrefixIncoming" => build_division_tracking_prefix($myDivisionCode, 'INCOMING'),
+    "divisionTrackingPrefixOutgoing" => build_division_tracking_prefix($myDivisionCode, 'OUTGOING'),
     "canGenerateTransmittalMemo" => ($canGenerateTransmittalMemo && !$childSetupMode),
     "apiPath" => API_PATH,
     "divisionTrackingLookupUrl" => API_PATH . "/division_tracking_duplicate_lookup.php",

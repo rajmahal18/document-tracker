@@ -344,11 +344,23 @@ $fromSectionName = (string)($stmt->get_result()->fetch_assoc()["name"] ?? "");
     echo json_encode(["ok" => false, "error" => "Normal forward is temporarily locked while there are pending attachment-forward tasks. You may forward more attachments until all recipients mark their tasks done."]);
     exit;
   }
+  if ($docHasRealBranches && $sourceBranch && workflow_branch_has_open_action_requests($conn, $docId, (int)($sourceBranch['id'] ?? 0))) {
+    $conn->rollback();
+    http_response_code(409);
+    echo json_encode(["ok" => false, "error" => "Normal forward is temporarily locked while there is a pending signature/approval request from this lane."]);
+    exit;
+  }
 
   if (!$docHasRealBranches && workflow_user_has_open_attachment_forward_tasks_as_sender($conn, $docId, $actualUserId)) {
     $conn->rollback();
     http_response_code(409);
     echo json_encode(["ok" => false, "error" => "Normal forward is temporarily locked while there are pending attachment-forward tasks. You may forward more attachments until all recipients mark their tasks done."]);
+    exit;
+  }
+  if (!$docHasRealBranches && workflow_user_has_open_action_requests_as_sender($conn, $docId, $actualUserId)) {
+    $conn->rollback();
+    http_response_code(409);
+    echo json_encode(["ok" => false, "error" => "Normal forward is temporarily locked while there is a pending signature/approval request on this document."]);
     exit;
   }
 
