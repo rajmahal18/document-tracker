@@ -250,6 +250,7 @@ function documents_latest_activity_line(
   array $doc,
   array $actionRequestSummary,
   array $attachmentForwardTaskSummary,
+  string $fallbackActivityText,
   bool $myHasOpenInbound,
   bool $myHasActionableRole,
   bool $myIsForReference,
@@ -352,7 +353,9 @@ function documents_latest_activity_line(
   }
 
   if ($title === '') {
-    $title = trim((string)($doc['activity_text'] ?? '')) !== '' ? trim((string)$doc['activity_text']) : 'Document activity';
+    $title = $fallbackActivityText !== ''
+      ? $fallbackActivityText
+      : (trim((string)($doc['activity_text'] ?? '')) !== '' ? trim((string)$doc['activity_text']) : 'Document activity');
     $detail = '';
     $at = $latestAt;
     $badge = 'STATUS';
@@ -3071,6 +3074,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
               $d,
               $actionRequestSummary,
               $attachmentForwardTaskSummary,
+              $activityText,
               $myHasOpenInbound,
               $myHasActionableRole,
               $myIsForReference,
