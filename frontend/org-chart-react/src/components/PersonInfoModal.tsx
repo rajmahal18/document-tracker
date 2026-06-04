@@ -1,22 +1,25 @@
 import { roleLabel, userInitials } from '../lib/org-helpers'
-import type { OrgUser } from '../types/org'
+import type { OrgUser, OrgUserActivityStats } from '../types/org'
 
 type Props = {
   user: OrgUser | null
+  stats: OrgUserActivityStats | null
+  statsLoading: boolean
+  statsError: string
   onClose: () => void
   onEdit: (user: OrgUser) => void
 }
 
-export function PersonInfoModal({ user, onClose, onEdit }: Props) {
+export function PersonInfoModal({ user, stats, statsLoading, statsError, onClose, onEdit }: Props) {
   if (!user) return null
 
   const photoUrl = user.profile_photo_url || user.avatar_url || user.photo_url || ''
   const canEdit = Boolean(user.can_edit || user.can_assign_assistant)
-  const incomingCount = user.documents_incoming_count ?? user.documents_received_count ?? 0
-  const pendingCount = user.documents_pending_count ?? 0
-  const completedCount = user.documents_completed_count ?? user.documents_forwarded_count ?? 0
-  const averageProcessingTime = user.avg_processing_time || 'N/A'
-  const averageProcessingMins = user.avg_working_minutes ?? 0
+  const incomingCount = stats?.incoming ?? 0
+  const pendingCount = stats?.pending ?? 0
+  const completedCount = stats?.completed ?? 0
+  const averageProcessingTime = stats?.avg_processing_time || 'N/A'
+  const averageProcessingMins = stats?.avg_working_minutes ?? 0
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/45 px-4 py-6 backdrop-blur-sm" onClick={onClose}>
@@ -42,17 +45,27 @@ export function PersonInfoModal({ user, onClose, onEdit }: Props) {
 
           <section>
             <p className="person-modal-label">Document activity</p>
-            <div className="person-doc-grid">
-              <DocMetric label="Incoming" helper="Waiting for receive" value={incomingCount} tone="incoming" />
-              <DocMetric label="Pending" helper="Already with user for action" value={pendingCount} tone="pending" />
-              <DocMetric label="Completed" helper="User part is already done" value={completedCount} tone="complete" />
-            </div>
+            {statsLoading ? (
+              <div className="person-note">
+                <p>Loading activity stats...</p>
+              </div>
+            ) : statsError ? (
+              <div className="person-note">
+                <p>{statsError}</p>
+              </div>
+            ) : (
+              <div className="person-doc-grid">
+                <DocMetric label="Incoming" helper="Waiting for receive" value={incomingCount} tone="incoming" />
+                <DocMetric label="Pending" helper="Already with user for action" value={pendingCount} tone="pending" />
+                <DocMetric label="Completed" helper="User part is already done" value={completedCount} tone="complete" />
+              </div>
+            )}
           </section>
 
           <section className="person-note">
             <p className="person-modal-label">Average processing time</p>
-            <p>{averageProcessingTime}</p>
-            <p className="mt-1 text-xs text-ink-500">Based on recorded elapsed working time per completed user action ({averageProcessingMins} mins average).</p>
+            <p>{statsLoading ? 'Loading...' : averageProcessingTime}</p>
+            <p className="mt-1 text-xs text-ink-500">Based on recorded elapsed working time per completed user action ({statsLoading ? '...' : averageProcessingMins} mins average).</p>
           </section>
 
           {user.chief_assistant_names ? (

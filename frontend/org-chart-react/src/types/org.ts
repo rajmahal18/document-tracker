@@ -48,6 +48,14 @@ export interface OrgUser {
   assistant_candidates_json?: string
 }
 
+export interface OrgUserActivityStats {
+  incoming: number
+  pending: number
+  completed: number
+  avg_working_minutes: number
+  avg_processing_time: string
+}
+
 export interface OrgSection {
   id: number
   name: string

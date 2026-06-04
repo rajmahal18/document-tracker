@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . "/../includes/bootstrap.php";
 require_once __DIR__ . "/../core/working_time.php";
+require_once __DIR__ . "/../core/org_chart_activity_stats.php";
 require_login();
 
 $pageTitle = "Organizational Chart - Document Tracker";
@@ -941,7 +942,6 @@ if ($secRes) {
   }
 }
 
-$documentStatsByUser = org_chart_document_stats($conn);
 $assistantPrincipalRollupByUser = org_chart_assistant_principal_rollup($conn);
 
 $userSql = "
@@ -1030,13 +1030,6 @@ if ($userRes) {
       "chief_assistant_names" => trim((string)($row["chief_assistant_names"] ?? "")),
       "assistant_for_count" => (int)($assistantPrincipalRollupByUser[$userId]["assistant_for_count"] ?? 0),
       "assistant_for_names" => (string)($assistantPrincipalRollupByUser[$userId]["assistant_for_names"] ?? ""),
-      "documents_received_count" => (int)($documentStatsByUser[$userId]["received"] ?? 0),
-      "documents_forwarded_count" => (int)($documentStatsByUser[$userId]["forwarded"] ?? 0),
-      "documents_incoming_count" => (int)($documentStatsByUser[$userId]["incoming"] ?? 0),
-      "documents_pending_count" => (int)($documentStatsByUser[$userId]["pending"] ?? 0),
-      "documents_completed_count" => (int)($documentStatsByUser[$userId]["completed"] ?? 0),
-      "avg_working_minutes" => (int)($documentStatsByUser[$userId]["avg_working_minutes"] ?? 0),
-      "avg_processing_time" => (int)($documentStatsByUser[$userId]["avg_working_minutes"] ?? 0) > 0 ? dt_format_working_elapsed((int)($documentStatsByUser[$userId]["avg_working_minutes"] ?? 0), $conn) : "N/A",
       "is_online" => $isOnline,
       "show_presence" => ($viewerDivisionId > 0 && $viewerDivisionId === $divisionId),
       "is_leader" => is_leadership_role($authorityRole),

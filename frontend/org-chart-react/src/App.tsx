@@ -6,8 +6,8 @@ import { PersonInfoModal } from './components/PersonInfoModal'
 import { TopToolbar } from './components/TopToolbar'
 import { useLazyMount } from './hooks/useLazyMount'
 import { countVisiblePeople, countVisibleSections, divisionMatches } from './lib/org-helpers'
-import { getBootstrapData, updateOrgUser } from './lib/app-bridge'
-import type { OrgDivision, OrgUser, UpdateOrgUserPayload } from './types/org'
+import { fetchOrgUserStats, getBootstrapData, updateOrgUser } from './lib/app-bridge'
+import type { OrgDivision, OrgUser, OrgUserActivityStats, UpdateOrgUserPayload } from './types/org'
 import mpwLogo from './assets/mpwlogo1.png'
 
 const bootstrap = getBootstrapData()
@@ -82,6 +82,9 @@ export default function App() {
   const [forceExpandMembers, setForceExpandMembers] = useState(false)
   const [selectedUser, setSelectedUser] = useState<OrgUser | null>(null)
   const [viewedUser, setViewedUser] = useState<OrgUser | null>(null)
+  const [userStatsById, setUserStatsById] = useState<Record<number, OrgUserActivityStats>>({})
+  const [statsLoadingUserId, setStatsLoadingUserId] = useState<number | null>(null)
+  const [statsError, setStatsError] = useState('')
   const [toast, setToast] = useState('')
   const divisionRailRef = useRef<HTMLDivElement | null>(null)
 
@@ -105,6 +108,42 @@ export default function App() {
       target?.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'center' })
     })
   }, [visibleDivisions, query])
+
+  useEffect(() => {
+    if (!viewedUser) {
+      setStatsLoadingUserId(null)
+      setStatsError('')
+      return
+    }
+
+    if (userStatsById[viewedUser.id]) {
+      setStatsLoadingUserId(null)
+      setStatsError('')
+      return
+    }
+
+    let cancelled = false
+    setStatsLoadingUserId(viewedUser.id)
+    setStatsError('')
+
+    fetchOrgUserStats(viewedUser.id)
+      .then((stats) => {
+        if (cancelled) return
+        setUserStatsById((current) => ({ ...current, [viewedUser.id]: stats }))
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        setStatsError(error instanceof Error ? error.message : 'Failed to load org user stats.')
+      })
+      .finally(() => {
+        if (cancelled) return
+        setStatsLoadingUserId((current) => (current === viewedUser.id ? null : current))
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [userStatsById, viewedUser])
 
   const scrollDivisionRail = (direction: 'left' | 'right') => {
     const rail = divisionRailRef.current
@@ -220,6 +259,9 @@ export default function App() {
       />
       <PersonInfoModal
         user={viewedUser}
+        stats={viewedUser ? (userStatsById[viewedUser.id] ?? null) : null}
+        statsLoading={!!viewedUser && statsLoadingUserId === viewedUser.id && !userStatsById[viewedUser.id]}
+        statsError={viewedUser && !userStatsById[viewedUser.id] ? statsError : ''}
         onClose={() => setViewedUser(null)}
         onEdit={(user) => {
           setViewedUser(null)

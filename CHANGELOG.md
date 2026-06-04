@@ -14,6 +14,7 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 ### Fixed
 - Task Monitoring now keeps progress updates with the lead assignee on progress-based workflows, while still allowing assigned operators to update non-protected fields like remarks and reference-driven status inputs.
 - Task Monitoring task deletion and edit access now follow the task's actual assignee context instead of relying only on creator ownership.
+- The org chart now defers per-user document activity stats until a person row is opened, so the initial page load no longer precomputes modal-only workload metrics for every user.
 
 ### Removed
 
@@ -21,6 +22,7 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 - Task Monitoring
 - Task Monitoring Permissions
 - Task Monitoring Edit Flow
+- Organizational Chart
 
 ### Breaking Changes
 

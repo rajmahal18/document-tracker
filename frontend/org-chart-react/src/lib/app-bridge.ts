@@ -1,4 +1,4 @@
-import type { AppRuntimeConfig, OrgChartBootstrap, UpdateOrgUserPayload } from '../types/org'
+import type { AppRuntimeConfig, OrgChartBootstrap, OrgUserActivityStats, UpdateOrgUserPayload } from '../types/org'
 import { mockBootstrap } from './mock-data'
 
 export function getAppConfig(): AppRuntimeConfig {
@@ -46,4 +46,18 @@ export async function updateOrgUser(payload: UpdateOrgUserPayload) {
     throw new Error(data.error || 'Failed to update org user.')
   }
   return data
+}
+
+export async function fetchOrgUserStats(userId: number): Promise<OrgUserActivityStats> {
+  const app = getAppConfig()
+  const response = await fetch(`${app.api}/org_chart_user_stats.php?user_id=${encodeURIComponent(String(userId))}`, {
+    credentials: 'same-origin',
+  })
+
+  const data = await response.json().catch(() => ({ ok: false, error: 'Invalid response from server.' }))
+  if (!response.ok || !data.ok || !data.stats) {
+    throw new Error(data.error || 'Failed to load org user stats.')
+  }
+
+  return data.stats as OrgUserActivityStats
 }
