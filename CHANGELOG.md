@@ -7,11 +7,13 @@ Summary: Keep small ongoing work under [Unreleased]. Promote it to a numbered ve
 Summary: Ongoing improvements that are not yet packaged into a released patch.
 
 ### Added
+- Automated due-today email reminder support for document assignees, with separate morning and afternoon send windows in Manila time and rerun-safe delivery logging.
 
 ### Changed
 - Task Monitoring now enforces lead-assignee editing rules on existing monitoring records, so progress-driven workflows no longer let any editor change protected task details after assignment.
 
 ### Fixed
+- Due-today reminder logging now preserves nullable route references and surfaces rerun-protection write failures instead of silently reporting success.
 - Task Monitoring now keeps progress updates with the lead assignee on progress-based workflows, while still allowing assigned operators to update non-protected fields like remarks and reference-driven status inputs.
 - Task Monitoring task deletion and edit access now follow the task's actual assignee context instead of relying only on creator ownership.
 - The org chart now defers per-user document activity stats until a person row is opened, so the initial page load no longer precomputes modal-only workload metrics for every user.
@@ -19,6 +21,9 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 ### Removed
 
 ### Affected Areas
+- Email Notifications
+- Document Deadlines
+- Scheduled Reminder Jobs
 - Task Monitoring
 - Task Monitoring Permissions
 - Task Monitoring Edit Flow

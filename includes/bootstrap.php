@@ -3,11 +3,12 @@ declare(strict_types=1);
 
 // Keep authenticated sessions for up to 7 days.
 $sessionLifetime = 7 * 24 * 60 * 60;
+$isCliRuntime = in_array(PHP_SAPI, ['cli', 'phpdbg'], true);
 $isHttps = (!empty($_SERVER['HTTPS']) && strtolower((string)$_SERVER['HTTPS']) !== 'off')
   || (string)($_SERVER['SERVER_PORT'] ?? '') === '443'
   || (strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https');
 
-if (PHP_SESSION_ACTIVE !== session_status()) {
+if (!$isCliRuntime && PHP_SESSION_ACTIVE !== session_status()) {
   ini_set('session.gc_maxlifetime', (string)$sessionLifetime);
   ini_set('session.cookie_lifetime', (string)$sessionLifetime);
   ini_set('session.use_strict_mode', '1');
