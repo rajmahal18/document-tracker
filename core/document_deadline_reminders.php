@@ -21,6 +21,38 @@ function document_deadline_reminders_target_date(?DateTimeImmutable $now = null)
     return $now->setTime(0, 0, 0);
 }
 
+function document_deadline_reminders_window_state(?DateTimeImmutable $now = null): array
+{
+    $tz = new DateTimeZone('Asia/Manila');
+    $now = $now ? $now->setTimezone($tz) : new DateTimeImmutable('now', $tz);
+    $timeValue = (int)$now->format('Hi');
+
+    if ($timeValue >= 800 && $timeValue < 1300) {
+        return [
+            'active' => true,
+            'slot' => 'morning',
+            'label' => 'morning',
+            'manila_now' => $now->format('Y-m-d H:i:s'),
+        ];
+    }
+
+    if ($timeValue >= 1300 && $timeValue < 1800) {
+        return [
+            'active' => true,
+            'slot' => 'afternoon',
+            'label' => 'afternoon',
+            'manila_now' => $now->format('Y-m-d H:i:s'),
+        ];
+    }
+
+    return [
+        'active' => false,
+        'slot' => null,
+        'label' => null,
+        'manila_now' => $now->format('Y-m-d H:i:s'),
+    ];
+}
+
 function document_deadline_reminders_due_today_rows(mysqli $conn, string $slot, ?DateTimeImmutable $now = null): array
 {
     $slot = document_deadline_reminder_normalize_slot($slot);
@@ -282,4 +314,144 @@ function document_deadline_reminders_mark_sent(mysqli $conn, int $userId, array 
         'logged' => $loggedCount,
         'skipped' => $skippedCount,
     ];
+}
+
+function document_deadline_reminders_send_batch(mysqli $conn, string $slot, bool $dryRun = false, ?DateTimeImmutable $now = null): array
+{
+    $slot = document_deadline_reminder_normalize_slot($slot);
+    $tz = new DateTimeZone('Asia/Manila');
+    $now = $now ? $now->setTimezone($tz) : new DateTimeImmutable('now', $tz);
+    $targetDate = document_deadline_reminders_target_date($now)->format('Y-m-d');
+
+    if (!document_deadline_reminders_table_exists($conn)) {
+        throw new RuntimeException('Missing email_reminder_log table. Run the latest migration first.');
+    }
+
+    $rows = document_deadline_reminders_due_today_rows($conn, $slot, $now);
+    $byUser = [];
+
+    foreach ($rows as $row) {
+        $userId = (int)($row['user_id'] ?? 0);
+        if ($userId <= 0) {
+            continue;
+        }
+
+        if (!isset($byUser[$userId])) {
+            $byUser[$userId] = [
+                'user_id' => $userId,
+                'full_name' => trim((string)($row['full_name'] ?? '')),
+                'email' => trim((string)($row['email'] ?? '')),
+                'documents' => [],
+            ];
+        }
+
+        $byUser[$userId]['documents'][] = $row;
+    }
+
+    $documentsUrl = app_url(PUBLIC_PATH . '/documents.php');
+    $hasAbsoluteAppUrl = preg_match('#^https?://#i', $documentsUrl) === 1;
+    $summary = [
+        'ok' => true,
+        'slot' => $slot,
+        'date' => $targetDate,
+        'dry_run' => $dryRun,
+        'users_considered' => count($byUser),
+        'users_matched' => count($byUser),
+        'users_emailed' => 0,
+        'users_logged' => 0,
+        'documents_logged' => 0,
+        'documents_matched' => count($rows),
+        'failures' => [],
+        'note' => $hasAbsoluteAppUrl ? '' : 'APP_URL_ORIGIN is not configured, so email links are relative.',
+    ];
+
+    foreach ($byUser as $entry) {
+        $userId = (int)$entry['user_id'];
+        $toEmail = trim((string)$entry['email']);
+        $toName = trim((string)$entry['full_name']);
+        $documents = $entry['documents'];
+
+        if ($toEmail === '' || $documents === []) {
+            continue;
+        }
+
+        $docCount = count($documents);
+        $periodLabel = $slot === 'afternoon' ? 'this afternoon' : 'this morning';
+        $subject = ($docCount === 1 ? '1 document' : ($docCount . ' documents')) . ' due today - MPW Document Tracker';
+
+        $htmlItems = [];
+        $textItems = [];
+        foreach ($documents as $row) {
+            $trackingNo = trim((string)($row['tracking_no'] ?? ''));
+            $subjectText = trim((string)($row['subject'] ?? ''));
+            $effectiveDeadline = trim((string)($row['effective_deadline_at'] ?? ''));
+            $sectionName = trim((string)($row['section_name'] ?? ''));
+            $label = $trackingNo !== '' ? $trackingNo : ('Document #' . (int)($row['document_id'] ?? 0));
+            $title = $subjectText !== '' ? $subjectText : 'Untitled document';
+            $deadlineLabel = $effectiveDeadline !== ''
+                ? (new DateTimeImmutable($effectiveDeadline, $tz))->format('M j, Y g:i A')
+                : 'Today';
+
+            $sectionLine = $sectionName !== '' ? ' | Section: ' . htmlspecialchars($sectionName, ENT_QUOTES, 'UTF-8') : '';
+            $htmlItems[] = '<li><strong>' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '</strong> - '
+                . htmlspecialchars($title, ENT_QUOTES, 'UTF-8')
+                . ' <br><span>Deadline: ' . htmlspecialchars($deadlineLabel, ENT_QUOTES, 'UTF-8') . $sectionLine . '</span></li>';
+
+            $textItems[] = '- ' . $label . ' | ' . $title . ' | Deadline: ' . $deadlineLabel
+                . ($sectionName !== '' ? ' | Section: ' . $sectionName : '');
+        }
+
+        $safeToName = htmlspecialchars($toName !== '' ? $toName : $toEmail, ENT_QUOTES, 'UTF-8');
+        $safeDocumentsUrl = htmlspecialchars($documentsUrl, ENT_QUOTES, 'UTF-8');
+        $htmlBody = <<<HTML
+<p>Hello {$safeToName},</p>
+<p>This is your {$periodLabel} reminder for document deadlines due today ({$targetDate}, Asia/Manila).</p>
+<ul>
+  %s
+</ul>
+<p><a href="{$safeDocumentsUrl}">Open Document Tracker</a></p>
+HTML;
+        $htmlBody = sprintf($htmlBody, implode("\n  ", $htmlItems));
+
+        $textBody = 'Hello ' . ($toName !== '' ? $toName : $toEmail) . ",\n"
+            . "This is your {$periodLabel} reminder for document deadlines due today ({$targetDate}, Asia/Manila).\n\n"
+            . implode("\n", $textItems) . "\n\n"
+            . "Open Document Tracker: {$documentsUrl}\n";
+
+        if ($dryRun) {
+            continue;
+        }
+
+        $mailResult = app_send_mail($toEmail, $toName, $subject, $htmlBody, $textBody);
+        if (empty($mailResult['ok'])) {
+            $summary['failures'][] = [
+                'user_id' => $userId,
+                'email' => $toEmail,
+                'error' => (string)($mailResult['error'] ?? 'Unknown mail error'),
+            ];
+            continue;
+        }
+
+        try {
+            $logResult = document_deadline_reminders_mark_sent($conn, $userId, $documents, $slot, $now);
+        } catch (Throwable $e) {
+            $summary['ok'] = false;
+            $summary['failures'][] = [
+                'user_id' => $userId,
+                'email' => $toEmail,
+                'error' => 'Reminder email was sent, but rerun protection logging failed: ' . $e->getMessage(),
+            ];
+            continue;
+        }
+
+        $summary['users_emailed']++;
+        $summary['users_logged']++;
+        $summary['documents_logged'] += (int)($logResult['logged'] ?? 0);
+    }
+
+    if ($summary['failures'] !== []) {
+        $summary['ok'] = false;
+    }
+
+    return $summary;
 }

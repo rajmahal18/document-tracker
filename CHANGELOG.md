@@ -8,6 +8,7 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 
 ### Added
 - Automated due-today email reminder support for document assignees, with separate morning and afternoon send windows in Manila time and rerun-safe delivery logging.
+- A CLI reminder-window runner for cron, so due-today reminder checks can safely repeat during the day without resending already logged reminders.
 
 ### Changed
 - Task Monitoring now enforces lead-assignee editing rules on existing monitoring records, so progress-driven workflows no longer let any editor change protected task details after assignment.
