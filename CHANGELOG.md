@@ -14,6 +14,7 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 
 ### Fixed
 - Due-today reminder logging now preserves nullable route references and surfaces rerun-protection write failures instead of silently reporting success.
+- Due-today reminder emails now build document links from the app base path during CLI runs, so production messages no longer point to `/scripts/public/...`.
 - Task Monitoring now keeps progress updates with the lead assignee on progress-based workflows, while still allowing assigned operators to update non-protected fields like remarks and reference-driven status inputs.
 - Task Monitoring task deletion and edit access now follow the task's actual assignee context instead of relying only on creator ownership.
 - The org chart now defers per-user document activity stats until a person row is opened, so the initial page load no longer precomputes modal-only workload metrics for every user.

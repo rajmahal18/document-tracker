@@ -75,6 +75,10 @@ function app_join_url_path(string ...$parts): string {
 }
 
 function app_detect_base_path(): string {
+  if (in_array(PHP_SAPI, ['cli', 'phpdbg'], true)) {
+    return '';
+  }
+
   $scriptName = (string)($_SERVER['SCRIPT_NAME'] ?? $_SERVER['PHP_SELF'] ?? '');
   $scriptName = str_replace('\\', '/', $scriptName);
 
