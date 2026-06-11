@@ -6,6 +6,7 @@ require_once __DIR__ . "/../core/division_tracking.php";
 require_once __DIR__ . "/../core/working_time.php";
 require_once __DIR__ . "/../core/project_codes.php";
 require_once __DIR__ . "/../core/document_split.php";
+require_once __DIR__ . "/../core/chief_dashboard.php";
 require_login();
 $documentSplitParentReady = document_split_parent_link_ready($conn);
 
@@ -19,7 +20,7 @@ $assistantModeEnabled = false;
 $adminModeEnabled = false;
 $activeAssistantPrincipal = null;
 $requestedDocumentsTab = strtolower(trim((string)($_GET['view'] ?? 'my')));
-if (!in_array($requestedDocumentsTab, ['my', 'assistant', 'admin'], true)) {
+if (!in_array($requestedDocumentsTab, ['my', 'assistant', 'chief', 'admin'], true)) {
   $requestedDocumentsTab = 'my';
 }
 if ($requestedDocumentsTab === 'admin' && !$isAdminUser) {
@@ -32,7 +33,7 @@ if ($actualUserIdForAssistantLookup > 0) {
   $assistantPrincipals = assistant_fetch_assigned_principals($conn, $actualUserIdForAssistantLookup);
 }
 
-if ($assistantPrincipals !== [] && $requestedDocumentsTab === 'assistant') {
+if ($assistantPrincipals !== [] && in_array($requestedDocumentsTab, ['assistant', 'chief'], true)) {
   if ($requestedActingPrincipalUserId > 0) {
     foreach ($assistantPrincipals as $principal) {
       if ((int)($principal['id'] ?? 0) === $requestedActingPrincipalUserId) {
@@ -46,7 +47,7 @@ if ($assistantPrincipals !== [] && $requestedDocumentsTab === 'assistant') {
     $activeAssistantPrincipal = $assistantPrincipals[0];
   }
 
-  if ($activeAssistantPrincipal !== null) {
+  if ($activeAssistantPrincipal !== null && $requestedDocumentsTab === 'assistant') {
     $assistantModeEnabled = true;
   }
 }
@@ -98,6 +99,7 @@ $hasOwnDivisionSlip = is_supported_division_tracking_code($myDivisionCode);
 $ownDivisionSlipLabel = $hasOwnDivisionSlip ? ($myDivisionCode . ' Tracking Slip') : '';
 $myDivisionCodeSql = $conn->real_escape_string($myDivisionCode);
 
+$currentDocumentsViewForJs = $adminModeEnabled ? 'admin' : ($assistantModeEnabled ? 'assistant' : $requestedDocumentsTab);
 $pageTitle = "Documents - Document Tracker";
 require __DIR__ . "/../includes/layout.php";
 ?>
@@ -119,6 +121,7 @@ require __DIR__ . "/../includes/layout.php";
     branchMode: <?= $branchMode ? "true" : "false" ?>,
     assistantMode: <?= $assistantModeEnabled ? 'true' : 'false' ?>,
     adminMode: <?= $adminModeEnabled ? 'true' : 'false' ?>,
+    currentDocumentsView: "<?= htmlspecialchars((string)$currentDocumentsViewForJs) ?>",
     actingPrincipalUserId: <?= (int)($activeAssistantPrincipal['id'] ?? 0) ?>,
     actingPrincipalName: "<?= htmlspecialchars((string)($activeAssistantPrincipal['full_name'] ?? '')) ?>"
   };
@@ -2102,7 +2105,40 @@ function documentsUrl(array $overrides = []): string {
   return PUBLIC_PATH . '/documents.php?' . http_build_query($q);
 }
 
-$currentDocumentsView = $adminModeEnabled ? 'admin' : ($assistantModeEnabled ? 'assistant' : 'my');
+function chiefDocumentsUrl(array $overrides = []): string {
+  return documentsUrl($overrides);
+}
+
+$chiefViewRequested = $requestedDocumentsTab === 'chief';
+$chiefViewerSectionId = $activeAssistantPrincipal !== null
+  ? (int)($activeAssistantPrincipal['section_id'] ?? 0)
+  : (int)($_SESSION['section_id'] ?? 0);
+$chiefViewerDivisionMeta = get_user_division_meta($conn, $chiefViewerSectionId);
+$chiefViewer = [
+  'user_id' => $activeAssistantPrincipal !== null ? (int)($activeAssistantPrincipal['id'] ?? 0) : (int)($_SESSION['user_id'] ?? 0),
+  'full_name' => $activeAssistantPrincipal !== null ? (string)($activeAssistantPrincipal['full_name'] ?? '') : (string)($_SESSION['full_name'] ?? ''),
+  'official_title' => $activeAssistantPrincipal !== null ? (string)($activeAssistantPrincipal['official_title'] ?? '') : (string)($_SESSION['official_title'] ?? ''),
+  'authority_role' => $activeAssistantPrincipal !== null
+    ? chief_dashboard_normalize_authority_role((string)($activeAssistantPrincipal['authority_role'] ?? ''), ((int)($activeAssistantPrincipal['is_chief'] ?? 0) === 1))
+    : chief_dashboard_normalize_authority_role((string)($_SESSION['authority_role'] ?? ''), ((int)($_SESSION['is_chief'] ?? 0) === 1)),
+  'is_chief' => $activeAssistantPrincipal !== null
+    ? in_array((string)($activeAssistantPrincipal['authority_role'] ?? ''), ['director', 'division_head', 'section_head'], true)
+    : ((int)($_SESSION['is_chief'] ?? 0) === 1),
+  'section_id' => $chiefViewerSectionId,
+  'section_name' => $activeAssistantPrincipal !== null ? (string)($activeAssistantPrincipal['section_name'] ?? '') : (string)($_SESSION['section_name'] ?? ''),
+  'division_id' => $activeAssistantPrincipal !== null ? (int)($activeAssistantPrincipal['division_id'] ?? 0) : (int)($chiefViewerDivisionMeta['id'] ?? ($_SESSION['division_id'] ?? 0)),
+  'division_name' => $activeAssistantPrincipal !== null
+    ? (string)($activeAssistantPrincipal['division_name'] ?? '')
+    : (string)($_SESSION['division_name'] ?? ($chiefViewerDivisionMeta['name'] ?? '')),
+];
+$chiefViewEnabled = $chiefViewRequested && chief_dashboard_can_access($chiefViewer);
+if ($chiefViewRequested && !$chiefViewEnabled) {
+  $requestedDocumentsTab = 'my';
+}
+
+$currentDocumentsView = $chiefViewEnabled
+  ? 'chief'
+  : ($adminModeEnabled ? 'admin' : ($assistantModeEnabled ? 'assistant' : 'my'));
 $scopeTitleMap = [
   'planning' => 'Planning',
   'proposals' => 'Proposals',
@@ -2115,11 +2151,86 @@ $documentsTitle = $adminModeEnabled
   ? 'Admin Mode Documents'
   : ($assistantModeEnabled ? 'Assistant Mode Documents' : 'My Documents');
 $documentsSortLabel = $adminModeEnabled ? 'Queue sort' : 'Sort order';
+if ($chiefViewEnabled) {
+  $documentsEyebrow = 'Chief dashboard';
+  $documentsTitle = 'Documents needing attention';
+  $documentsSortLabel = 'Priority order';
+}
 if ($scopeTitle !== '') {
   $documentsEyebrow = 'Planning and Programming Division';
   $documentsTitle = $scopeTitle . ' Documents';
 }
 $isScopedDocumentsView = ($contentScope !== '');
+
+$chiefBucket = strtolower(trim((string)($_GET['chief_bucket'] ?? 'all')));
+if (!in_array($chiefBucket, ['all', 'overdue', 'due_today', 'stale'], true)) {
+  $chiefBucket = 'all';
+}
+$chiefSearch = trim((string)($_GET['chief_q'] ?? ''));
+$chiefDashboard = $chiefViewEnabled
+  ? chief_dashboard_fetch_attention($conn, $chiefViewer, [
+      'bucket' => $chiefBucket,
+      'q' => $chiefSearch,
+    ])
+  : null;
+$chiefGroups = $chiefViewEnabled && is_array($chiefDashboard)
+  ? chief_dashboard_group_attention((array)($chiefDashboard['documents'] ?? []))
+  : [];
+$chiefFilterOptions = $chiefViewEnabled ? chief_dashboard_filter_options($chiefGroups, $chiefViewer) : ['role' => '', 'divisions' => [], 'sections' => [], 'people' => []];
+$chiefDivisionId = (int)($_GET['chief_division_id'] ?? 0);
+$chiefSectionId = (int)($_GET['chief_section_id'] ?? 0);
+$chiefPersonKey = trim((string)($_GET['chief_person_key'] ?? ''));
+
+if (($chiefFilterOptions['role'] ?? '') !== 'director') {
+  $chiefDivisionId = 0;
+}
+if (!in_array(($chiefFilterOptions['role'] ?? ''), ['director', 'division_head'], true)) {
+  $chiefSectionId = 0;
+}
+
+$chiefSectionMap = [];
+foreach (($chiefFilterOptions['sections'] ?? []) as $option) {
+  $chiefSectionMap[(int)($option['id'] ?? 0)] = (int)($option['division_id'] ?? 0);
+}
+if ($chiefSectionId > 0 && $chiefDivisionId > 0 && (($chiefSectionMap[$chiefSectionId] ?? 0) !== $chiefDivisionId)) {
+  $chiefSectionId = 0;
+}
+
+$chiefPersonMap = [];
+foreach (($chiefFilterOptions['people'] ?? []) as $option) {
+  $chiefPersonMap[(string)($option['key'] ?? '')] = [
+    'division_id' => (int)($option['division_id'] ?? 0),
+    'section_id' => (int)($option['section_id'] ?? 0),
+  ];
+}
+if ($chiefPersonKey !== '') {
+  $personMeta = $chiefPersonMap[$chiefPersonKey] ?? null;
+  if (!$personMeta) {
+    $chiefPersonKey = '';
+  } elseif (
+    ($chiefDivisionId > 0 && (int)($personMeta['division_id'] ?? 0) !== $chiefDivisionId)
+    || ($chiefSectionId > 0 && (int)($personMeta['section_id'] ?? 0) !== $chiefSectionId)
+  ) {
+    $chiefPersonKey = '';
+  }
+}
+
+$filteredChiefGroups = $chiefViewEnabled
+  ? chief_dashboard_filter_groups($chiefGroups, [
+      'division_id' => $chiefDivisionId,
+      'section_id' => $chiefSectionId,
+      'person_key' => $chiefPersonKey,
+    ])
+  : [];
+$chiefPerPage = 6;
+$chiefPage = max(1, (int)($_GET['chief_page'] ?? 1));
+$chiefTotalGroups = count($filteredChiefGroups);
+$chiefTotalPages = max(1, (int)ceil($chiefTotalGroups / $chiefPerPage));
+if ($chiefPage > $chiefTotalPages) {
+  $chiefPage = $chiefTotalPages;
+}
+$chiefOffset = ($chiefPage - 1) * $chiefPerPage;
+$chiefGroupsPage = array_slice($filteredChiefGroups, $chiefOffset, $chiefPerPage);
 
 $workingCalendar = dt_work_calendar($conn);
 $calendarDayLabels = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'Sat', 7 => 'Sun'];
@@ -2269,22 +2380,27 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
         <a class="docsViewTab <?= $currentDocumentsView === 'admin' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(documentsUrl(['view' => 'admin', 'acting_principal_user_id' => null, 'page' => 1])) ?>">Admin mode</a>
       <?php endif; ?>
     </div>
-    <?php if ($assistantModeEnabled): ?>
+    <?php if ($assistantModeEnabled || ($currentDocumentsView === 'chief' && $activeAssistantPrincipal !== null)): ?>
     <form class="docsAssistantBar" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
-      <input type="hidden" name="view" value="assistant">
+      <input type="hidden" name="view" value="<?= htmlspecialchars($currentDocumentsView === 'chief' ? 'chief' : 'assistant') ?>">
       <input type="hidden" name="content_scope" value="<?= htmlspecialchars($contentScope) ?>">
-      <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
-      <input type="hidden" name="status" value="<?= htmlspecialchars($statusGet) ?>">
-      <input type="hidden" name="from" value="<?= htmlspecialchars($date_from) ?>">
-      <input type="hidden" name="to" value="<?= htmlspecialchars($date_to) ?>">
-      <input type="hidden" name="quick" value="<?= htmlspecialchars($quick) ?>">
-      <input type="hidden" name="sort" value="<?= htmlspecialchars($sort) ?>">
+      <?php if ($currentDocumentsView === 'chief'): ?>
+        <input type="hidden" name="chief_q" value="<?= htmlspecialchars($chiefSearch) ?>">
+        <input type="hidden" name="chief_bucket" value="<?= htmlspecialchars($chiefBucket) ?>">
+      <?php else: ?>
+        <input type="hidden" name="q" value="<?= htmlspecialchars($search) ?>">
+        <input type="hidden" name="status" value="<?= htmlspecialchars($statusGet) ?>">
+        <input type="hidden" name="from" value="<?= htmlspecialchars($date_from) ?>">
+        <input type="hidden" name="to" value="<?= htmlspecialchars($date_to) ?>">
+        <input type="hidden" name="quick" value="<?= htmlspecialchars($quick) ?>">
+        <input type="hidden" name="sort" value="<?= htmlspecialchars($sort) ?>">
+      <?php endif; ?>
       <?php
         $activePrincipalName = (string)($activeAssistantPrincipal['full_name'] ?? 'Selected chief');
         $activePrincipalPhotoUrl = (string)($activeAssistantPrincipal['profile_photo_url'] ?? '');
         $activePrincipalInitials = function_exists('app_user_initials') ? app_user_initials($activePrincipalName) : strtoupper(substr($activePrincipalName, 0, 1));
       ?>
-      <div class="docsAssistantBadge">Assistant queue</div>
+      <div class="docsAssistantBadge"><?= $currentDocumentsView === 'chief' ? 'Chief dashboard' : 'Assistant queue' ?></div>
       <div class="docsAssistantIdentity">
         <span class="appAvatar appAvatarMd" aria-hidden="true">
           <?php if ($activePrincipalPhotoUrl !== ''): ?>
@@ -2300,7 +2416,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
       </div>
       <div class="docsAssistantHint">
         <strong><?= htmlspecialchars($activePrincipalName) ?></strong>
-        <span>Authority checks follow this chief while actions still stay under your account.</span>
+        <span><?= $currentDocumentsView === 'chief' ? 'Attention scope follows this chief office.' : 'Authority checks follow this chief while actions still stay under your account.' ?></span>
       </div>
     </form>
     <?php endif; ?>
@@ -2312,6 +2428,198 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
     <a href="#docsList" class="docsMobileTab" data-scroll-tab>List</a>
   </nav>
 
+  <?php if ($currentDocumentsView === 'chief'): ?>
+  <section class="chiefInlineShell" id="docsOverview">
+    <div class="chiefInlineHeader">
+      <div class="chiefInlineTitleBlock">
+        <div class="chiefInlineEyebrow">Chief dashboard</div>
+        <h1 class="chiefInlineTitle">Documents needing attention</h1>
+        <p class="chiefInlineLead">Overdue first, then due today, then stalled items with the accountable focal handling them.</p>
+      </div>
+      <div class="chiefInlineScope">
+        <span class="chiefInlineScopeLabel">Current scope</span>
+        <strong><?= htmlspecialchars(chief_dashboard_scope_label($chiefViewer)) ?></strong>
+        <span><?= htmlspecialchars(chief_dashboard_role_label((string)($chiefViewer['authority_role'] ?? ''))) ?></span>
+      </div>
+    </div>
+
+    <div class="chiefInlineStats">
+      <a class="chiefInlineStat <?= $chiefBucket === 'all' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(documentsUrl(['view' => 'chief', 'chief_bucket' => 'all', 'chief_q' => $chiefSearch !== '' ? $chiefSearch : null, 'page' => 1])) ?>">
+        <span>All attention</span>
+        <strong><?= (int)($chiefDashboard['stats']['all'] ?? 0) ?></strong>
+      </a>
+      <a class="chiefInlineStat toneOverdue <?= $chiefBucket === 'overdue' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(documentsUrl(['view' => 'chief', 'chief_bucket' => 'overdue', 'chief_q' => $chiefSearch !== '' ? $chiefSearch : null, 'page' => 1])) ?>">
+        <span>Overdue</span>
+        <strong><?= (int)($chiefDashboard['stats']['overdue'] ?? 0) ?></strong>
+      </a>
+      <a class="chiefInlineStat toneToday <?= $chiefBucket === 'due_today' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(documentsUrl(['view' => 'chief', 'chief_bucket' => 'due_today', 'chief_q' => $chiefSearch !== '' ? $chiefSearch : null, 'page' => 1])) ?>">
+        <span>Due today</span>
+        <strong><?= (int)($chiefDashboard['stats']['due_today'] ?? 0) ?></strong>
+      </a>
+      <a class="chiefInlineStat toneStale <?= $chiefBucket === 'stale' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(documentsUrl(['view' => 'chief', 'chief_bucket' => 'stale', 'chief_q' => $chiefSearch !== '' ? $chiefSearch : null, 'page' => 1])) ?>">
+        <span>No movement 5+ days</span>
+        <strong><?= (int)($chiefDashboard['stats']['stale'] ?? 0) ?></strong>
+      </a>
+    </div>
+
+    <div class="chiefInlineToolbar" id="docsFilters">
+      <div class="chiefInlineChips" aria-label="Chief attention filters">
+        <a class="chiefInlineChip <?= $chiefBucket === 'all' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(chiefDocumentsUrl(['view' => 'chief', 'chief_bucket' => 'all', 'chief_q' => $chiefSearch !== '' ? $chiefSearch : null, 'chief_page' => 1])) ?>">All</a>
+        <a class="chiefInlineChip <?= $chiefBucket === 'overdue' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(chiefDocumentsUrl(['view' => 'chief', 'chief_bucket' => 'overdue', 'chief_q' => $chiefSearch !== '' ? $chiefSearch : null, 'chief_page' => 1])) ?>">Overdue</a>
+        <a class="chiefInlineChip <?= $chiefBucket === 'due_today' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(chiefDocumentsUrl(['view' => 'chief', 'chief_bucket' => 'due_today', 'chief_q' => $chiefSearch !== '' ? $chiefSearch : null, 'chief_page' => 1])) ?>">Due today</a>
+        <a class="chiefInlineChip <?= $chiefBucket === 'stale' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(chiefDocumentsUrl(['view' => 'chief', 'chief_bucket' => 'stale', 'chief_q' => $chiefSearch !== '' ? $chiefSearch : null, 'chief_page' => 1])) ?>">No movement</a>
+      </div>
+      <form class="chiefInlineSearch" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
+        <input type="hidden" name="view" value="chief">
+        <?php if ($activeAssistantPrincipal !== null): ?>
+          <input type="hidden" name="acting_principal_user_id" value="<?= (int)($activeAssistantPrincipal['id'] ?? 0) ?>">
+        <?php endif; ?>
+        <input type="hidden" name="chief_bucket" value="<?= htmlspecialchars($chiefBucket) ?>">
+        <?php if ($chiefDivisionId > 0): ?><input type="hidden" name="chief_division_id" value="<?= (int)$chiefDivisionId ?>"><?php endif; ?>
+        <?php if ($chiefSectionId > 0): ?><input type="hidden" name="chief_section_id" value="<?= (int)$chiefSectionId ?>"><?php endif; ?>
+        <?php if ($chiefPersonKey !== ''): ?><input type="hidden" name="chief_person_key" value="<?= htmlspecialchars($chiefPersonKey) ?>"><?php endif; ?>
+        <input type="search" name="chief_q" value="<?= htmlspecialchars($chiefSearch) ?>" placeholder="Search track no, subject, requester, focal">
+        <button type="submit">Search</button>
+      </form>
+    </div>
+
+    <form class="chiefInlineSelectors" method="GET" action="<?= PUBLIC_PATH ?>/documents.php">
+      <input type="hidden" name="view" value="chief">
+      <?php if ($activeAssistantPrincipal !== null): ?>
+        <input type="hidden" name="acting_principal_user_id" value="<?= (int)($activeAssistantPrincipal['id'] ?? 0) ?>">
+      <?php endif; ?>
+      <input type="hidden" name="chief_bucket" value="<?= htmlspecialchars($chiefBucket) ?>">
+      <?php if ($chiefSearch !== ''): ?><input type="hidden" name="chief_q" value="<?= htmlspecialchars($chiefSearch) ?>"><?php endif; ?>
+      <?php if (($chiefFilterOptions['role'] ?? '') === 'director'): ?>
+        <label class="chiefInlineSelectField">
+          <span>Division</span>
+          <select name="chief_division_id" onchange="this.form.submit()">
+            <option value="0">All divisions</option>
+            <?php foreach (($chiefFilterOptions['divisions'] ?? []) as $option): ?>
+              <option value="<?= (int)($option['id'] ?? 0) ?>" <?= (int)($option['id'] ?? 0) === $chiefDivisionId ? 'selected' : '' ?>><?= htmlspecialchars((string)($option['name'] ?? 'Division')) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </label>
+      <?php endif; ?>
+      <?php if (in_array(($chiefFilterOptions['role'] ?? ''), ['director', 'division_head'], true)): ?>
+        <label class="chiefInlineSelectField">
+          <span>Section</span>
+          <select name="chief_section_id" onchange="this.form.submit()">
+            <option value="0">All sections</option>
+            <?php foreach (($chiefFilterOptions['sections'] ?? []) as $option): ?>
+              <?php if ($chiefDivisionId > 0 && (int)($option['division_id'] ?? 0) !== $chiefDivisionId) continue; ?>
+              <option value="<?= (int)($option['id'] ?? 0) ?>" <?= (int)($option['id'] ?? 0) === $chiefSectionId ? 'selected' : '' ?>><?= htmlspecialchars((string)($option['name'] ?? 'Section')) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </label>
+      <?php endif; ?>
+      <label class="chiefInlineSelectField">
+        <span>Person</span>
+        <select name="chief_person_key" onchange="this.form.submit()">
+          <option value="">All people</option>
+          <?php foreach (($chiefFilterOptions['people'] ?? []) as $option): ?>
+            <?php if ($chiefDivisionId > 0 && (int)($option['division_id'] ?? 0) !== $chiefDivisionId) continue; ?>
+            <?php if ($chiefSectionId > 0 && (int)($option['section_id'] ?? 0) !== $chiefSectionId) continue; ?>
+            <option value="<?= htmlspecialchars((string)($option['key'] ?? '')) ?>" <?= (string)($option['key'] ?? '') === $chiefPersonKey ? 'selected' : '' ?>>
+              <?= htmlspecialchars((string)($option['label'] ?? 'Person')) ?><?= trim((string)($option['meta'] ?? '')) !== '' ? ' | ' . htmlspecialchars((string)$option['meta']) : '' ?>
+            </option>
+          <?php endforeach; ?>
+        </select>
+      </label>
+      <?php if ($chiefDivisionId > 0 || $chiefSectionId > 0 || $chiefPersonKey !== ''): ?>
+        <a href="<?= htmlspecialchars(chiefDocumentsUrl(['view' => 'chief', 'chief_division_id' => null, 'chief_section_id' => null, 'chief_person_key' => null, 'chief_page' => 1])) ?>" class="chiefInlineReset">Reset people filters</a>
+      <?php endif; ?>
+    </form>
+
+    <section class="chiefInlinePanel" id="docsList">
+      <div class="chiefInlinePanelHead">
+        <div>
+          <h2>Documents requiring action</h2>
+          <p>Grouped by focal person or current responsible office.</p>
+        </div>
+        <a href="<?= htmlspecialchars(documentsUrl(['view' => $activeAssistantPrincipal !== null ? 'assistant' : 'my', 'chief_bucket' => null, 'chief_q' => null])) ?>" class="chiefInlineBackLink">Go to documents</a>
+      </div>
+
+      <?php if ($chiefGroupsPage === []): ?>
+        <div class="chiefInlineEmpty">
+          <strong>No matching documents</strong>
+          <span>Nothing in this scope matches the selected attention filter right now.</span>
+        </div>
+      <?php else: ?>
+        <div class="chiefInlineGroups">
+          <?php foreach ($chiefGroupsPage as $group): ?>
+            <?php $person = (array)($group['person'] ?? []); ?>
+            <section class="chiefInlineGroup">
+              <div class="chiefInlineGroupHead">
+                <div class="chiefInlinePerson">
+                  <span class="appAvatar appAvatarMd chiefInlineAvatar" aria-hidden="true">
+                    <?php if (trim((string)($person['profile_photo_url'] ?? '')) !== ''): ?>
+                      <img src="<?= htmlspecialchars((string)$person['profile_photo_url']) ?>" alt="">
+                    <?php else: ?>
+                      <span><?= htmlspecialchars((string)($person['avatar_initials'] ?? 'U')) ?></span>
+                    <?php endif; ?>
+                  </span>
+                  <span class="chiefInlinePersonText">
+                    <strong><?= htmlspecialchars((string)($person['primary_label'] ?? 'Assigned office')) ?></strong>
+                    <?php if ((string)($person['secondary_label'] ?? '') !== ''): ?>
+                      <span><?= htmlspecialchars((string)$person['secondary_label']) ?></span>
+                    <?php endif; ?>
+                  </span>
+                </div>
+                <div class="chiefInlineGroupStats">
+                  <span><?= (int)($group['stats']['all'] ?? 0) ?> total</span>
+                  <?php if ((int)($group['stats']['overdue'] ?? 0) > 0): ?><span class="toneOverdue"><?= (int)$group['stats']['overdue'] ?> overdue</span><?php endif; ?>
+                  <?php if ((int)($group['stats']['due_today'] ?? 0) > 0): ?><span class="toneToday"><?= (int)$group['stats']['due_today'] ?> due today</span><?php endif; ?>
+                  <?php if ((int)($group['stats']['stale'] ?? 0) > 0): ?><span class="toneStale"><?= (int)$group['stats']['stale'] ?> stalled</span><?php endif; ?>
+                </div>
+              </div>
+
+              <div class="chiefInlineDocList">
+                <?php foreach ((array)($group['documents'] ?? []) as $row): ?>
+                  <article class="chiefInlineDocRow tone-<?= htmlspecialchars((string)($row['tone'] ?? 'default')) ?>">
+                    <div class="chiefInlineDocMain">
+                      <div class="chiefInlineDocTop">
+                        <span class="chiefInlineTracking"><?= htmlspecialchars((string)($row['tracking_no'] ?? '')) ?></span>
+                        <?php foreach (chief_dashboard_reason_labels($row) as $reason): ?>
+                          <span class="chiefInlineReason"><?= htmlspecialchars($reason) ?></span>
+                        <?php endforeach; ?>
+                      </div>
+                      <div class="chiefInlineSubject"><?= htmlspecialchars((string)($row['subject'] ?? 'Untitled document')) ?></div>
+                      <div class="chiefInlineMeta">
+                        <span><strong>Requester:</strong> <?= htmlspecialchars((string)(($row['requester'] ?? '') !== '' ? $row['requester'] : 'Not set')) ?></span>
+                        <span><strong>Holder:</strong> <?= htmlspecialchars(trim((string)(($row['current_holder_section_name'] ?? '') . (((string)($row['current_holder_division_name'] ?? '') !== '') ? ' | ' . (string)$row['current_holder_division_name'] : '')))) ?></span>
+                        <span><strong>Deadline:</strong> <?= htmlspecialchars((string)($row['effective_deadline_label'] ?? 'Not set')) ?></span>
+                        <span><strong>Stalled:</strong> <?= htmlspecialchars((string)($row['working_elapsed_label'] ?? '0 working hours')) ?></span>
+                      </div>
+                    </div>
+                    <div class="chiefInlineDocActions">
+                      <button type="button" class="chiefInlineOpenBtn" data-open-doc-id="<?= (int)($row['id'] ?? 0) ?>" onclick="return window.DTChiefOpenDocument ? window.DTChiefOpenDocument(this) : false;">Open document</button>
+                    </div>
+                  </article>
+                <?php endforeach; ?>
+              </div>
+            </section>
+          <?php endforeach; ?>
+        </div>
+        <?php if ($chiefTotalPages > 1): ?>
+          <div class="chiefInlinePager">
+            <?php if ($chiefPage > 1): ?>
+              <a href="<?= htmlspecialchars(chiefDocumentsUrl(['chief_page' => $chiefPage - 1])) ?>" class="chiefInlinePagerBtn">Prev</a>
+            <?php else: ?>
+              <span class="chiefInlinePagerBtn isDisabled">Prev</span>
+            <?php endif; ?>
+            <span class="chiefInlinePagerInfo">Page <?= (int)$chiefPage ?> of <?= (int)$chiefTotalPages ?></span>
+            <?php if ($chiefPage < $chiefTotalPages): ?>
+              <a href="<?= htmlspecialchars(chiefDocumentsUrl(['chief_page' => $chiefPage + 1])) ?>" class="chiefInlinePagerBtn">Next</a>
+            <?php else: ?>
+              <span class="chiefInlinePagerBtn isDisabled">Next</span>
+            <?php endif; ?>
+          </div>
+        <?php endif; ?>
+      <?php endif; ?>
+    </section>
+  </section>
+  <?php else: ?>
   <section class="docsHero" id="docsOverview">
     <div class="docsHeroCopy">
       <div class="docsEyebrow"><?= htmlspecialchars($documentsEyebrow) ?></div>
@@ -3060,13 +3368,6 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
                 $myStatusLabel = "PENDING";
                 $myStatusChipClass = "chip overdue";
                 $rowToneClass = "rowTonePending";
-              } elseif ($flatActionRequestRecipientCompleted) {
-                $myHasOpenInbound = false;
-                $myHasActionableRole = false;
-                $myCanChangeLifecycle = false;
-                $myStatusLabel = "COMPLETE";
-                $myStatusChipClass = "chip incoming";
-                $rowToneClass = "rowToneComplete";
               }
             }
 
@@ -3318,6 +3619,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
       </tbody>
     </table>
   </div>
+  <?php endif; ?>
 </div>
 
 <?php if ($createdDocId > 0): ?>
@@ -3344,6 +3646,7 @@ $start = max(1, $page - 2);
 $end   = min($totalPages, $page + 2);
 ?>
 
+<?php if ($currentDocumentsView !== 'chief'): ?>
 <div class="pager" id="docsPager">
   <div class="pagerInfo mini">
     Showing <b><?= (int)$fromRow ?></b>–<b><?= (int)$toRow ?></b> of <b><?= (int)$total ?></b>
@@ -3381,6 +3684,7 @@ $end   = min($totalPages, $page + 2);
     <?php endif; ?>
   </div>
 </div>
+<?php endif; ?>
 
 <!-- Drawer + Backdrop -->
 <div id="drawerBackdrop" class="drawerBackdrop"></div>

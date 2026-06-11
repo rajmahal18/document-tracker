@@ -687,9 +687,11 @@ function effective_document_identity(mysqli $conn): array {
     'actual_full_name' => trim((string)($_SESSION['full_name'] ?? '')),
     'effective_user_id' => (int)($_SESSION['user_id'] ?? 0),
     'effective_section_id' => (int)($_SESSION['section_id'] ?? 0),
+    'effective_section_name' => trim((string)($_SESSION['section_name'] ?? '')),
     'effective_division_id' => (int)($_SESSION['division_id'] ?? 0),
     'effective_division_name' => trim((string)($_SESSION['division_name'] ?? '')),
     'effective_role' => trim((string)($_SESSION['role'] ?? 'user')),
+    'effective_authority_role' => trim((string)($_SESSION['authority_role'] ?? '')),
     'effective_is_chief' => ((int)($_SESSION['is_chief'] ?? 0) === 1),
     'acting_principal_user_id' => 0,
     'acting_principal_name' => '',
@@ -702,9 +704,11 @@ function effective_document_identity(mysqli $conn): array {
   $base['assistant_mode'] = true;
   $base['effective_user_id'] = (int)($principal['id'] ?? 0);
   $base['effective_section_id'] = (int)($principal['section_id'] ?? 0);
+  $base['effective_section_name'] = trim((string)($principal['section_name'] ?? ''));
   $base['effective_division_id'] = (int)($principal['division_id'] ?? 0);
   $base['effective_division_name'] = trim((string)($principal['division_name'] ?? ''));
   $base['effective_role'] = trim((string)($principal['role'] ?? 'user'));
+  $base['effective_authority_role'] = trim((string)($principal['authority_role'] ?? ''));
   $base['effective_is_chief'] = in_array((string)($principal['authority_role'] ?? ''), ['director','division_head','section_head'], true) || ((int)($principal['is_chief'] ?? 0) === 1);
   $base['acting_principal_user_id'] = (int)($principal['id'] ?? 0);
   $base['acting_principal_name'] = trim((string)($principal['full_name'] ?? ''));

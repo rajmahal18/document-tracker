@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require __DIR__ . "/../includes/bootstrap.php";
+require_once __DIR__ . "/../core/chief_dashboard.php";
 require_login();
 header("Content-Type: application/json; charset=utf-8");
 
@@ -14,13 +15,16 @@ if ($docId <= 0) {
   exit;
 }
 
-if (!can_view_document_family($conn, $docId)) {
+$identity = effective_document_identity($conn);
+$chiefViewRequested = (int)($_GET['chief_view'] ?? 0) === 1;
+$chiefViewer = chief_dashboard_viewer_from_identity($identity);
+$chiefViewAllowed = $chiefViewRequested && chief_dashboard_document_scope_allows($conn, $chiefViewer, $docId);
+if (!can_view_document_family($conn, $docId) && !$chiefViewAllowed) {
   http_response_code(403);
   echo json_encode(['ok' => false, 'error' => 'Forbidden']);
   exit;
 }
 
-$identity = effective_document_identity($conn);
 $effectiveUserId = (int)($identity['effective_user_id'] ?? 0);
 $actualUserId = (int)($identity['actual_user_id'] ?? 0);
 $assistantMode = (bool)($identity['assistant_mode'] ?? false);

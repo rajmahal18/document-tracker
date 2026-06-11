@@ -6,6 +6,8 @@ require_once __DIR__ . '/../core/project_codes.php';
 require_once __DIR__ . '/../core/document_split.php';
 require_once __DIR__ . '/../core/working_time.php';
 require_once __DIR__ . '/../core/workflow.php';
+require_once __DIR__ . '/../core/division_tracking.php';
+require_once __DIR__ . '/../core/chief_dashboard.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -18,13 +20,16 @@ if ($documentId <= 0) {
   exit;
 }
 
-if (!can_view_document_family($conn, $documentId)) {
+$identity = effective_document_identity($conn);
+$chiefViewRequested = (int)($_GET['chief_view'] ?? 0) === 1;
+$chiefViewer = chief_dashboard_viewer_from_identity($identity);
+$chiefViewAllowed = $chiefViewRequested && chief_dashboard_document_scope_allows($conn, $chiefViewer, $documentId);
+if (!can_view_document_family($conn, $documentId) && !$chiefViewAllowed) {
   http_response_code(403);
   echo json_encode(['ok' => false, 'error' => 'Access denied.']);
   exit;
 }
 
-$identity = effective_document_identity($conn);
 $myUserId = (int)($identity['effective_user_id'] ?? 0);
 $actualUserId = (int)($identity['actual_user_id'] ?? 0);
 $mySectionId = (int)($identity['effective_section_id'] ?? 0);
@@ -253,7 +258,7 @@ if (!$hasRealBranches) {
     $myHasOpenInbound = 1;
     $myHasActionableRole = 0;
     $myCanChangeLifecycle = 0;
-  } elseif ($flatAttachmentRecipientInProgress || $flatAttachmentSenderWaiting || $flatActionRequestRecipientInProgress || $flatActionRequestSenderWaiting || $flatAttachmentRecipientCompleted || $flatActionRequestRecipientCompleted) {
+  } elseif ($flatAttachmentRecipientInProgress || $flatAttachmentSenderWaiting || $flatActionRequestRecipientInProgress || $flatActionRequestSenderWaiting || $flatAttachmentRecipientCompleted) {
     $myHasOpenInbound = 0;
     $myHasActionableRole = 0;
     $myCanChangeLifecycle = 0;
@@ -337,9 +342,15 @@ echo json_encode([
     'status_chip_class' => $statusChipClass,
     'current_holder_name' => $currentHolderName,
     'current_holder_text' => $currentHolderText,
+    'movement_text' => $destinationText,
     'destination_text' => $destinationText,
     'last_holder_text' => $lastHolderText,
     'current_holder_section_name' => $currentHolderName,
+    'open_from_section_name' => (string)($openRoute['from_section_name'] ?? ''),
+    'open_to_section_id' => (int)($openRoute['to_section_id'] ?? 0),
+    'open_to_user_id' => (int)($openRoute['to_user_id'] ?? 0),
+    'my_open_route_id' => $myHasOpenInbound ? (int)($openRoute['id'] ?? 0) : 0,
+    'my_personal_deadline_at' => null,
     'can_edit_details' => $canEditDetails,
     'can_regenerate_division_slip' => $canRegenerateDivisionSlip,
     'has_my_division_slip' => $hasMyDivisionSlip,
@@ -347,9 +358,15 @@ echo json_encode([
     'origin_division_code' => $originDivisionCode,
     'activity_label' => 'Days stuck',
     'activity_value' => (string)dt_working_days_from_minutes($workingMinutesStuck, $conn),
+    'activity_text' => 'Days stuck: ' . (string)dt_working_days_from_minutes($workingMinutesStuck, $conn),
+    'latest_activity_title' => 'Days stuck: ' . (string)dt_working_days_from_minutes($workingMinutesStuck, $conn),
+    'latest_activity_detail' => '',
+    'latest_activity_at_display' => '',
     'days_stuck' => dt_working_days_from_minutes($workingMinutesStuck, $conn),
     'working_minutes_stuck' => $workingMinutesStuck,
     'open_route_count' => $openRouteCount,
+    'has_real_branches' => $hasRealBranches ? 1 : 0,
+    'is_initial_routing' => $hasAnyRoutes ? 0 : 1,
     'in_transit' => $inTransit,
     'my_has_open_inbound' => $myHasOpenInbound,
     'my_has_actionable_role' => $myHasActionableRole,

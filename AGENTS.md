@@ -31,3 +31,21 @@ When fixing a bug, briefly report:
 Do not change existing behavior outside the confirmed bug scope unless necessary.
 Always verify both normal user flow and assistant/delegated-user flow when a bug
 involves identity, permissions, routing, signatures, approvals, or document actions.
+
+## Docs Update Checklist
+
+When finishing work, proactively check whether any project markdown file should be updated:
+
+1. `problems_encountered.md`
+- Update this for bugs only when the fix reveals a reusable debugging lesson, recurring bug pattern, permission mismatch, payload/source mismatch, or misleading assumption worth remembering.
+
+2. `CHANGELOG.md`
+- Update this for meaningful user-facing changes, workflow changes, new features, visible UI changes, or behavior changes that should appear in the app changelog.
+- Follow `CHANGELOG_WORKFLOW.md` and `CHANGELOG_GUIDE.md`.
+
+3. `prod_details.md`
+- Update this when production-relevant setup changes, such as cron jobs, backup behavior, deployment assumptions, environment-specific paths, or operational runbooks.
+- Keep it operational and concise, not a changelog.
+
+4. Other `.md` docs
+- If a task changes an established developer workflow, debugging workflow, rollout procedure, or repo convention, update the nearest relevant markdown doc in the repo instead of leaving the knowledge only in code or chat.

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/bootstrap.php';
 require_once __DIR__ . '/../core/document_split.php';
+require_once __DIR__ . '/../core/chief_dashboard.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -15,7 +16,11 @@ if ($documentId <= 0) {
   exit;
 }
 
-if (!can_view_document_family($conn, $documentId)) {
+$identity = effective_document_identity($conn);
+$chiefViewRequested = (int)($_GET['chief_view'] ?? 0) === 1;
+$chiefViewer = chief_dashboard_viewer_from_identity($identity);
+$chiefViewAllowed = $chiefViewRequested && chief_dashboard_document_scope_allows($conn, $chiefViewer, $documentId);
+if (!can_view_document_family($conn, $documentId) && !$chiefViewAllowed) {
   http_response_code(403);
   echo json_encode(['ok' => false, 'error' => 'Access denied.']);
   exit;

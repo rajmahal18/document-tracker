@@ -392,9 +392,22 @@
 
   function appendActingPrincipal(target, payload = null) {
     const principalId = actingPrincipalId(payload);
-    if (principalId <= 0) return target;
+    const ctxView = ((window.__CTX__ || {}).currentDocumentsView || "").toString().trim().toLowerCase();
+    const urlView = (() => {
+      try {
+        return new URLSearchParams(window.location.search).get("view")?.toString().trim().toLowerCase() || "";
+      } catch {
+        return "";
+      }
+    })();
+    const isChiefView = ctxView === "chief" || urlView === "chief";
     if (target instanceof URLSearchParams || target instanceof FormData) {
-      target.append("acting_principal_user_id", String(principalId));
+      if (principalId > 0) {
+        target.append("acting_principal_user_id", String(principalId));
+      }
+      if (isChiefView) {
+        target.append("chief_view", "1");
+      }
     }
     return target;
   }
@@ -546,6 +559,72 @@
     return Number(p.can_split_projects || 0) === 1 && normalizeProjectList(p).length > 0;
   }
 
+  function normalizeDrawerPayload(payload = null) {
+    const raw = (payload && typeof payload === "object") ? payload : {};
+    const docId = Number(raw.id || 0);
+    const trackingNo = clean(raw.tracking_display || raw.tracking_no || (docId > 0 ? `#${docId}` : ""));
+    const holder = clean(raw.current_holder_text || raw.current_holder_name || raw.current_holder_section_name || "");
+    const status = clean(raw.status_label || raw.current_status || "ACTIVE") || "ACTIVE";
+    const movementText = clean(raw.movement_text || raw.destination_text || "");
+    const latestActivityTitle = clean(raw.latest_activity_title || raw.activity_text || "");
+    const latestActivityDetail = clean(raw.latest_activity_detail || "");
+    const latestActivityStamp = clean(raw.latest_activity_at_display || "");
+    const normalized = {
+      ...raw,
+      id: docId,
+      tracking_no: clean(raw.tracking_no || trackingNo),
+      tracking_display: trackingNo,
+      requester: clean(raw.requester || ""),
+      document_date: clean(raw.document_date || ""),
+      deadline_at: raw.deadline_at || null,
+      my_personal_deadline_at: raw.my_personal_deadline_at || null,
+      subject: clean(raw.subject || ""),
+      content_type: clean(raw.content_type || ""),
+      comm_type: clean(raw.comm_type || ""),
+      project_codes: Array.isArray(raw.project_codes) ? raw.project_codes : [],
+      project_ids: Array.isArray(raw.project_ids) ? raw.project_ids : [],
+      current_status: status,
+      status_label: status,
+      current_holder_name: clean(raw.current_holder_name || holder),
+      current_holder_text: holder || "—",
+      current_holder_section_name: clean(raw.current_holder_section_name || holder),
+      movement_text: movementText || "—",
+      destination_text: movementText || "—",
+      last_holder_text: clean(raw.last_holder_text || "—"),
+      latest_activity_title: latestActivityTitle || "—",
+      latest_activity_detail: latestActivityDetail,
+      latest_activity_at_display: latestActivityStamp,
+      activity_label: clean(raw.activity_label || "Days stuck"),
+      activity_value: clean(raw.activity_value || raw.days_stuck || "0"),
+      days_stuck: raw.days_stuck ?? "",
+      working_minutes_stuck: Number(raw.working_minutes_stuck || 0),
+      open_route_count: Number(raw.open_route_count || 0),
+      in_transit: Number(raw.in_transit || 0),
+      my_has_open_inbound: Number(raw.my_has_open_inbound || 0),
+      my_has_actionable_role: Number(raw.my_has_actionable_role || 0),
+      my_can_change_lifecycle: Number(raw.my_can_change_lifecycle || 0),
+      my_has_participation: Number(raw.my_has_participation || 0),
+      my_is_visible_only: Number(raw.my_is_visible_only || 0),
+      my_is_for_reference: Number(raw.my_is_for_reference || 0),
+      my_is_receive_only: Number(raw.my_is_receive_only || 0),
+      can_edit_details: Number(raw.can_edit_details || 0),
+      can_split_projects: Number(raw.can_split_projects || 0),
+      can_regenerate_division_slip: Number(raw.can_regenerate_division_slip || 0),
+      has_my_division_slip: Number(raw.has_my_division_slip || 0),
+      my_division_tracking_no: clean(raw.my_division_tracking_no || ""),
+      origin_division_code: clean(raw.origin_division_code || ""),
+      action_request_summary: Array.isArray(raw.action_request_summary) ? raw.action_request_summary : [],
+      attachment_forward_task_summary: Array.isArray(raw.attachment_forward_task_summary) ? raw.attachment_forward_task_summary : [],
+      viewer_relation_mode: clean(raw.viewer_relation_mode || "related_followup"),
+    };
+
+    if (!normalized.status_chip_class) {
+      normalized.status_chip_class = normalized.in_transit ? "chip action" : "chip incoming";
+    }
+
+    return normalized;
+  }
+
   function findVisibleDocumentPayload(docId) {
     const targetId = Number(docId || 0);
     if (targetId <= 0) return null;
@@ -620,12 +699,18 @@
 
     const visiblePayload = findVisibleDocumentPayload(targetId);
     if (visiblePayload) {
+      const normalizedVisiblePayload = normalizeDrawerPayload(visiblePayload);
       if (branchId > 0) {
-        savePreferredBranchId(Number(visiblePayload?.id || 0), branchId);
+        savePreferredBranchId(Number(normalizedVisiblePayload?.id || 0), branchId);
       }
       focusVisibleDocumentRow(targetId);
-      openDrawer(visiblePayload);
-      return true;
+      try {
+        openDrawer(normalizedVisiblePayload);
+        return true;
+      } catch (error) {
+        console.error("Failed to open visible document payload", error, normalizedVisiblePayload);
+        return false;
+      }
     }
 
     try {
@@ -635,15 +720,25 @@
         headers: { Accept: "application/json" }
       });
       const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.ok || !data?.document) {
+      const fetchedDocument = (data && typeof data === "object" && data.document && typeof data.document === "object")
+        ? data.document
+        : ((data && typeof data === "object" && Number(data.id || 0) > 0) ? data : null);
+      if (!res.ok || (!data?.ok && !fetchedDocument) || !fetchedDocument) {
+        console.warn("Unexpected drawer snapshot response", { status: res.status, data });
         return false;
       }
+      const normalizedFetchedPayload = normalizeDrawerPayload(fetchedDocument);
       if (branchId > 0) {
-        savePreferredBranchId(Number(data.document?.id || 0), branchId);
+        savePreferredBranchId(Number(normalizedFetchedPayload?.id || 0), branchId);
       }
       focusVisibleDocumentRow(targetId);
-      openDrawer(data.document);
-      return true;
+      try {
+        openDrawer(normalizedFetchedPayload);
+        return true;
+      } catch (error) {
+        console.error("Failed to open fetched document payload", error, normalizedFetchedPayload);
+        return false;
+      }
     } catch {
       return false;
     }
@@ -715,6 +810,8 @@
     }
     window.DTToast?.error?.("Failed to open linked document.") || console.error("Failed to open linked document.");
   }
+
+  window.DTOpenDocumentById = openDocumentById;
 
   function renderRelatedDocuments(data = null) {
     if (!elRelatedDocs) return;
@@ -3948,8 +4045,13 @@
   }
 
   function openDrawer(payload) {
+    payload = normalizeDrawerPayload(payload);
     animateDrawerDocumentSwap(payload);
     currentPayload = payload || null;
+    backdrop?.classList.add("open");
+    drawer?.classList.add("open");
+    backdrop?.setAttribute("aria-hidden", "false");
+    drawer?.setAttribute("aria-hidden", "false");
     setCollapsed(elAttachments, false);
     setCollapsed(attachForm, true);
     closeForwardModal();
@@ -4300,6 +4402,8 @@
   function closeDrawer() {
     drawer?.classList.remove("open");
     backdrop?.classList.remove("open");
+    drawer?.setAttribute("aria-hidden", "true");
+    backdrop?.setAttribute("aria-hidden", "true");
     currentPayload = null;
     currentBranchMode = false;
     currentBranches = [];
@@ -4921,6 +5025,25 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
 
   window.DTBindDocumentRows = bindDocumentRows;
   bindDocumentRows();
+  window.DTChiefOpenDocument = function (triggerOrDocId) {
+    const docId = typeof triggerOrDocId === "number"
+      ? Number(triggerOrDocId || 0)
+      : Number(triggerOrDocId?.getAttribute?.("data-open-doc-id") || 0);
+    if (docId > 0) {
+      void openDocumentById(docId);
+    }
+    return false;
+  };
+
+  document.addEventListener("click", (event) => {
+    const trigger = event.target?.closest?.("[data-open-doc-id]");
+    if (!trigger) return;
+    event.preventDefault();
+    const docId = Number(trigger.getAttribute("data-open-doc-id") || 0);
+    if (docId > 0) {
+      void openDocumentById(docId);
+    }
+  });
 
   const restoreState = consumeDrawerRestoreState();
   if (restoreState?.docId) {

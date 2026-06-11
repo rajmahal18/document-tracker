@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . "/../includes/bootstrap.php";
 require_once __DIR__ . "/../core/division_tracking.php";
+require_once __DIR__ . "/../core/chief_dashboard.php";
 require_login();
 
 header("Content-Type: application/json");
@@ -16,7 +17,11 @@ if ($docId <= 0) {
 }
 
 try {
-  if (!can_view_document_family($conn, $docId)) {
+  $identity = effective_document_identity($conn);
+  $chiefViewRequested = (int)($_GET['chief_view'] ?? 0) === 1;
+  $chiefViewer = chief_dashboard_viewer_from_identity($identity);
+  $chiefViewAllowed = $chiefViewRequested && chief_dashboard_document_scope_allows($conn, $chiefViewer, $docId);
+  if (!can_view_document_family($conn, $docId) && !$chiefViewAllowed) {
     http_response_code(403);
     echo json_encode(["ok" => false, "error" => "Forbidden"]);
     exit;

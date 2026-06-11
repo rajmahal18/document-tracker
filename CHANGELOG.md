@@ -9,20 +9,26 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 ### Added
 - Automated due-today email reminder support for document assignees, with separate morning and afternoon send windows in Manila time and rerun-safe delivery logging.
 - A CLI reminder-window runner for cron, so due-today reminder checks can safely repeat during the day without resending already logged reminders.
+- A chief dashboard that surfaces overdue, due-today, and no-movement documents together with the currently accountable personnel for director, division-chief, and section-chief scopes.
 
 ### Changed
 - Task Monitoring now enforces lead-assignee editing rules on existing monitoring records, so progress-driven workflows no longer let any editor change protected task details after assignment.
+- The chief dashboard now shows focal-person avatars in its grouped attention view, improving visual scanning for accountable personnel.
 
 ### Fixed
 - Due-today reminder logging now preserves nullable route references and surfaces rerun-protection write failures instead of silently reporting success.
 - Due-today reminder emails now build document links from the app base path during CLI runs, so production messages no longer point to `/scripts/public/...`.
+- Chief dashboard avatars now use the same user photo source fallback as the org chart, so accountable-person pictures load from existing profile image columns instead of dropping to initials unnecessarily.
 - Task Monitoring now keeps progress updates with the lead assignee on progress-based workflows, while still allowing assigned operators to update non-protected fields like remarks and reference-driven status inputs.
 - Task Monitoring task deletion and edit access now follow the task's actual assignee context instead of relying only on creator ownership.
 - The org chart now defers per-user document activity stats until a person row is opened, so the initial page load no longer precomputes modal-only workload metrics for every user.
+- Legacy non-branch documents no longer stay stuck in a non-actionable state for a past signature/approval recipient after that same user later receives the real forwarded document through a normal route.
+- The documents page now provides a safe early view-context value before its inline JS bootstrap runs, preventing forward/receive interactions from failing when PHP warning output would otherwise corrupt the page script.
 
 ### Removed
 
 ### Affected Areas
+- Chief Dashboard
 - Email Notifications
 - Document Deadlines
 - Scheduled Reminder Jobs

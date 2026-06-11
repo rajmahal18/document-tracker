@@ -149,3 +149,138 @@ Any query that checks ownership, sender, actor, participation, or actionable sta
 ### Practical rule
 
 If UI state is wrong, verify payload first. If payload is wrong, fix backend/helper logic. If payload is right, fix frontend visibility logic.
+
+## 3. Chief dashboard row can appear, but drawer APIs still return `Access denied`
+
+### Symptom pattern
+
+- a document is visible in the chief dashboard list
+- clicking `Open document` works for some rows but not others
+- Network shows `document_drawer_snapshot.php` or follow-up drawer APIs returning `403` / `Access denied`
+
+### Misleading first assumption
+
+- it looks like a frontend click bug because some buttons work and some do nothing
+
+### Actual root cause
+
+The chief dashboard had its own scope query for "documents needing attention", but the drawer APIs still enforced the normal personal `can_view_document_family()` visibility rules.
+
+So a document could be:
+
+- valid for chief oversight scope
+- invalid for ordinary personal/route visibility
+
+That mismatch caused partial-open behavior:
+
+- some rows opened
+- some rows fetched but were denied by backend
+
+### Best debugging path next time
+
+1. Compare the page query and the drawer API permission rule
+- [core/chief_dashboard.php](C:/xampp/htdocs/document-tracker/core/chief_dashboard.php)
+- [includes/bootstrap.php](C:/xampp/htdocs/document-tracker/includes/bootstrap.php)
+
+2. If the page has a special oversight scope, make sure the drawer-dependent APIs receive that same context
+- snapshot
+- history
+- attachments
+- related documents
+- pending remarks
+
+3. Do not loosen global visibility blindly
+- prefer a scoped fallback like `chief_view=1` that is only honored for chief-dashboard flows
+
+## 4. Old completed signature/approval requests can incorrectly make legacy documents look permanently non-actionable
+
+Date encountered: 2026-06-11
+
+### Symptom
+
+- User A requested signature/approval from User B
+- User B received and approved
+- User A later forwarded the actual document to User B
+- User B received the routed document, but the drawer no longer showed normal action buttons even though the document was already with User B
+
+### Misleading first assumption
+
+- It looked like the new forward/receive flow failed to restore actionable ownership
+- Branch/actionable-lane logic looked suspicious first, especially around `can_forward`
+
+### Actual root cause
+
+For legacy non-branch documents, the page payload and drawer snapshot both derived:
+
+- `flatActionRequestIsRecipient` from historical `recipient_any_count`
+- `flatActionRequestRecipientCompleted` when there were no longer any open request tasks
+
+That meant a user who had ever been the recipient of a signature/approval request on the document could still be treated as a completed request recipient later, even after a separate normal forward made them the true current actionable holder.
+
+The payload override then forced:
+
+- `my_has_actionable_role = false`
+- `my_can_change_lifecycle = false`
+
+So the drawer behaved as if the user only had old request history, not current ownership.
+
+### Files involved
+
+- [public/documents.php](C:/xampp/htdocs/document-tracker/public/documents.php)
+- [api/document_drawer_snapshot.php](C:/xampp/htdocs/document-tracker/api/document_drawer_snapshot.php)
+- [core/workflow.php](C:/xampp/htdocs/document-tracker/core/workflow.php)
+
+### Final fix
+
+Stopped treating completed signature/approval recipient history as an action-locking state for legacy documents.
+
+Only open signature/approval states now suppress normal actionable behavior:
+
+- `PENDING_RECEIVE`
+- `IN_PROGRESS`
+- sender waiting on an open request
+
+Completed request history is still preserved for summaries/audit purposes, but it no longer overrides a later real actionable forward.
+
+### Best debugging path next time
+
+1. If a user is the current holder but has no normal actions, check whether the document is branch-mode or legacy-mode first
+2. For legacy-mode documents, inspect payload booleans before blaming route ownership:
+- `my_has_actionable_role`
+- `my_can_change_lifecycle`
+- `flat_action_request_recipient_pending_receive`
+- `flat_action_request_recipient_in_progress`
+- `flat_action_request_recipient_completed`
+3. If `flat_action_request_recipient_completed = 1`, confirm whether that came from old request history instead of an actually open request
+4. Do not let historical completed request metadata override current actionable ownership
+
+## 5. Documents page JS can silently break when a server-injected context variable is used before it is defined
+
+Date encountered: 2026-06-11
+
+### Symptom
+
+- Forward modal opens but recipient users never load
+- Receive button stops working or appears dead
+- Multiple documents-page interactions fail at once even though the backend endpoints themselves are still valid
+
+### Actual root cause
+
+The page injected `window.__CTX__.currentDocumentsView` from PHP before `$currentDocumentsView` had been defined later in [public/documents.php](C:/xampp/htdocs/document-tracker/public/documents.php).
+
+On environments where PHP warnings are rendered into the response, that undefined-variable warning can corrupt the inline script block and prevent the rest of `assets/js/documents-page.js` from behaving normally.
+
+### Files involved
+
+- [public/documents.php](C:/xampp/htdocs/document-tracker/public/documents.php)
+- [assets/js/documents-page.js](C:/xampp/htdocs/document-tracker/assets/js/documents-page.js)
+
+### Final fix
+
+Provide a safe early fallback value for the JS-injected documents view context before including the layout/script block.
+
+### Best debugging path next time
+
+1. If several unrelated documents-page actions die at once, suspect an early JS bootstrap failure
+2. Check inline server-rendered script values before blaming fetch handlers
+3. Look for PHP warnings inserted into script tags, especially from undefined variables used in `window.__CTX__`

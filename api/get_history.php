@@ -4,6 +4,7 @@ declare(strict_types=1);
 require __DIR__ . "/../includes/bootstrap.php";
 require_login();
 require_once __DIR__ . "/../core/working_time.php";
+require_once __DIR__ . "/../core/chief_dashboard.php";
 
 header("Content-Type: application/json");
 
@@ -138,7 +139,11 @@ try {
     return $summary;
   };
 
-  if (!can_view_document_family($conn, $docId)) {
+  $identity = effective_document_identity($conn);
+  $chiefViewRequested = (int)($_GET['chief_view'] ?? 0) === 1;
+  $chiefViewer = chief_dashboard_viewer_from_identity($identity);
+  $chiefViewAllowed = $chiefViewRequested && chief_dashboard_document_scope_allows($conn, $chiefViewer, $docId);
+  if (!can_view_document_family($conn, $docId) && !$chiefViewAllowed) {
     http_response_code(403);
     echo json_encode(["ok" => false, "error" => "Forbidden"]);
     exit;
@@ -146,7 +151,6 @@ try {
 
   $branchMode = workflow_branch_mode_enabled($conn);
   $docHasRealBranches = ($branchMode && workflow_document_has_real_branches($conn, $docId));
-  $identity = effective_document_identity($conn);
   $viewerUserId = (int)($identity['effective_user_id'] ?? 0);
   $viewerSectionId = (int)($identity['effective_section_id'] ?? 0);
   $viewerDivisionId = (int)($identity['effective_division_id'] ?? 0);

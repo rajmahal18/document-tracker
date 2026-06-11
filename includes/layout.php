@@ -62,6 +62,18 @@ $pageTitle = $pageTitle ?? "Document Tracker";
   $sessionDivisionCode = strtoupper(trim((string)($_SESSION["division_code"] ?? "")));
   $resolvedDivisionName = $sessionDivisionName;
   $resolvedDivisionCode = $sessionDivisionCode;
+  $sessionAuthorityRole = strtolower(trim((string)($_SESSION["authority_role"] ?? '')));
+  $sessionIsChief = ((int)($_SESSION["is_chief"] ?? 0) === 1);
+  $canSeeChiefDashboard = $sessionIsChief || in_array($sessionAuthorityRole, ['director', 'division_head', 'section_head'], true);
+
+  if (
+    !$canSeeChiefDashboard
+    && isset($_SESSION["user_id"], $conn)
+    && $conn instanceof mysqli
+    && function_exists('assistant_fetch_assigned_principals')
+  ) {
+    $canSeeChiefDashboard = assistant_fetch_assigned_principals($conn, (int)$_SESSION["user_id"]) !== [];
+  }
 
   if (isset($_SESSION["user_id"], $_SESSION["section_id"], $conn) && $conn instanceof mysqli) {
     $resolvedSectionId = (int)($_SESSION["section_id"] ?? 0);
@@ -145,11 +157,11 @@ $pageTitle = $pageTitle ?? "Document Tracker";
         <span class="navGroupCaret" aria-hidden="true">&gt;</span>
       </button>
       <div class="navGroupItems" id="navDocsItems" hidden>
-        <a href="http://13.214.52.254/indexdocs_cside_funded1.php" class="navSubLink">
+        <a href="https://doctracker.mpwppd.online/ppd/indexdocs_cside_funded1.php" class="navSubLink">
           <span class="navIcon">&#8250;</span>
           <span class="navText">Funded</span>
         </a>
-        <a href="http://13.214.52.254/viewdocs.php" class="navSubLink">
+        <a href="https://doctracker.mpwppd.online/ppd/viewdocs.php" class="navSubLink">
           <span class="navIcon">&#8250;</span>
           <span class="navText">Legacy Documents</span>
         </a>
