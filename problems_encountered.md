@@ -284,3 +284,35 @@ Provide a safe early fallback value for the JS-injected documents view context b
 1. If several unrelated documents-page actions die at once, suspect an early JS bootstrap failure
 2. Check inline server-rendered script values before blaming fetch handlers
 3. Look for PHP warnings inserted into script tags, especially from undefined variables used in `window.__CTX__`
+
+## 6. PHP numeric array keys can break strict string template helpers mid-render
+
+Date encountered: 2026-06-16
+
+### Symptom
+
+- Issuances page rendered the hero and counters for a non-admin user
+- The total/year counts were correct, but the search tools, year tabs, and table did not appear
+- Admin-created data existed and was counted by the page
+
+### Actual root cause
+
+The page grouped issuance years using numeric-looking array keys such as `2026`.
+
+PHP casts numeric string array keys to integers, so `array_key_first($years)` returned `2026` as an integer. The page then passed that value into `issuances_h(string $value)` while `strict_types=1` was enabled, causing a `TypeError` in the template after the hero had already rendered.
+
+### Files involved
+
+- [public/issuances.php](C:/xampp/htdocs/document-tracker/public/issuances.php)
+
+### Final fix
+
+Cast the selected year back to string immediately after resolving it from request/default year state.
+
+### Best debugging path next time
+
+If a PHP page renders the first section and then silently stops:
+
+1. Check for typed helper calls in the template, especially `function h(string $value)`
+2. Check values coming from array keys, counts, IDs, or dates
+3. Remember that numeric string keys become integers in PHP arrays
