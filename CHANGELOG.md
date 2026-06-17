@@ -15,6 +15,7 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 ### Changed
 - Task Monitoring now enforces lead-assignee editing rules on existing monitoring records, so progress-driven workflows no longer let any editor change protected task details after assignment.
 - The chief dashboard now shows focal-person avatars in its grouped attention view, improving visual scanning for accountable personnel.
+- The chief dashboard layout is cleaner and easier to scan, with compact attention stats, clearer filters, priority rails, and structured document metadata for desktop and mobile views.
 - The Issuances list now sorts by oldest issued date first, keeping memo-series rows in natural order.
 - Transmittal Memo generation on Add Document now works with Save for Principal Review, matching the division tracking slip review flow.
 
@@ -28,6 +29,7 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 - Chief dashboard now shows the acting principal instead of the assistant as the sender for assistant-mode Forward Attach and Signature/Approval tasks.
 - Chief dashboard Signature/Approval request rows now keep the requester's staff member as the grouped accountable person when they request from an outside boss or assistant, instead of listing the outside recipient.
 - Chief dashboard holder fallback now ignores completed Signature/Approval reference receipts when identifying the current accountable person, so division-chief assistants no longer appear under a section chief just because they received a reference request.
+- Chief dashboard Forward Attach rows now keep the scoped sender as accountable and resolve assistant task receipts back to the addressed principal after task completion, preventing other chiefs' assistants from appearing in the wrong personnel list.
 - Chief dashboard in-transit rows now keep personnel lists limited to the chief's scope and clearly label whether the scoped person is the sender or receiver, including the counterpart name.
 - Chief dashboard avatars now use the same user photo source fallback as the org chart, so accountable-person pictures load from existing profile image columns instead of dropping to initials unnecessarily.
 - Assistant-mode transmittal memo print previews now preserve the acting-principal identity when loading the attached PDF and when returning to Documents.

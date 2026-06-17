@@ -101,8 +101,9 @@ function chief_dashboard_scoped_accountable_items(array $viewer, array $accounta
 
   $senderScopedRequests = [];
   foreach ($scoped as $item) {
+    $taskKind = trim((string)($item['task_kind'] ?? ''));
     if (
-      trim((string)($item['task_kind'] ?? '')) === 'action_request'
+      in_array($taskKind, ['action_request', 'attachment_forward'], true)
       && trim((string)($item['person_route_role'] ?? '')) === 'sender'
     ) {
       $taskId = (int)($item['task_id'] ?? 0);
@@ -117,7 +118,8 @@ function chief_dashboard_scoped_accountable_items(array $viewer, array $accounta
   }
 
   return array_values(array_filter($scoped, static function (array $item) use ($senderScopedRequests): bool {
-    if (trim((string)($item['task_kind'] ?? '')) !== 'action_request') {
+    $taskKind = trim((string)($item['task_kind'] ?? ''));
+    if (!in_array($taskKind, ['action_request', 'attachment_forward'], true)) {
       return true;
     }
     if (trim((string)($item['person_route_role'] ?? '')) !== 'receiver') {
@@ -176,6 +178,38 @@ function chief_dashboard_user_photo_sql(mysqli $conn, string $alias, bool $trim 
   }
 
   return "COALESCE({$expr}, '')";
+}
+
+function chief_dashboard_holder_user_id_sql(mysqli $conn, string $routeAlias): string
+{
+  $receivedBy = "{$routeAlias}.received_by_user_id";
+  $toUser = "{$routeAlias}.to_user_id";
+  if (!function_exists('db_table_exists') || !db_table_exists($conn, 'principal_assistants')) {
+    return "COALESCE({$receivedBy}, {$toUser}, 0)";
+  }
+
+  return "
+    COALESCE(
+      CASE
+        WHEN {$receivedBy} IS NOT NULL
+          AND {$receivedBy} > 0
+          AND {$toUser} IS NOT NULL
+          AND {$toUser} > 0
+          AND {$receivedBy} <> {$toUser}
+          AND EXISTS (
+            SELECT 1
+            FROM principal_assistants pa_holder
+            WHERE pa_holder.principal_user_id = {$toUser}
+              AND pa_holder.assistant_user_id = {$receivedBy}
+            LIMIT 1
+          )
+        THEN {$toUser}
+        ELSE {$receivedBy}
+      END,
+      {$toUser},
+      0
+    )
+  ";
 }
 
 function chief_dashboard_end_of_day(?string $raw, ?DateTimeZone $timezone = null): ?DateTimeImmutable
@@ -646,6 +680,7 @@ function chief_dashboard_document_scope_allows(mysqli $conn, array $viewer, int 
   $hasOfficialTitle = function_exists('db_column_exists') ? db_column_exists($conn, 'users', 'official_title') : false;
   $hasAuthorityRole = function_exists('db_column_exists') ? db_column_exists($conn, 'users', 'authority_role') : false;
   $routePersonalDeadlineEnabled = function_exists('workflow_has_column') ? workflow_has_column($conn, 'routes', 'personal_deadline_at') : false;
+  $holderUserIdSql = chief_dashboard_holder_user_id_sql($conn, 'r_last');
 
   $docSql = "
     SELECT
@@ -656,11 +691,11 @@ function chief_dashboard_document_scope_allows(mysqli $conn, array $viewer, int 
       dh.id AS current_holder_division_id,
       dh.name AS current_holder_division_name,
       COALESCE(r_last.received_at, '') AS last_received_at,
-      COALESCE(r_last.received_by_user_id, r_last.to_user_id, 0) AS holder_user_id,
-      COALESCE(NULLIF(TRIM(u_holder_recv.full_name), ''), NULLIF(TRIM(u_holder_to.full_name), ''), '') AS holder_user_name,
-      " . ($hasOfficialTitle ? "COALESCE(NULLIF(TRIM(u_holder_recv.official_title), ''), NULLIF(TRIM(u_holder_to.official_title), ''), '')" : "''") . " AS holder_user_title,
-      " . ($hasAuthorityRole ? "COALESCE(NULLIF(TRIM(u_holder_recv.authority_role), ''), NULLIF(TRIM(u_holder_to.authority_role), ''), '')" : "''") . " AS holder_user_authority_role,
-      COALESCE(" . chief_dashboard_user_photo_sql($conn, 'u_holder_recv', true) . ", " . chief_dashboard_user_photo_sql($conn, 'u_holder_to', true) . ", '') AS holder_user_profile_photo_url,
+      {$holderUserIdSql} AS holder_user_id,
+      COALESCE(NULLIF(TRIM(u_holder.full_name), ''), '') AS holder_user_name,
+      " . ($hasOfficialTitle ? "COALESCE(NULLIF(TRIM(u_holder.official_title), ''), '')" : "''") . " AS holder_user_title,
+      " . ($hasAuthorityRole ? "COALESCE(NULLIF(TRIM(u_holder.authority_role), ''), '')" : "''") . " AS holder_user_authority_role,
+      " . chief_dashboard_user_photo_sql($conn, 'u_holder') . " AS holder_user_profile_photo_url,
       COALESCE(d.created_by_user_id, 0) AS created_by_user_id,
       COALESCE(NULLIF(TRIM(u_creator.full_name), ''), '') AS creator_user_name,
       " . ($hasOfficialTitle ? "COALESCE(NULLIF(TRIM(u_creator.official_title), ''), '')" : "''") . " AS creator_user_title,
@@ -683,8 +718,7 @@ function chief_dashboard_document_scope_allows(mysqli $conn, array $viewer, int 
       ORDER BY r2.received_at DESC, r2.id DESC
       LIMIT 1
     )
-    LEFT JOIN users u_holder_recv ON u_holder_recv.id = r_last.received_by_user_id
-    LEFT JOIN users u_holder_to ON u_holder_to.id = r_last.to_user_id
+    LEFT JOIN users u_holder ON u_holder.id = {$holderUserIdSql}
     LEFT JOIN users u_creator ON u_creator.id = d.created_by_user_id
     LEFT JOIN sections sec_creator ON sec_creator.id = u_creator.section_id
     LEFT JOIN divisions div_creator ON div_creator.id = sec_creator.division_id
@@ -809,6 +843,7 @@ function chief_dashboard_fetch_attention(mysqli $conn, array $viewer, array $fil
   $hasOfficialTitle = function_exists('db_column_exists') ? db_column_exists($conn, 'users', 'official_title') : false;
   $hasAuthorityRole = function_exists('db_column_exists') ? db_column_exists($conn, 'users', 'authority_role') : false;
   $routePersonalDeadlineEnabled = function_exists('workflow_has_column') ? workflow_has_column($conn, 'routes', 'personal_deadline_at') : false;
+  $holderUserIdSql = chief_dashboard_holder_user_id_sql($conn, 'r_last');
 
   $baseSql = "
     SELECT
@@ -826,11 +861,11 @@ function chief_dashboard_fetch_attention(mysqli $conn, array $viewer, array $fil
       dh.id AS current_holder_division_id,
       dh.name AS current_holder_division_name,
       COALESCE(r_last.received_at, '') AS last_received_at,
-      COALESCE(r_last.received_by_user_id, r_last.to_user_id, 0) AS holder_user_id,
-      COALESCE(NULLIF(TRIM(u_holder_recv.full_name), ''), NULLIF(TRIM(u_holder_to.full_name), ''), '') AS holder_user_name,
-      " . ($hasOfficialTitle ? "COALESCE(NULLIF(TRIM(u_holder_recv.official_title), ''), NULLIF(TRIM(u_holder_to.official_title), ''), '')" : "''") . " AS holder_user_title,
-      " . ($hasAuthorityRole ? "COALESCE(NULLIF(TRIM(u_holder_recv.authority_role), ''), NULLIF(TRIM(u_holder_to.authority_role), ''), '')" : "''") . " AS holder_user_authority_role,
-      COALESCE(" . chief_dashboard_user_photo_sql($conn, 'u_holder_recv', true) . ", " . chief_dashboard_user_photo_sql($conn, 'u_holder_to', true) . ", '') AS holder_user_profile_photo_url,
+      {$holderUserIdSql} AS holder_user_id,
+      COALESCE(NULLIF(TRIM(u_holder.full_name), ''), '') AS holder_user_name,
+      " . ($hasOfficialTitle ? "COALESCE(NULLIF(TRIM(u_holder.official_title), ''), '')" : "''") . " AS holder_user_title,
+      " . ($hasAuthorityRole ? "COALESCE(NULLIF(TRIM(u_holder.authority_role), ''), '')" : "''") . " AS holder_user_authority_role,
+      " . chief_dashboard_user_photo_sql($conn, 'u_holder') . " AS holder_user_profile_photo_url,
       COALESCE(d.created_by_user_id, 0) AS created_by_user_id,
       COALESCE(NULLIF(TRIM(u_creator.full_name), ''), '') AS creator_user_name,
       " . ($hasOfficialTitle ? "COALESCE(NULLIF(TRIM(u_creator.official_title), ''), '')" : "''") . " AS creator_user_title,
@@ -852,8 +887,7 @@ function chief_dashboard_fetch_attention(mysqli $conn, array $viewer, array $fil
       ORDER BY r2.received_at DESC, r2.id DESC
       LIMIT 1
     )
-    LEFT JOIN users u_holder_recv ON u_holder_recv.id = r_last.received_by_user_id
-    LEFT JOIN users u_holder_to ON u_holder_to.id = r_last.to_user_id
+    LEFT JOIN users u_holder ON u_holder.id = {$holderUserIdSql}
     LEFT JOIN users u_creator ON u_creator.id = d.created_by_user_id
     LEFT JOIN sections sec_creator ON sec_creator.id = u_creator.section_id
     LEFT JOIN divisions div_creator ON div_creator.id = sec_creator.division_id

@@ -2588,24 +2588,32 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
                     $counterpartSection = trim((string)($personContext['counterpart_section_name'] ?? ''));
                     $counterpartDivision = trim((string)($personContext['counterpart_division_name'] ?? ''));
                     $counterpartScope = trim($counterpartSection . ($counterpartDivision !== '' ? ' | ' . $counterpartDivision : ''));
+                    $docOpenId = (int)($row['id'] ?? 0);
                   ?>
-                  <article class="chiefInlineDocRow tone-<?= htmlspecialchars((string)($row['tone'] ?? 'default')) ?>">
+                  <article class="chiefInlineDocRow tone-<?= htmlspecialchars((string)($row['tone'] ?? 'default')) ?>" data-open-doc-id="<?= $docOpenId ?>" aria-label="Open <?= htmlspecialchars((string)($row['tracking_no'] ?? 'document'), ENT_QUOTES, 'UTF-8') ?>">
                     <div class="chiefInlineDocMain">
                       <div class="chiefInlineDocTop">
                         <span class="chiefInlineTracking"><?= htmlspecialchars((string)($row['tracking_no'] ?? '')) ?></span>
-                        <?php if ((int)($personContext['in_transit'] ?? 0) === 1): ?>
-                          <span class="chiefInlineTransit"><?= htmlspecialchars($taskKindLabel !== '' ? $taskKindLabel : 'In transit') ?></span>
-                        <?php endif; ?>
-                        <?php if ($routeRole !== ''): ?>
-                          <span class="chiefInlineRouteRole <?= $routeRole === 'sender' ? 'isSender' : 'isReceiver' ?>"><?= htmlspecialchars($routeRole === 'sender' ? 'Sender' : 'Receiver') ?></span>
-                        <?php endif; ?>
-                        <?php foreach (chief_dashboard_reason_labels($row) as $reason): ?>
-                          <span class="chiefInlineReason"><?= htmlspecialchars($reason) ?></span>
-                        <?php endforeach; ?>
+                        <span class="chiefInlineBadgeRail">
+                          <?php foreach (chief_dashboard_reason_labels($row) as $reason): ?>
+                            <?php
+                              $reasonKey = strtolower(trim((string)$reason));
+                              $reasonTone = str_contains($reasonKey, 'overdue') ? 'isOverdue' : (str_contains($reasonKey, 'due today') ? 'isToday' : 'isStale');
+                            ?>
+                            <span class="chiefInlineReason <?= $reasonTone ?>"><?= htmlspecialchars($reason) ?></span>
+                          <?php endforeach; ?>
+                          <?php if ((int)($personContext['in_transit'] ?? 0) === 1): ?>
+                            <span class="chiefInlineTransit"><?= htmlspecialchars($taskKindLabel !== '' ? $taskKindLabel : 'In transit') ?></span>
+                          <?php endif; ?>
+                          <?php if ($routeRole !== ''): ?>
+                            <span class="chiefInlineRouteRole <?= $routeRole === 'sender' ? 'isSender' : 'isReceiver' ?>"><?= htmlspecialchars($routeRole === 'sender' ? 'Sender' : 'Receiver') ?></span>
+                          <?php endif; ?>
+                        </span>
                       </div>
                       <div class="chiefInlineSubject"><?= htmlspecialchars((string)($row['subject'] ?? 'Untitled document')) ?></div>
                       <?php if ($routeContextLabel !== ''): ?>
                         <div class="chiefInlineRouteContext">
+                          <span class="chiefInlineRouteLabel">Flow</span>
                           <strong><?= htmlspecialchars($routeContextLabel) ?></strong>
                           <?php if ($counterpartScope !== ''): ?>
                             <span><?= htmlspecialchars($counterpartScope) ?></span>
@@ -2613,14 +2621,14 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
                         </div>
                       <?php endif; ?>
                       <div class="chiefInlineMeta">
-                        <span><strong>Requester:</strong> <?= htmlspecialchars((string)(($row['requester'] ?? '') !== '' ? $row['requester'] : 'Not set')) ?></span>
-                        <span><strong>Holder:</strong> <?= htmlspecialchars(trim((string)(($row['holder_display_label'] ?? '') !== '' ? $row['holder_display_label'] : (($row['current_holder_section_name'] ?? '') . (((string)($row['current_holder_division_name'] ?? '') !== '') ? ' | ' . (string)$row['current_holder_division_name'] : ''))))) ?></span>
-                        <span><strong>Deadline:</strong> <?= htmlspecialchars((string)($row['effective_deadline_label'] ?? 'Not set')) ?></span>
-                        <span><strong>Stalled:</strong> <?= htmlspecialchars((string)($row['working_elapsed_label'] ?? '0 working hours')) ?></span>
+                        <span class="chiefInlineMetaItem"><strong>Requester</strong><span><?= htmlspecialchars((string)(($row['requester'] ?? '') !== '' ? $row['requester'] : 'Not set')) ?></span></span>
+                        <span class="chiefInlineMetaItem"><strong>Holder</strong><span><?= htmlspecialchars(trim((string)(($row['holder_display_label'] ?? '') !== '' ? $row['holder_display_label'] : (($row['current_holder_section_name'] ?? '') . (((string)($row['current_holder_division_name'] ?? '') !== '') ? ' | ' . (string)$row['current_holder_division_name'] : ''))))) ?></span></span>
+                        <span class="chiefInlineMetaItem isDeadline"><strong>Deadline</strong><span><?= htmlspecialchars((string)($row['effective_deadline_label'] ?? 'Not set')) ?></span></span>
+                        <span class="chiefInlineMetaItem isStalled"><strong>Stalled</strong><span><?= htmlspecialchars((string)($row['working_elapsed_label'] ?? '0 working hours')) ?></span></span>
                       </div>
                     </div>
                     <div class="chiefInlineDocActions">
-                      <button type="button" class="chiefInlineOpenBtn" data-open-doc-id="<?= (int)($row['id'] ?? 0) ?>" onclick="return window.DTChiefOpenDocument ? window.DTChiefOpenDocument(this) : false;">Open document</button>
+                      <button type="button" class="chiefInlineOpenBtn" data-open-doc-id="<?= $docOpenId ?>" onclick="return window.DTChiefOpenDocument ? window.DTChiefOpenDocument(this) : false;">Open document</button>
                     </div>
                   </article>
                 <?php endforeach; ?>

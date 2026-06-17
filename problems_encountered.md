@@ -330,6 +330,7 @@ Date encountered: 2026-06-16
 - Assistant-mode Forward Attach and Signature/Approval work could group under the assistant's name instead of the acting principal, causing assistants of chiefs to appear in another chief's personnel list
 - A Signature/Approval request sent by a chief's own staff to an outside boss or assistant could still group the outside recipient on the chief dashboard, even though the requester was the directly supervised person
 - After a Signature/Approval request was completed, the latest received `REFERENCE` route could make the dashboard holder fallback combine the outside receiver user with the document's real current holder section
+- After a Forward Attach task was marked done, the open task row disappeared and the dashboard could fall back to the latest received `ACTION` route, where `received_by_user_id` was the actual assistant even though the route was addressed to the chief/principal
 - This happened on in-transit documents where the outside person was the receiver or sender of an open route
 - The row did not clearly explain whether the scoped person was the sender or receiver
 
@@ -372,6 +373,8 @@ For Signature/Approval task rows, dashboard scoping now filters accountable peop
 
 For holder fallback, the chief dashboard now resolves the latest received holder from `ACTION` routes only. Completed Signature/Approval `REFERENCE` receipts are audit/context events and must not become the accountable holder source.
 
+Forward Attach uses the same sender-first scoping rule as Signature/Approval. When holder fallback reads a completed `ACTION` route received by an assigned assistant on behalf of the addressed principal, the dashboard resolves the accountable holder to that principal instead of the actual assistant actor.
+
 ### Best debugging path next time
 
 For chief dashboard scope bugs, inspect the participant being grouped, not only the document or route:
@@ -383,5 +386,6 @@ For chief dashboard scope bugs, inspect the participant being grouped, not only 
 5. For creation-only/no-route documents, use `documents.created_by_user_id` before falling back to `current_holder_section_id`; section-only labels are usually too vague for personnel grouping
 6. Check task tables before route/branch fallback for special workflows; Forward Attach and Signature/Approval have their own sender/recipient/status source of truth
 7. In assistant mode, normalize task senders through matching `document_events.payload_json.acting_principal_user_id` before grouping personnel for chief-dashboard accountability
-8. For Signature/Approval requests, if the requester is already in the chief's personnel scope, keep that sender as the grouped accountable person and treat the requested boss/assistant as counterpart context
+8. For Signature/Approval and Forward Attach tasks, if the sender/requester is already in the chief's personnel scope, keep that sender as the grouped accountable person and treat the requested boss/assistant as counterpart context
 9. For holder fallback, do not use completed `REFERENCE` routes as current-holder evidence; use the latest received `ACTION` route or the creator fallback
+10. When a latest received `ACTION` route has different `to_user_id` and `received_by_user_id`, check whether the receiver is an assigned assistant for the addressed user before grouping the receiver as accountable
