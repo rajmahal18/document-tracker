@@ -2524,7 +2524,11 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
           <?php foreach (($chiefFilterOptions['people'] ?? []) as $option): ?>
             <?php if ($chiefDivisionId > 0 && (int)($option['division_id'] ?? 0) !== $chiefDivisionId) continue; ?>
             <?php if ($chiefSectionId > 0 && (int)($option['section_id'] ?? 0) !== $chiefSectionId) continue; ?>
-            <option value="<?= htmlspecialchars((string)($option['key'] ?? '')) ?>" <?= (string)($option['key'] ?? '') === $chiefPersonKey ? 'selected' : '' ?>>
+            <?php
+              $personRiskTone = preg_replace('/[^a-z_]/', '', strtolower((string)($option['risk_tone'] ?? 'normal'))) ?: 'normal';
+              $personOptionText = (string)($option['label'] ?? 'Person') . (trim((string)($option['meta'] ?? '')) !== '' ? ' | ' . (string)$option['meta'] : '');
+            ?>
+            <option class="chiefPersonOption risk-<?= htmlspecialchars($personRiskTone) ?>" value="<?= htmlspecialchars((string)($option['key'] ?? '')) ?>" title="<?= htmlspecialchars($personOptionText) ?>" <?= (string)($option['key'] ?? '') === $chiefPersonKey ? 'selected' : '' ?>>
               <?= htmlspecialchars((string)($option['label'] ?? 'Person')) ?><?= trim((string)($option['meta'] ?? '')) !== '' ? ' | ' . htmlspecialchars((string)$option['meta']) : '' ?>
             </option>
           <?php endforeach; ?>
@@ -2575,6 +2579,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
                   <?php if ((int)($group['stats']['overdue'] ?? 0) > 0): ?><span class="toneOverdue"><?= (int)$group['stats']['overdue'] ?> overdue</span><?php endif; ?>
                   <?php if ((int)($group['stats']['due_today'] ?? 0) > 0): ?><span class="toneToday"><?= (int)$group['stats']['due_today'] ?> due today</span><?php endif; ?>
                   <?php if ((int)($group['stats']['stale'] ?? 0) > 0): ?><span class="toneStale"><?= (int)$group['stats']['stale'] ?> stalled</span><?php endif; ?>
+                  <?php if ((int)($group['stats']['in_transit'] ?? 0) > 0): ?><span class="toneTransit"><?= (int)$group['stats']['in_transit'] ?> in transit</span><?php endif; ?>
                 </div>
               </div>
 

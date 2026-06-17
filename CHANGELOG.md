@@ -16,6 +16,9 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 - Task Monitoring now enforces lead-assignee editing rules on existing monitoring records, so progress-driven workflows no longer let any editor change protected task details after assignment.
 - The chief dashboard now shows focal-person avatars in its grouped attention view, improving visual scanning for accountable personnel.
 - The chief dashboard layout is cleaner and easier to scan, with compact attention stats, clearer filters, priority rails, and structured document metadata for desktop and mobile views.
+- The chief dashboard person filter now shows workload risk and action counts, so chiefs can quickly pick staff by urgency instead of reading repeated section/division labels.
+- The chief dashboard person filter now colors staff options by risk level, giving chiefs a faster visual cue when selecting who to review.
+- Dark mode now uses a more cohesive enterprise theme across shared controls, document tables, Chief Dashboard, Assistant Mode surfaces, and Org Atlas cards.
 - The Issuances list now sorts by oldest issued date first, keeping memo-series rows in natural order.
 - Transmittal Memo generation on Add Document now works with Save for Principal Review, matching the division tracking slip review flow.
 

@@ -4,13 +4,19 @@
 /* ===== App shell / drawer nav / scan / dark theme ===== */
 html[data-theme="dark"] body,
 body[data-theme="dark"] {
-  --app-bg: #0b1622;
-  --app-surface: #132233;
-  --app-surface-strong: #16293d;
-  --app-border: rgba(160, 181, 205, 0.28);
-  --app-text: #f4f8fc;
-  --app-text-soft: #c6d5e4;
+  --app-bg: #07111d;
+  --app-bg-2: #0b1624;
+  --app-surface: rgba(13, 28, 43, 0.94);
+  --app-surface-strong: #122236;
+  --app-surface-muted: #0d1b2b;
+  --app-surface-raised: #16283d;
+  --app-border: rgba(157, 181, 209, 0.22);
+  --app-border-strong: rgba(176, 200, 228, 0.34);
+  --app-text: #edf5ff;
+  --app-text-soft: #b6c7da;
+  --app-text-muted: #8fa4bb;
   --app-brand: #12304d;
+  --app-brand-strong: #56a3ff;
   --app-brand-2: #f2a65a;
   --app-shadow: 0 20px 44px rgba(0, 0, 0, 0.34);
   --docs-summary-value: #f2b36f;
@@ -130,6 +136,14 @@ input::placeholder {
   background: transparent;
   border: 0;
   flex: 0 0 48px;
+}
+
+body[data-theme="dark"] .page {
+  color: var(--app-text);
+}
+
+body[data-theme="dark"] .content {
+  color: var(--app-text);
 }
 
 .appBrandLogoLink img {

@@ -1152,6 +1152,7 @@ function chief_dashboard_group_attention(array $documents): array
             'overdue' => 0,
             'due_today' => 0,
             'stale' => 0,
+            'in_transit' => 0,
           ],
           'highest_priority' => 0,
         ];
@@ -1177,6 +1178,9 @@ function chief_dashboard_group_attention(array $documents): array
       }
       if (!empty($document['is_stale'])) {
         $groups[$key]['stats']['stale']++;
+      }
+      if ((int)($person['in_transit'] ?? 0) === 1) {
+        $groups[$key]['stats']['in_transit']++;
       }
       $groups[$key]['highest_priority'] = max($groups[$key]['highest_priority'], chief_dashboard_priority_rank($document));
     }
@@ -1216,6 +1220,60 @@ function chief_dashboard_group_attention(array $documents): array
   });
 
   return $groupList;
+}
+
+function chief_dashboard_person_filter_risk_label(array $stats, int $highestPriority): string
+{
+  if ((int)($stats['overdue'] ?? 0) > 0) {
+    return 'Critical risk';
+  }
+  if ((int)($stats['due_today'] ?? 0) > 0) {
+    return 'High risk';
+  }
+  if ((int)($stats['stale'] ?? 0) > 0 || $highestPriority >= 100) {
+    return 'Watch risk';
+  }
+  return 'Normal risk';
+}
+
+function chief_dashboard_person_filter_risk_tone(array $stats, int $highestPriority): string
+{
+  if ((int)($stats['overdue'] ?? 0) > 0) {
+    return 'critical';
+  }
+  if ((int)($stats['due_today'] ?? 0) > 0) {
+    return 'high';
+  }
+  if ((int)($stats['stale'] ?? 0) > 0 || $highestPriority >= 100) {
+    return 'watch';
+  }
+  return 'normal';
+}
+
+function chief_dashboard_person_filter_meta(array $group): string
+{
+  $stats = (array)($group['stats'] ?? []);
+  $parts = [
+    chief_dashboard_person_filter_risk_label($stats, (int)($group['highest_priority'] ?? 0)),
+  ];
+
+  $countLabels = [
+    'overdue' => 'overdue',
+    'due_today' => 'due today',
+    'stale' => 'stalled',
+    'in_transit' => 'in transit',
+    'all' => 'total',
+  ];
+
+  foreach ($countLabels as $key => $label) {
+    $count = (int)($stats[$key] ?? 0);
+    if ($key !== 'all' && $count <= 0) {
+      continue;
+    }
+    $parts[] = $count . ' ' . $label;
+  }
+
+  return implode(' | ', $parts);
 }
 
 function chief_dashboard_filter_groups(array $groups, array $filters): array
@@ -1273,14 +1331,32 @@ function chief_dashboard_filter_options(array $groups, array $viewer): array
         'division_id' => $divisionId,
         'section_id' => $sectionId,
         'label' => trim((string)($person['primary_label'] ?? 'Assigned office')),
-        'meta' => trim((string)($person['secondary_label'] ?? '')),
+        'meta' => chief_dashboard_person_filter_meta($group),
+        'risk_label' => chief_dashboard_person_filter_risk_label((array)($group['stats'] ?? []), (int)($group['highest_priority'] ?? 0)),
+        'risk_tone' => chief_dashboard_person_filter_risk_tone((array)($group['stats'] ?? []), (int)($group['highest_priority'] ?? 0)),
+        'stats' => (array)($group['stats'] ?? []),
+        'highest_priority' => (int)($group['highest_priority'] ?? 0),
       ];
     }
   }
 
   usort($divisionOptions, static fn(array $a, array $b): int => strcasecmp((string)$a['name'], (string)$b['name']));
   usort($sectionOptions, static fn(array $a, array $b): int => strcasecmp((string)$a['name'], (string)$b['name']));
-  usort($personOptions, static fn(array $a, array $b): int => strcasecmp((string)$a['label'], (string)$b['label']));
+  usort($personOptions, static function (array $a, array $b): int {
+    $priorityDiff = ((int)($b['highest_priority'] ?? 0)) <=> ((int)($a['highest_priority'] ?? 0));
+    if ($priorityDiff !== 0) {
+      return $priorityDiff;
+    }
+
+    foreach (['overdue', 'due_today', 'stale', 'in_transit', 'all'] as $key) {
+      $countDiff = ((int)($b['stats'][$key] ?? 0)) <=> ((int)($a['stats'][$key] ?? 0));
+      if ($countDiff !== 0) {
+        return $countDiff;
+      }
+    }
+
+    return strcasecmp((string)($a['label'] ?? ''), (string)($b['label'] ?? ''));
+  });
 
   return [
     'role' => $role,

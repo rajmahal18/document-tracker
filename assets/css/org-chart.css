@@ -1327,3 +1327,110 @@
 #org_chief_assistant_user_id[multiple] option {
   padding: 7px 8px;
 }
+
+/* Cohesive app dark-mode treatment for Org Atlas. */
+body[data-theme="dark"] .orgArt2026 {
+  --c-panel: var(--app-surface-strong);
+  --c-panel-2: var(--app-surface);
+  --c-panel-3: var(--app-surface-muted);
+  --c-ink: var(--app-text);
+  --c-ink-2: #dbeafe;
+  --c-ink-3: var(--app-text-soft);
+  --c-ink-4: var(--app-text-muted);
+  --b-light: var(--app-border);
+  --b-light-2: var(--app-border-strong);
+  --sh-card: 0 24px 56px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  --sh-soft: 0 14px 32px rgba(0, 0, 0, 0.20);
+  color: var(--app-text);
+}
+
+body[data-theme="dark"] .orgSpotlight,
+body[data-theme="dark"] .orgCounter,
+body[data-theme="dark"] .orgDivisionCard,
+body[data-theme="dark"] .orgSectionCard,
+body[data-theme="dark"] .orgChiefSection,
+body[data-theme="dark"] .orgUserCard,
+body[data-theme="dark"] .orgControlDeck {
+  background:
+    radial-gradient(circle at 0 0, rgba(96, 165, 250, 0.08), transparent 34%),
+    linear-gradient(180deg, var(--app-surface-strong), var(--app-surface));
+  border-color: var(--app-border);
+  color: var(--app-text);
+  box-shadow: var(--sh-card);
+}
+
+body[data-theme="dark"] .orgSpotlightTitle,
+body[data-theme="dark"] .orgCounterValue,
+body[data-theme="dark"] .orgDivisionName,
+body[data-theme="dark"] .orgSectionTitle,
+body[data-theme="dark"] .orgUserName,
+body[data-theme="dark"] .orgDivisionMetricValue,
+body[data-theme="dark"] .orgMiniCount {
+  color: var(--app-text);
+}
+
+body[data-theme="dark"] .orgCounterLabel,
+body[data-theme="dark"] .orgDivisionMetricLabel,
+body[data-theme="dark"] .orgSectionLabel,
+body[data-theme="dark"] .orgMiniLabel,
+body[data-theme="dark"] .orgUserMeta,
+body[data-theme="dark"] .orgUserSection,
+body[data-theme="dark"] .orgUserAssistant {
+  color: var(--app-text-soft);
+}
+
+body[data-theme="dark"] .orgDivisionMetric,
+body[data-theme="dark"] .orgDivisionMetaPill,
+body[data-theme="dark"] .orgUserEmpty,
+body[data-theme="dark"] .orgSearchInput {
+  background: var(--app-surface-muted);
+  border-color: rgba(157, 181, 209, 0.18);
+  color: var(--app-text);
+}
+
+body[data-theme="dark"] .orgDivisionCard:hover,
+body[data-theme="dark"] .orgSectionCard:hover,
+body[data-theme="dark"] .orgChiefSection:hover,
+body[data-theme="dark"] .orgUserCard:hover {
+  border-color: rgba(142, 197, 255, 0.42);
+  box-shadow: 0 26px 62px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(142, 197, 255, 0.08) inset;
+}
+
+body[data-theme="dark"] .orgChiefSection {
+  background:
+    radial-gradient(circle at 0 0, rgba(245, 158, 11, 0.09), transparent 34%),
+    linear-gradient(180deg, #17283d, #102033);
+  border-color: rgba(245, 158, 11, 0.24);
+}
+
+body[data-theme="dark"] .orgUserCard.isLeader {
+  background:
+    radial-gradient(circle at 0 0, rgba(245, 158, 11, 0.10), transparent 34%),
+    linear-gradient(180deg, #182b41, #102033);
+  border-color: rgba(245, 158, 11, 0.22);
+}
+
+body[data-theme="dark"] .orgSearchInput::placeholder {
+  color: var(--app-text-muted);
+}
+
+body[data-theme="dark"] .orgActionBtn,
+body[data-theme="dark"] .orgMemberToggle,
+body[data-theme="dark"] .orgTinyEditBtn {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.22);
+  color: #dbeafe;
+}
+
+body[data-theme="dark"] .orgActionBtn:hover,
+body[data-theme="dark"] .orgMemberToggle:hover,
+body[data-theme="dark"] .orgTinyEditBtn:hover {
+  background: rgba(96, 165, 250, 0.16);
+  border-color: rgba(96, 165, 250, 0.32);
+}
+
+body[data-theme="dark"] .orgActionBtn.isPrimary {
+  background: linear-gradient(180deg, #f4b15f, #d7892e);
+  border-color: rgba(245, 158, 11, 0.54);
+  color: #1f1303;
+}

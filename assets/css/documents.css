@@ -393,6 +393,7 @@
 .chiefInlineGroupStats .toneOverdue { background: #fff0ea; color: #b42318; }
 .chiefInlineGroupStats .toneToday { background: #fff6d9; color: #9a6700; }
 .chiefInlineGroupStats .toneStale { background: #eaf6ef; color: #217a45; }
+.chiefInlineGroupStats .toneTransit { background: #eef6ff; color: #175cd3; }
 
 .chiefInlineDocList {
   display: grid;
@@ -756,6 +757,31 @@
   background: #fdfefe;
 }
 
+.chiefInlineSelectField select option.chiefPersonOption {
+  color: #10233c;
+  font-weight: 700;
+}
+
+.chiefInlineSelectField select option.chiefPersonOption.risk-critical {
+  background: #fff1f1;
+  color: #9b1c1c;
+}
+
+.chiefInlineSelectField select option.chiefPersonOption.risk-high {
+  background: #fff7df;
+  color: #8a5a00;
+}
+
+.chiefInlineSelectField select option.chiefPersonOption.risk-watch {
+  background: #eef6ff;
+  color: #164c82;
+}
+
+.chiefInlineSelectField select option.chiefPersonOption.risk-normal {
+  background: #f3faf6;
+  color: #1f6f43;
+}
+
 .chiefInlineSelectField select:focus,
 .chiefInlineSearch:focus-within,
 .chiefInlineOpenBtn:focus-visible,
@@ -838,6 +864,7 @@
 .chiefInlineGroupStats .toneOverdue { background: #fff1f1; color: var(--chief-overdue); }
 .chiefInlineGroupStats .toneToday { background: #fff7df; color: var(--chief-today); }
 .chiefInlineGroupStats .toneStale { background: #eef6ff; color: var(--chief-stale); }
+.chiefInlineGroupStats .toneTransit { background: #f1f5f9; color: #475569; }
 
 .chiefInlineDocList {
   gap: 0;
@@ -2081,6 +2108,178 @@ body[data-theme="dark"] .docsToolbarFilters .date {
   background: #0c1b2a;
   border-color: rgba(160, 181, 205, 0.34);
   color: #f1f7ff;
+}
+
+/* Unified dark-mode pass for Documents, Assistant Mode, and Chief Dashboard. */
+body[data-theme="dark"] .docsPageShell {
+  --chief-primary: #8ec5ff;
+  --chief-text: #edf5ff;
+  --chief-muted: #9fb3c8;
+  --chief-border: var(--app-border);
+  --chief-surface: var(--app-surface);
+  --chief-soft: var(--app-surface-muted);
+  --chief-overdue: #fca5a5;
+  --chief-today: #fcd34d;
+  --chief-stale: #93c5fd;
+  color: var(--app-text);
+}
+
+body[data-theme="dark"] .docsTitle,
+body[data-theme="dark"] .docsSectionTitle,
+body[data-theme="dark"] .chiefInlineTitle,
+body[data-theme="dark"] .chiefInlinePanelHead h2,
+body[data-theme="dark"] .chiefInlinePerson strong,
+body[data-theme="dark"] .chiefInlineSubject,
+body[data-theme="dark"] .docsStatCard .statValue,
+body[data-theme="dark"] .requesterName,
+body[data-theme="dark"] .docTitleCell strong {
+  color: var(--app-text);
+}
+
+body[data-theme="dark"] .docsLead,
+body[data-theme="dark"] .docsSectionSub,
+body[data-theme="dark"] .docsStatHint,
+body[data-theme="dark"] .docsResultsMeta,
+body[data-theme="dark"] .chiefInlineLead,
+body[data-theme="dark"] .chiefInlinePanelHead p,
+body[data-theme="dark"] .chiefInlinePerson span,
+body[data-theme="dark"] .chiefInlineMeta,
+body[data-theme="dark"] .requesterMeta,
+body[data-theme="dark"] .deadlineMetaLine {
+  color: var(--app-text-soft);
+}
+
+body[data-theme="dark"] .docsAssistantBar,
+body[data-theme="dark"] .docsAssistantIdentity,
+body[data-theme="dark"] .docsControlsCard,
+body[data-theme="dark"] .docsStatCard,
+body[data-theme="dark"] .docsTableWrap,
+body[data-theme="dark"] .docsToolbarSearch,
+body[data-theme="dark"] .docsToolbarFilters,
+body[data-theme="dark"] .chiefInlineHeader,
+body[data-theme="dark"] .chiefInlineToolbar,
+body[data-theme="dark"] .chiefInlineSelectors,
+body[data-theme="dark"] .chiefInlinePanel,
+body[data-theme="dark"] .chiefInlineStat,
+body[data-theme="dark"] .chiefInlineGroup {
+  background:
+    radial-gradient(circle at 0 0, rgba(96, 165, 250, 0.07), transparent 35%),
+    linear-gradient(180deg, var(--app-surface-strong), var(--app-surface));
+  border-color: var(--app-border);
+  color: var(--app-text);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.24);
+}
+
+body[data-theme="dark"] .docsToolbarSearch,
+body[data-theme="dark"] .docsToolbarFilters,
+body[data-theme="dark"] .chiefInlineSearch,
+body[data-theme="dark"] .chiefInlineRouteContext,
+body[data-theme="dark"] .chiefInlineMetaItem,
+body[data-theme="dark"] .chiefInlineScope {
+  background: var(--app-surface-muted);
+  border-color: rgba(157, 181, 209, 0.18);
+}
+
+body[data-theme="dark"] .chiefInlineGroupHead,
+body[data-theme="dark"] .docsTableTopbar {
+  background: linear-gradient(180deg, rgba(22, 40, 61, 0.92), rgba(13, 27, 43, 0.92));
+  border-color: rgba(157, 181, 209, 0.15);
+}
+
+body[data-theme="dark"] .chiefInlineDocRow,
+body[data-theme="dark"] .docsTableModern tbody tr {
+  background: var(--app-table-row);
+  border-color: rgba(157, 181, 209, 0.14);
+  color: var(--app-text);
+}
+
+body[data-theme="dark"] .chiefInlineDocRow:hover,
+body[data-theme="dark"] .docsTableModern tbody tr:hover {
+  background: linear-gradient(90deg, rgba(96, 165, 250, 0.13), rgba(18, 35, 53, 0.96));
+}
+
+body[data-theme="dark"] .docsTableModern th {
+  background: linear-gradient(180deg, var(--app-table-head), #0f2032);
+  border-color: rgba(157, 181, 209, 0.16);
+  color: #dbeafe;
+}
+
+body[data-theme="dark"] .docsTableModern td {
+  border-color: rgba(157, 181, 209, 0.13);
+  color: #d8e7f8;
+}
+
+body[data-theme="dark"] .docsQuickFilter,
+body[data-theme="dark"] .chiefInlineChip,
+body[data-theme="dark"] .chiefInlineBackLink,
+body[data-theme="dark"] .chiefInlineReset,
+body[data-theme="dark"] .chiefInlineGroupStats span,
+body[data-theme="dark"] .chiefInlineTransit,
+body[data-theme="dark"] .chiefInlineRouteRole,
+body[data-theme="dark"] .chiefInlineReason {
+  background: rgba(148, 163, 184, 0.13);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  color: #dbeafe;
+}
+
+body[data-theme="dark"] .docsQuickFilter.isActive,
+body[data-theme="dark"] .chiefInlineChip.isActive,
+body[data-theme="dark"] .chiefInlineSearch button,
+body[data-theme="dark"] .chiefInlineOpenBtn {
+  background: linear-gradient(180deg, #2563a8, #174c82);
+  border-color: rgba(142, 197, 255, 0.45);
+  color: #ffffff;
+  box-shadow: 0 12px 26px rgba(37, 99, 168, 0.22);
+}
+
+body[data-theme="dark"] .chiefInlineReason.isOverdue,
+body[data-theme="dark"] .chiefInlineGroupStats .toneOverdue,
+body[data-theme="dark"] .chiefInlineSelectField select option.chiefPersonOption.risk-critical {
+  background: var(--app-danger-bg);
+  border-color: var(--app-danger-border);
+  color: var(--app-danger-text);
+}
+
+body[data-theme="dark"] .chiefInlineReason.isToday,
+body[data-theme="dark"] .chiefInlineGroupStats .toneToday,
+body[data-theme="dark"] .chiefInlineSelectField select option.chiefPersonOption.risk-high {
+  background: var(--app-warning-bg);
+  border-color: var(--app-warning-border);
+  color: var(--app-warning-text);
+}
+
+body[data-theme="dark"] .chiefInlineReason.isStale,
+body[data-theme="dark"] .chiefInlineGroupStats .toneStale,
+body[data-theme="dark"] .chiefInlineSelectField select option.chiefPersonOption.risk-watch {
+  background: var(--app-info-bg);
+  border-color: var(--app-info-border);
+  color: var(--app-info-text);
+}
+
+body[data-theme="dark"] .chiefInlineSelectField select option.chiefPersonOption.risk-normal {
+  background: var(--app-success-bg);
+  color: var(--app-success-text);
+}
+
+body[data-theme="dark"] .chiefInlineMetaItem strong,
+body[data-theme="dark"] .chiefInlineScopeLabel,
+body[data-theme="dark"] .chiefInlineStat span:first-child,
+body[data-theme="dark"] .chiefInlineRouteLabel,
+body[data-theme="dark"] .chiefInlineSelectField span {
+  color: var(--app-text-muted);
+}
+
+body[data-theme="dark"] .chiefInlineMetaItem span,
+body[data-theme="dark"] .chiefInlineScope strong,
+body[data-theme="dark"] .chiefInlineStat strong,
+body[data-theme="dark"] .chiefInlineTracking {
+  color: var(--app-text);
+}
+
+body[data-theme="dark"] .chiefInlineEmpty {
+  background: var(--app-surface-muted);
+  border-color: rgba(157, 181, 209, 0.22);
+  color: var(--app-text-soft);
 }
 
 @media (max-width: 1200px) {

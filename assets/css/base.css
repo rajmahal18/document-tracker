@@ -42,24 +42,45 @@ body {
 body[data-theme="dark"] {
   color-scheme: dark;
   --app-bg: #07111d;
-  --app-surface: rgba(13, 28, 43, 0.96);
-  --app-surface-strong: #102235;
-  --app-border: rgba(142, 170, 202, 0.24);
+  --app-bg-2: #0b1624;
+  --app-surface: rgba(13, 28, 43, 0.94);
+  --app-surface-strong: #122236;
+  --app-surface-muted: #0d1b2b;
+  --app-surface-raised: #16283d;
+  --app-table-head: #14283d;
+  --app-table-row: rgba(18, 35, 53, 0.92);
+  --app-border: rgba(157, 181, 209, 0.22);
+  --app-border-strong: rgba(176, 200, 228, 0.34);
   --app-text: #edf5ff;
-  --app-text-soft: #a9bbcf;
-  --app-brand: #7db7ff;
+  --app-text-soft: #b6c7da;
+  --app-text-muted: #8fa4bb;
+  --app-brand: #8ec5ff;
+  --app-brand-strong: #56a3ff;
   --app-brand-2: #f2a85f;
+  --app-focus: rgba(142, 197, 255, 0.22);
+  --app-danger-bg: rgba(248, 113, 113, 0.13);
+  --app-danger-text: #fecaca;
+  --app-danger-border: rgba(248, 113, 113, 0.30);
+  --app-warning-bg: rgba(245, 158, 11, 0.14);
+  --app-warning-text: #fde68a;
+  --app-warning-border: rgba(245, 158, 11, 0.30);
+  --app-success-bg: rgba(34, 197, 94, 0.13);
+  --app-success-text: #bbf7d0;
+  --app-success-border: rgba(34, 197, 94, 0.28);
+  --app-info-bg: rgba(96, 165, 250, 0.13);
+  --app-info-text: #bfdbfe;
+  --app-info-border: rgba(96, 165, 250, 0.28);
   --app-shadow: 0 22px 60px rgba(0, 0, 0, 0.34);
   background:
-    radial-gradient(circle at top right, rgba(47, 128, 237, 0.16), transparent 28%),
-    radial-gradient(circle at top left, rgba(232, 119, 34, 0.12), transparent 24%),
-    linear-gradient(180deg, #081421 0%, #06101b 100%);
+    radial-gradient(circle at top right, rgba(47, 128, 237, 0.13), transparent 30%),
+    radial-gradient(circle at top left, rgba(232, 119, 34, 0.08), transparent 24%),
+    linear-gradient(180deg, var(--app-bg-2) 0%, #06101b 100%);
   color: var(--app-text);
 }
 
 body[data-theme="dark"]::before {
-  opacity: 0.035;
-  filter: grayscale(30%) blur(5px) brightness(0.8);
+  opacity: 0.022;
+  filter: grayscale(45%) blur(6px) brightness(0.58);
 }
 
 
