@@ -310,6 +310,62 @@ function normalize_recipient_map_to_chiefs(mysqli $conn, array $recipientMap): a
   return $normalized;
 }
 
+function resolve_section_labels_by_ids(mysqli $conn, array $sectionIds): array
+{
+  $sectionIds = array_values(array_unique(array_filter(array_map('intval', $sectionIds), static fn(int $id): bool => $id > 0)));
+  if ($sectionIds === []) {
+    return [];
+  }
+
+  $placeholders = implode(',', array_fill(0, count($sectionIds), '?'));
+  $types = str_repeat('i', count($sectionIds));
+  $stmt = $conn->prepare("
+    SELECT
+      s.id,
+      s.name AS section_name,
+      d.name AS division_name
+    FROM sections s
+    JOIN divisions d ON d.id = s.division_id
+    WHERE s.id IN ($placeholders)
+  ");
+  bind_params_dynamic($stmt, $types, $sectionIds);
+  $stmt->execute();
+  $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+  $labels = [];
+  foreach ($rows as $row) {
+    $sectionId = (int)($row['id'] ?? 0);
+    if ($sectionId <= 0) {
+      continue;
+    }
+
+    $labels[$sectionId] = trim((string)($row['division_name'] ?? '')) . ' / ' . trim((string)($row['section_name'] ?? ''));
+  }
+
+  return $labels;
+}
+
+function resolve_transmittal_destination_label(mysqli $conn, int $fallbackSectionId, array $finalRecipientMap, bool $routeOnCreate): string
+{
+  $sectionIds = $routeOnCreate
+    ? array_values(array_keys($finalRecipientMap))
+    : ($fallbackSectionId > 0 ? [$fallbackSectionId] : []);
+  $labels = resolve_section_labels_by_ids($conn, $sectionIds);
+
+  if ($labels === []) {
+    return 'For principal review';
+  }
+
+  if (count($labels) === 1) {
+    return (string)reset($labels);
+  }
+
+  $firstLabels = array_values($labels);
+  $shown = array_slice($firstLabels, 0, 2);
+  $remaining = count($firstLabels) - count($shown);
+  return implode('; ', $shown) . ($remaining > 0 ? " and {$remaining} more" : '');
+}
+
 function ensure_document_tracking_sequences_table(mysqli $conn): void
 {
   $conn->query("
@@ -843,8 +899,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
     $error = "Deadline must be a valid date.";
   } elseif ($genChoice === "division_slip" && $divisionSlipReceivedDatetime === null) {
     $error = "Division tracking slip received date and time is invalid.";
-  } elseif (!$routeOnCreate && $genChoice === "transmittal") {
-    $error = "Transmittal Memo needs a destination. Choose Save and route now, or generate a division tracking slip instead.";
   } else {
     if ($hasOwnDivisionSlip && $myDivisionId > 0) {
       // Run any legacy schema self-healing before transactions start.
@@ -1526,27 +1580,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
 
           $qrUrl = app_url(PUBLIC_PATH . "/qr.php?t=" . urlencode($qrToken));
 
-          $stmt = $conn->prepare("
-            SELECT
-              s.id,
-              s.name AS section_name,
-              d.name AS division_name
-            FROM sections s
-            JOIN divisions d ON d.id = s.division_id
-            WHERE s.id IN (?, ?)
-          ");
-          $stmt->bind_param("ii", $fromSectionId, $selectedSectionId);
-          $stmt->execute();
-          $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-
-          $fromLabel = "";
-          $toLabel = "";
-          foreach ($rows as $r) {
-            $sid = (int)$r["id"];
-            $label = trim((string)$r["division_name"]) . " / " . trim((string)$r["section_name"]);
-            if ($sid === $fromSectionId) $fromLabel = $label;
-            if ($sid === $selectedSectionId) $toLabel = $label;
-          }
+          $fromLabels = resolve_section_labels_by_ids($conn, [$fromSectionId]);
+          $fromLabel = $fromLabels[$fromSectionId] ?? "";
+          $toLabel = resolve_transmittal_destination_label($conn, $selectedSectionId, $finalRecipientMap, $routeOnCreate);
 
           TransmittalMemo::generateA4([
             "date" => $document_date,
@@ -1604,6 +1640,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
 
           if ($transmittalMode === "print" && $transAttachId > 0) {
             $postCommitRedirect = PUBLIC_PATH . "/transmittal_print.php?id=" . $transAttachId;
+            if ($assistantModeEnabled && $actingPrincipalUserId > 0) {
+              $postCommitRedirect .= "&acting_principal_user_id=" . $actingPrincipalUserId;
+            }
           }
         }
 
@@ -2160,7 +2199,7 @@ require __DIR__ . "/../includes/layout.php";
           </label>
 
           <div class="mini" style="margin-top:6px;">
-            Generates a printable PDF memo based on <b>Document Date</b> + <b>Subject</b>, and auto-attaches it.
+            Generates a printable PDF memo based on <b>Document Date</b> + <b>Subject</b>, then auto-attaches it. Works with Save for Principal Review or Save and Route Now.
           </div>
 
           <div id="transmittalOpts" style="margin-top:10px; display:none; gap:10px; flex-wrap:wrap;">

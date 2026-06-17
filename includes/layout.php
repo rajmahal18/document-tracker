@@ -58,6 +58,7 @@ $pageTitle = $pageTitle ?? "Document Tracker";
 <?php
   $currentPage = basename($_SERVER['PHP_SELF']);
   $currentContentScope = strtolower(trim((string)($_GET['content_scope'] ?? '')));
+  $currentDocumentsView = strtolower(trim((string)($_GET['view'] ?? 'my')));
   $sessionDivisionName = trim((string)($_SESSION["division_name"] ?? ""));
   $sessionDivisionCode = strtoupper(trim((string)($_SESSION["division_code"] ?? "")));
   $resolvedDivisionName = $sessionDivisionName;
@@ -144,11 +145,20 @@ $pageTitle = $pageTitle ?? "Document Tracker";
     <div class="appDrawerNavLinks">
     <a 
       href="<?= PUBLIC_PATH ?>/documents.php"
-      class="<?= in_array($currentPage, ['documents.php', 'index.php'], true) ? 'navActive' : '' ?>"
+      class="<?= in_array($currentPage, ['documents.php', 'index.php'], true) && $currentDocumentsView !== 'chief' ? 'navActive' : '' ?>"
     >
       <span class="navIcon">⌂</span>
       <span class="navText">Home</span>
     </a>
+    <?php if ($canSeeChiefDashboard): ?>
+      <a
+        href="<?= PUBLIC_PATH ?>/documents.php?view=chief"
+        class="<?= $currentPage === 'documents.php' && $currentDocumentsView === 'chief' ? 'navActive' : '' ?>"
+      >
+        <span class="navIcon">&#9673;</span>
+        <span class="navText">Chief Dashboard</span>
+      </a>
+    <?php endif; ?>
 
     <div class="navGroup" aria-label="Documents group" id="navDocsGroup">
       <button type="button" class="navGroupTitle navGroupToggle" id="navDocsToggle" aria-expanded="false" aria-controls="navDocsItems">

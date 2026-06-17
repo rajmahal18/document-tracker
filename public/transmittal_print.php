@@ -13,8 +13,19 @@ if ($attId <= 0) {
   exit;
 }
 
-// We intentionally rely on view_attachment.php for strict access checks.
-// Here we only show a print-friendly wrapper.
+if (!can_view_attachment($conn, $attId)) {
+  http_response_code(403);
+  echo "Forbidden";
+  exit;
+}
+
+$identity = effective_document_identity($conn);
+$actingPrincipalUserId = (int)($identity['acting_principal_user_id'] ?? 0);
+$principalQs = $actingPrincipalUserId > 0 ? '&acting_principal_user_id=' . rawurlencode((string)$actingPrincipalUserId) : '';
+$attachmentViewUrl = PUBLIC_PATH . '/view_attachment.php?id=' . $attId . $principalQs;
+$backUrl = $actingPrincipalUserId > 0
+  ? PUBLIC_PATH . '/documents.php?view=assistant&acting_principal_user_id=' . rawurlencode((string)$actingPrincipalUserId)
+  : PUBLIC_PATH . '/documents.php';
 
 require __DIR__ . "/../includes/layout.php";
 ?>
@@ -27,13 +38,14 @@ require __DIR__ . "/../includes/layout.php";
 
   <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
     <button type="button" class="btnSecondary" onclick="triggerPrint()">Print</button>
-    <a class="btnGhost" href="<?= PUBLIC_PATH ?>/documents.php" style="text-decoration:none;">Back to Documents</a>
+    <a class="btnSecondary" href="<?= htmlspecialchars($attachmentViewUrl) ?>" target="_blank" rel="noopener">Open PDF</a>
+    <a class="btnGhost" href="<?= htmlspecialchars($backUrl) ?>" style="text-decoration:none;">Back to Documents</a>
   </div>
 
   <div style="border:1px solid #e3e6ea; border-radius:12px; overflow:hidden; background:#fff;">
     <iframe
       id="pdfFrame"
-      src="<?= PUBLIC_PATH ?>/view_attachment.php?id=<?= (int)$attId ?>"
+      src="<?= htmlspecialchars($attachmentViewUrl) ?>"
       style="width:100%; height:78vh; border:0; display:block;"
       title="Transmittal Memo PDF"></iframe>
   </div>

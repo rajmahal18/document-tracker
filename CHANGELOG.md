@@ -16,11 +16,21 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 - Task Monitoring now enforces lead-assignee editing rules on existing monitoring records, so progress-driven workflows no longer let any editor change protected task details after assignment.
 - The chief dashboard now shows focal-person avatars in its grouped attention view, improving visual scanning for accountable personnel.
 - The Issuances list now sorts by oldest issued date first, keeping memo-series rows in natural order.
+- Transmittal Memo generation on Add Document now works with Save for Principal Review, matching the division tracking slip review flow.
 
 ### Fixed
 - Due-today reminder logging now preserves nullable route references and surfaces rerun-protection write failures instead of silently reporting success.
 - Due-today reminder emails now build document links from the app base path during CLI runs, so production messages no longer point to `/scripts/public/...`.
+- Chief dashboard access is visible again from the documents view tabs and sidebar for chiefs and assigned assistants, without requiring manual URL changes.
+- Chief dashboard oversight now excludes the signed-in or acting chief's own assigned documents, so the dashboard stays focused on personnel under that chief.
+- Chief dashboard creation-only stale documents now show the document creator instead of a vague section-name holder when no route action has happened yet.
+- Chief dashboard now treats pending Forward Attach and Signature/Approval requests as first-class attention sources, using their task sender/receiver and showing the specific task type.
+- Chief dashboard now shows the acting principal instead of the assistant as the sender for assistant-mode Forward Attach and Signature/Approval tasks.
+- Chief dashboard Signature/Approval request rows now keep the requester's staff member as the grouped accountable person when they request from an outside boss or assistant, instead of listing the outside recipient.
+- Chief dashboard holder fallback now ignores completed Signature/Approval reference receipts when identifying the current accountable person, so division-chief assistants no longer appear under a section chief just because they received a reference request.
+- Chief dashboard in-transit rows now keep personnel lists limited to the chief's scope and clearly label whether the scoped person is the sender or receiver, including the counterpart name.
 - Chief dashboard avatars now use the same user photo source fallback as the org chart, so accountable-person pictures load from existing profile image columns instead of dropping to initials unnecessarily.
+- Assistant-mode transmittal memo print previews now preserve the acting-principal identity when loading the attached PDF and when returning to Documents.
 - Task Monitoring now keeps progress updates with the lead assignee on progress-based workflows, while still allowing assigned operators to update non-protected fields like remarks and reference-driven status inputs.
 - Task Monitoring task deletion and edit access now follow the task's actual assignee context instead of relying only on creator ownership.
 - The org chart now defers per-user document activity stats until a person row is opened, so the initial page load no longer precomputes modal-only workload metrics for every user.
@@ -32,6 +42,8 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 
 ### Affected Areas
 - Chief Dashboard
+- Forward Attach
+- Signature / Approval Request Flow
 - Email Notifications
 - Issuances
 - Document Deadlines

@@ -444,10 +444,55 @@
   font-weight: 800;
 }
 
+.chiefInlineTransit,
+.chiefInlineRouteRole {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.chiefInlineTransit {
+  background: #eef6ff;
+  color: #175cd3;
+}
+
+.chiefInlineRouteRole.isReceiver {
+  background: #ecfdf3;
+  color: #067647;
+}
+
+.chiefInlineRouteRole.isSender {
+  background: #fff4e5;
+  color: #b54708;
+}
+
 .chiefInlineSubject {
   font-size: 18px;
   line-height: 1.28;
   font-weight: 800;
+}
+
+.chiefInlineRouteContext {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: center;
+  color: #4d6178;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.chiefInlineRouteContext strong {
+  color: #0f3b63;
+}
+
+.chiefInlineRouteContext span {
+  color: #667085;
 }
 
 .chiefInlineMeta {

@@ -78,6 +78,57 @@ function chief_dashboard_matches_scope(array $viewer, array $item): bool
   };
 }
 
+function chief_dashboard_item_is_viewer(array $viewer, array $item): bool
+{
+  $viewerUserId = (int)($viewer['user_id'] ?? 0);
+  return $viewerUserId > 0 && (int)($item['user_id'] ?? 0) === $viewerUserId;
+}
+
+function chief_dashboard_matches_personnel_scope(array $viewer, array $item): bool
+{
+  return chief_dashboard_matches_scope($viewer, $item)
+    && !chief_dashboard_item_is_viewer($viewer, $item);
+}
+
+function chief_dashboard_scoped_accountable_items(array $viewer, array $accountable): array
+{
+  $scoped = array_values(array_filter($accountable, static function (array $item) use ($viewer): bool {
+    return chief_dashboard_matches_personnel_scope($viewer, $item);
+  }));
+  if ($scoped === []) {
+    return [];
+  }
+
+  $senderScopedRequests = [];
+  foreach ($scoped as $item) {
+    if (
+      trim((string)($item['task_kind'] ?? '')) === 'action_request'
+      && trim((string)($item['person_route_role'] ?? '')) === 'sender'
+    ) {
+      $taskId = (int)($item['task_id'] ?? 0);
+      if ($taskId > 0) {
+        $senderScopedRequests[$taskId] = true;
+      }
+    }
+  }
+
+  if ($senderScopedRequests === []) {
+    return $scoped;
+  }
+
+  return array_values(array_filter($scoped, static function (array $item) use ($senderScopedRequests): bool {
+    if (trim((string)($item['task_kind'] ?? '')) !== 'action_request') {
+      return true;
+    }
+    if (trim((string)($item['person_route_role'] ?? '')) !== 'receiver') {
+      return true;
+    }
+
+    $taskId = (int)($item['task_id'] ?? 0);
+    return $taskId <= 0 || !isset($senderScopedRequests[$taskId]);
+  }));
+}
+
 function chief_dashboard_documents_url(bool $assistantMode = false, int $actingPrincipalUserId = 0): string
 {
   $query = [];
@@ -260,20 +311,129 @@ function chief_dashboard_build_accountable_item(array $row, string $source): arr
     'secondary_label' => implode(' | ', array_values(array_filter($secondaryParts, static fn($value): bool => trim((string)$value) !== ''))),
     'profile_photo_url' => $profilePhotoUrl,
     'avatar_initials' => $avatarInitials,
+    'in_transit' => (int)($row['in_transit'] ?? 0),
+    'person_route_role' => trim((string)($row['person_route_role'] ?? '')),
+    'counterpart_name' => trim((string)($row['counterpart_name'] ?? '')),
+    'counterpart_section_name' => trim((string)($row['counterpart_section_name'] ?? '')),
+    'counterpart_division_name' => trim((string)($row['counterpart_division_name'] ?? '')),
+    'task_id' => (int)($row['task_id'] ?? 0),
+    'task_kind' => trim((string)($row['task_kind'] ?? '')),
+    'task_status' => trim((string)($row['task_status'] ?? '')),
   ];
+}
+
+function chief_dashboard_build_route_participant_items(array $row): array
+{
+  $items = [];
+
+  $receiverRow = $row;
+  $receiverRow['user_id'] = (int)($row['receiver_user_id'] ?? 0);
+  $receiverRow['section_id'] = (int)($row['receiver_section_id'] ?? 0);
+  $receiverRow['division_id'] = (int)($row['receiver_division_id'] ?? 0);
+  $receiverRow['full_name'] = (string)($row['receiver_full_name'] ?? '');
+  $receiverRow['official_title'] = (string)($row['receiver_official_title'] ?? '');
+  $receiverRow['authority_role'] = (string)($row['receiver_authority_role'] ?? '');
+  $receiverRow['profile_photo_url'] = (string)($row['receiver_profile_photo_url'] ?? '');
+  $receiverRow['section_name'] = (string)($row['receiver_section_name'] ?? '');
+  $receiverRow['division_name'] = (string)($row['receiver_division_name'] ?? '');
+  $receiverRow['person_route_role'] = 'receiver';
+  $receiverRow['counterpart_name'] = (string)($row['sender_full_name'] ?? '');
+  $receiverRow['counterpart_section_name'] = (string)($row['sender_section_name'] ?? '');
+  $receiverRow['counterpart_division_name'] = (string)($row['sender_division_name'] ?? '');
+  $receiverRow['in_transit'] = 1;
+  if ((int)$receiverRow['user_id'] > 0 || (int)$receiverRow['section_id'] > 0) {
+    $items[] = chief_dashboard_build_accountable_item($receiverRow, 'open_route');
+  }
+
+  $senderRow = $row;
+  $senderRow['user_id'] = (int)($row['sender_user_id'] ?? 0);
+  $senderRow['section_id'] = (int)($row['sender_section_id'] ?? 0);
+  $senderRow['division_id'] = (int)($row['sender_division_id'] ?? 0);
+  $senderRow['full_name'] = (string)($row['sender_full_name'] ?? '');
+  $senderRow['official_title'] = (string)($row['sender_official_title'] ?? '');
+  $senderRow['authority_role'] = (string)($row['sender_authority_role'] ?? '');
+  $senderRow['profile_photo_url'] = (string)($row['sender_profile_photo_url'] ?? '');
+  $senderRow['section_name'] = (string)($row['sender_section_name'] ?? '');
+  $senderRow['division_name'] = (string)($row['sender_division_name'] ?? '');
+  $senderRow['person_route_role'] = 'sender';
+  $senderRow['counterpart_name'] = (string)($row['receiver_full_name'] ?? '');
+  $senderRow['counterpart_section_name'] = (string)($row['receiver_section_name'] ?? '');
+  $senderRow['counterpart_division_name'] = (string)($row['receiver_division_name'] ?? '');
+  $senderRow['in_transit'] = 1;
+  if ((int)$senderRow['user_id'] > 0 || (int)$senderRow['section_id'] > 0) {
+    $items[] = chief_dashboard_build_accountable_item($senderRow, 'open_route');
+  }
+
+  return $items;
+}
+
+function chief_dashboard_build_task_participant_items(array $row, string $source, string $taskKind): array
+{
+  $items = [];
+  $taskKind = in_array($taskKind, ['attachment_forward', 'action_request'], true) ? $taskKind : '';
+
+  $receiverRow = $row;
+  $receiverRow['user_id'] = (int)($row['recipient_user_id'] ?? 0);
+  $receiverRow['section_id'] = (int)($row['recipient_section_id'] ?? 0);
+  $receiverRow['division_id'] = (int)($row['recipient_division_id'] ?? 0);
+  $receiverRow['full_name'] = (string)($row['recipient_full_name'] ?? '');
+  $receiverRow['official_title'] = (string)($row['recipient_official_title'] ?? '');
+  $receiverRow['authority_role'] = (string)($row['recipient_authority_role'] ?? '');
+  $receiverRow['profile_photo_url'] = (string)($row['recipient_profile_photo_url'] ?? '');
+  $receiverRow['section_name'] = (string)($row['recipient_section_name'] ?? '');
+  $receiverRow['division_name'] = (string)($row['recipient_division_name'] ?? '');
+  $receiverRow['person_route_role'] = 'receiver';
+  $receiverRow['counterpart_name'] = (string)($row['sender_full_name'] ?? '');
+  $receiverRow['counterpart_section_name'] = (string)($row['sender_section_name'] ?? '');
+  $receiverRow['counterpart_division_name'] = (string)($row['sender_division_name'] ?? '');
+  $receiverRow['in_transit'] = 1;
+  $receiverRow['task_id'] = (int)($row['task_id'] ?? 0);
+  $receiverRow['task_kind'] = $taskKind;
+  $receiverRow['task_status'] = (string)($row['task_status'] ?? '');
+  if ((int)$receiverRow['user_id'] > 0 || (int)$receiverRow['section_id'] > 0) {
+    $items[] = chief_dashboard_build_accountable_item($receiverRow, $source);
+  }
+
+  $senderRow = $row;
+  $senderRow['user_id'] = (int)($row['sender_user_id'] ?? 0);
+  $senderRow['section_id'] = (int)($row['sender_section_id'] ?? 0);
+  $senderRow['division_id'] = (int)($row['sender_division_id'] ?? 0);
+  $senderRow['full_name'] = (string)($row['sender_full_name'] ?? '');
+  $senderRow['official_title'] = (string)($row['sender_official_title'] ?? '');
+  $senderRow['authority_role'] = (string)($row['sender_authority_role'] ?? '');
+  $senderRow['profile_photo_url'] = (string)($row['sender_profile_photo_url'] ?? '');
+  $senderRow['section_name'] = (string)($row['sender_section_name'] ?? '');
+  $senderRow['division_name'] = (string)($row['sender_division_name'] ?? '');
+  $senderRow['person_route_role'] = 'sender';
+  $senderRow['counterpart_name'] = (string)($row['recipient_full_name'] ?? '');
+  $senderRow['counterpart_section_name'] = (string)($row['recipient_section_name'] ?? '');
+  $senderRow['counterpart_division_name'] = (string)($row['recipient_division_name'] ?? '');
+  $senderRow['in_transit'] = 1;
+  $senderRow['task_id'] = (int)($row['task_id'] ?? 0);
+  $senderRow['task_kind'] = $taskKind;
+  $senderRow['task_status'] = (string)($row['task_status'] ?? '');
+  if ((int)$senderRow['user_id'] > 0 || (int)$senderRow['section_id'] > 0) {
+    $items[] = chief_dashboard_build_accountable_item($senderRow, $source);
+  }
+
+  return $items;
 }
 
 function chief_dashboard_build_holder_item(array $document): array
 {
-  $name = trim((string)($document['holder_user_name'] ?? ''));
-  $sectionName = trim((string)($document['current_holder_section_name'] ?? ''));
-  $divisionName = trim((string)($document['current_holder_division_name'] ?? ''));
-  $officialTitle = trim((string)($document['holder_user_title'] ?? ''));
-  $role = chief_dashboard_normalize_authority_role((string)($document['holder_user_authority_role'] ?? ''), false);
+  $hasHolderUser = (int)($document['holder_user_id'] ?? 0) > 0;
+  $hasCreatorUser = (int)($document['created_by_user_id'] ?? 0) > 0;
+  $useCreator = !$hasHolderUser && $hasCreatorUser;
+
+  $name = trim((string)($useCreator ? ($document['creator_user_name'] ?? '') : ($document['holder_user_name'] ?? '')));
+  $sectionName = trim((string)($useCreator ? ($document['creator_section_name'] ?? '') : ($document['current_holder_section_name'] ?? '')));
+  $divisionName = trim((string)($useCreator ? ($document['creator_division_name'] ?? '') : ($document['current_holder_division_name'] ?? '')));
+  $officialTitle = trim((string)($useCreator ? ($document['creator_user_title'] ?? '') : ($document['holder_user_title'] ?? '')));
+  $role = chief_dashboard_normalize_authority_role((string)($useCreator ? ($document['creator_user_authority_role'] ?? '') : ($document['holder_user_authority_role'] ?? '')), false);
   $profilePhotoUrl = function_exists('app_profile_photo_url')
-    ? app_profile_photo_url((string)($document['holder_user_profile_photo_url'] ?? ''))
-    : trim((string)($document['holder_user_profile_photo_url'] ?? ''));
-  $avatarName = $name !== '' ? $name : ($sectionName !== '' ? $sectionName : 'Current holder');
+    ? app_profile_photo_url((string)($useCreator ? ($document['creator_user_profile_photo_url'] ?? '') : ($document['holder_user_profile_photo_url'] ?? '')))
+    : trim((string)($useCreator ? ($document['creator_user_profile_photo_url'] ?? '') : ($document['holder_user_profile_photo_url'] ?? '')));
+  $avatarName = $name !== '' ? $name : ($sectionName !== '' ? $sectionName : ($useCreator ? 'Creator' : 'Current holder'));
   $avatarInitials = function_exists('app_user_initials')
     ? app_user_initials($avatarName)
     : strtoupper(substr($avatarName, 0, 1));
@@ -292,10 +452,10 @@ function chief_dashboard_build_holder_item(array $document): array
   }
 
   return [
-    'source' => 'holder',
-    'user_id' => (int)($document['holder_user_id'] ?? 0),
-    'section_id' => (int)($document['current_holder_section_id'] ?? 0),
-    'division_id' => (int)($document['current_holder_division_id'] ?? 0),
+    'source' => $useCreator ? 'creator' : 'holder',
+    'user_id' => (int)($useCreator ? ($document['created_by_user_id'] ?? 0) : ($document['holder_user_id'] ?? 0)),
+    'section_id' => (int)($useCreator ? ($document['creator_section_id'] ?? 0) : ($document['current_holder_section_id'] ?? 0)),
+    'division_id' => (int)($useCreator ? ($document['creator_division_id'] ?? 0) : ($document['current_holder_division_id'] ?? 0)),
     'full_name' => $name,
     'official_title' => $officialTitle,
     'authority_role' => $role,
@@ -303,11 +463,178 @@ function chief_dashboard_build_holder_item(array $document): array
     'division_name' => $divisionName,
     'personal_deadline_at' => '',
     'accountable_since_at' => trim((string)($document['holder_since_at'] ?? '')),
-    'primary_label' => $name !== '' ? $name : ($sectionName !== '' ? $sectionName : 'Current holder'),
+    'primary_label' => $name !== '' ? $name : ($sectionName !== '' ? $sectionName : ($useCreator ? 'Creator' : 'Current holder')),
     'secondary_label' => implode(' | ', array_values(array_filter($secondaryParts, static fn($value): bool => trim((string)$value) !== ''))),
     'profile_photo_url' => $profilePhotoUrl,
     'avatar_initials' => $avatarInitials,
   ];
+}
+
+function chief_dashboard_person_key(array $person): string
+{
+  return 'u:' . (int)($person['user_id'] ?? 0)
+    . '|s:' . (int)($person['section_id'] ?? 0)
+    . '|d:' . (int)($person['division_id'] ?? 0)
+    . '|p:' . strtolower(trim((string)($person['primary_label'] ?? '')));
+}
+
+function chief_dashboard_route_context_label(array $person): string
+{
+  $role = strtolower(trim((string)($person['person_route_role'] ?? '')));
+  if ($role === '') {
+    return '';
+  }
+
+  $counterpart = trim((string)($person['counterpart_name'] ?? ''));
+  if ($counterpart === '') {
+    $counterpart = trim((string)($person['counterpart_section_name'] ?? ''));
+  }
+  if ($counterpart === '') {
+    $counterpart = $role === 'receiver' ? 'sender' : 'receiver';
+  }
+
+  return $role === 'receiver'
+    ? "Receiver from {$counterpart}"
+    : "Sender to {$counterpart}";
+}
+
+function chief_dashboard_task_kind_label(array $person): string
+{
+  return match (trim((string)($person['task_kind'] ?? ''))) {
+    'attachment_forward' => 'Forward attach',
+    'action_request' => 'Signature/approval request',
+    default => '',
+  };
+}
+
+function chief_dashboard_fetch_open_task_accountables(mysqli $conn, int $documentId, bool $hasOfficialTitle, bool $hasAuthorityRole): array
+{
+  $byDocument = [];
+  $documentWhere = $documentId > 0 ? ' AND task_src.document_id = ?' : '';
+
+  $taskQueries = [];
+  if (function_exists('workflow_attachment_forwarding_enabled') && workflow_attachment_forwarding_enabled($conn)) {
+    $taskQueries[] = [
+      'kind' => 'attachment_forward',
+      'source' => 'attachment_forward',
+      'sql' => "
+        SELECT
+          task_src.id AS task_id,
+          task_src.document_id,
+          COALESCE(
+            (
+              SELECT NULLIF(CAST(JSON_UNQUOTE(JSON_EXTRACT(e.payload_json, '$.acting_principal_user_id')) AS UNSIGNED), 0)
+              FROM document_events e
+              WHERE e.document_id = task_src.document_id
+                AND e.actor_user_id = task_src.sender_user_id
+                AND e.event_type = 'forwarded'
+                AND JSON_UNQUOTE(JSON_EXTRACT(e.payload_json, '$.kind')) = 'attachment_forwarded'
+                AND JSON_UNQUOTE(JSON_EXTRACT(e.payload_json, '$.batch_id')) = task_src.batch_id
+              ORDER BY e.id DESC
+              LIMIT 1
+            ),
+            task_src.sender_user_id
+          ) AS sender_user_id,
+          task_src.sender_section_id,
+          task_src.recipient_user_id,
+          task_src.recipient_section_id,
+          task_src.task_status,
+          COALESCE(task_src.received_at, task_src.created_at) AS accountable_since_at
+        FROM attachment_forward_tasks task_src
+        WHERE task_src.task_status IN ('PENDING_RECEIVE', 'IN_PROGRESS')
+        {$documentWhere}
+      ",
+    ];
+  }
+  if (function_exists('workflow_action_requests_enabled') && workflow_action_requests_enabled($conn)) {
+    $taskQueries[] = [
+      'kind' => 'action_request',
+      'source' => 'action_request',
+      'sql' => "
+        SELECT
+          task_src.id AS task_id,
+          task_src.document_id,
+          COALESCE(
+            (
+              SELECT NULLIF(CAST(JSON_UNQUOTE(JSON_EXTRACT(e.payload_json, '$.acting_principal_user_id')) AS UNSIGNED), 0)
+              FROM document_events e
+              WHERE e.document_id = task_src.document_id
+                AND e.actor_user_id = task_src.sender_user_id
+                AND e.event_type = 'forwarded'
+                AND JSON_UNQUOTE(JSON_EXTRACT(e.payload_json, '$.kind')) = 'action_request_created'
+                AND CAST(JSON_UNQUOTE(JSON_EXTRACT(e.payload_json, '$.request_id')) AS UNSIGNED) = task_src.id
+              ORDER BY e.id DESC
+              LIMIT 1
+            ),
+            task_src.sender_user_id
+          ) AS sender_user_id,
+          task_src.sender_section_id,
+          task_src.recipient_user_id,
+          task_src.recipient_section_id,
+          task_src.task_status,
+          COALESCE(task_src.received_at, task_src.created_at) AS accountable_since_at
+        FROM document_action_requests task_src
+        WHERE task_src.task_status IN ('PENDING_RECEIVE', 'IN_PROGRESS')
+        {$documentWhere}
+      ",
+    ];
+  }
+
+  foreach ($taskQueries as $taskQuery) {
+    $sql = "
+      SELECT
+        base.task_id,
+        base.document_id,
+        base.sender_user_id,
+        base.recipient_user_id,
+        base.task_status,
+        base.accountable_since_at,
+        COALESCE(u_sender.full_name, '') AS sender_full_name,
+        " . ($hasOfficialTitle ? "COALESCE(u_sender.official_title, '')" : "''") . " AS sender_official_title,
+        " . ($hasAuthorityRole ? "COALESCE(u_sender.authority_role, '')" : "''") . " AS sender_authority_role,
+        " . chief_dashboard_user_photo_sql($conn, 'u_sender') . " AS sender_profile_photo_url,
+        COALESCE(sec_sender.id, NULLIF(base.sender_section_id, 0), u_sender.section_id, 0) AS sender_section_id,
+        COALESCE(sec_sender.name, '') AS sender_section_name,
+        COALESCE(div_sender.id, 0) AS sender_division_id,
+        COALESCE(div_sender.name, '') AS sender_division_name,
+        COALESCE(u_recipient.full_name, '') AS recipient_full_name,
+        " . ($hasOfficialTitle ? "COALESCE(u_recipient.official_title, '')" : "''") . " AS recipient_official_title,
+        " . ($hasAuthorityRole ? "COALESCE(u_recipient.authority_role, '')" : "''") . " AS recipient_authority_role,
+        " . chief_dashboard_user_photo_sql($conn, 'u_recipient') . " AS recipient_profile_photo_url,
+        COALESCE(sec_recipient.id, NULLIF(base.recipient_section_id, 0), u_recipient.section_id, 0) AS recipient_section_id,
+        COALESCE(sec_recipient.name, '') AS recipient_section_name,
+        COALESCE(div_recipient.id, 0) AS recipient_division_id,
+        COALESCE(div_recipient.name, '') AS recipient_division_name
+      FROM ({$taskQuery['sql']}) base
+      LEFT JOIN users u_sender ON u_sender.id = base.sender_user_id
+      LEFT JOIN sections sec_sender ON sec_sender.id = COALESCE(NULLIF(base.sender_section_id, 0), u_sender.section_id)
+      LEFT JOIN divisions div_sender ON div_sender.id = sec_sender.division_id
+      LEFT JOIN users u_recipient ON u_recipient.id = base.recipient_user_id
+      LEFT JOIN sections sec_recipient ON sec_recipient.id = COALESCE(NULLIF(base.recipient_section_id, 0), u_recipient.section_id)
+      LEFT JOIN divisions div_recipient ON div_recipient.id = sec_recipient.division_id
+    ";
+
+    if ($documentId > 0) {
+      $stmt = $conn->prepare($sql);
+      $stmt->bind_param('i', $documentId);
+      $stmt->execute();
+      $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC) ?: [];
+    } else {
+      $rows = $conn->query($sql)->fetch_all(MYSQLI_ASSOC) ?: [];
+    }
+
+    foreach ($rows as $row) {
+      $rowDocumentId = (int)($row['document_id'] ?? 0);
+      if ($rowDocumentId <= 0) {
+        continue;
+      }
+      foreach (chief_dashboard_build_task_participant_items($row, (string)$taskQuery['source'], (string)$taskQuery['kind']) as $item) {
+        $byDocument[$rowDocumentId][] = $item;
+      }
+    }
+  }
+
+  return $byDocument;
 }
 
 function chief_dashboard_document_scope_allows(mysqli $conn, array $viewer, int $documentId): bool
@@ -334,6 +661,15 @@ function chief_dashboard_document_scope_allows(mysqli $conn, array $viewer, int 
       " . ($hasOfficialTitle ? "COALESCE(NULLIF(TRIM(u_holder_recv.official_title), ''), NULLIF(TRIM(u_holder_to.official_title), ''), '')" : "''") . " AS holder_user_title,
       " . ($hasAuthorityRole ? "COALESCE(NULLIF(TRIM(u_holder_recv.authority_role), ''), NULLIF(TRIM(u_holder_to.authority_role), ''), '')" : "''") . " AS holder_user_authority_role,
       COALESCE(" . chief_dashboard_user_photo_sql($conn, 'u_holder_recv', true) . ", " . chief_dashboard_user_photo_sql($conn, 'u_holder_to', true) . ", '') AS holder_user_profile_photo_url,
+      COALESCE(d.created_by_user_id, 0) AS created_by_user_id,
+      COALESCE(NULLIF(TRIM(u_creator.full_name), ''), '') AS creator_user_name,
+      " . ($hasOfficialTitle ? "COALESCE(NULLIF(TRIM(u_creator.official_title), ''), '')" : "''") . " AS creator_user_title,
+      " . ($hasAuthorityRole ? "COALESCE(NULLIF(TRIM(u_creator.authority_role), ''), '')" : "''") . " AS creator_user_authority_role,
+      " . chief_dashboard_user_photo_sql($conn, 'u_creator') . " AS creator_user_profile_photo_url,
+      COALESCE(sec_creator.id, u_creator.section_id, 0) AS creator_section_id,
+      COALESCE(sec_creator.name, '') AS creator_section_name,
+      COALESCE(div_creator.id, 0) AS creator_division_id,
+      COALESCE(div_creator.name, '') AS creator_division_name,
       COALESCE(d.created_at, '') AS created_at
     FROM documents d
     LEFT JOIN sections sh ON sh.id = d.current_holder_section_id
@@ -342,12 +678,16 @@ function chief_dashboard_document_scope_allows(mysqli $conn, array $viewer, int 
       SELECT r2.id
       FROM routes r2
       WHERE r2.document_id = d.id
+        AND r2.route_kind = 'ACTION'
         AND r2.received_at IS NOT NULL
       ORDER BY r2.received_at DESC, r2.id DESC
       LIMIT 1
     )
     LEFT JOIN users u_holder_recv ON u_holder_recv.id = r_last.received_by_user_id
     LEFT JOIN users u_holder_to ON u_holder_to.id = r_last.to_user_id
+    LEFT JOIN users u_creator ON u_creator.id = d.created_by_user_id
+    LEFT JOIN sections sec_creator ON sec_creator.id = u_creator.section_id
+    LEFT JOIN divisions div_creator ON div_creator.id = sec_creator.division_id
     WHERE d.id = ?
     LIMIT 1
   ";
@@ -366,22 +706,34 @@ function chief_dashboard_document_scope_allows(mysqli $conn, array $viewer, int 
   $openRouteDeadlineSql = $routePersonalDeadlineEnabled ? 'r.personal_deadline_at' : 'NULL';
   $openRoutesSql = "
     SELECT
-      COALESCE(r.to_user_id, 0) AS user_id,
-      COALESCE(sec.id, r.to_section_id, 0) AS section_id,
-      COALESCE(divi.id, 0) AS division_id,
-      COALESCE(u.full_name, '') AS full_name,
-      " . ($hasOfficialTitle ? "COALESCE(u.official_title, '')" : "''") . " AS official_title,
-      " . ($hasAuthorityRole ? "COALESCE(u.authority_role, '')" : "''") . " AS authority_role,
-      " . chief_dashboard_user_photo_sql($conn, 'u') . " AS profile_photo_url,
-      COALESCE(sec.name, '') AS section_name,
-      COALESCE(divi.name, '') AS division_name,
+      COALESCE(r.to_user_id, 0) AS receiver_user_id,
+      COALESCE(sec_recv.id, r.to_section_id, 0) AS receiver_section_id,
+      COALESCE(div_recv.id, 0) AS receiver_division_id,
+      COALESCE(u_recv.full_name, '') AS receiver_full_name,
+      " . ($hasOfficialTitle ? "COALESCE(u_recv.official_title, '')" : "''") . " AS receiver_official_title,
+      " . ($hasAuthorityRole ? "COALESCE(u_recv.authority_role, '')" : "''") . " AS receiver_authority_role,
+      " . chief_dashboard_user_photo_sql($conn, 'u_recv') . " AS receiver_profile_photo_url,
+      COALESCE(sec_recv.name, '') AS receiver_section_name,
+      COALESCE(div_recv.name, '') AS receiver_division_name,
+      COALESCE(NULLIF(r.from_user_id, 0), NULLIF(r.sent_by_user_id, 0), 0) AS sender_user_id,
+      COALESCE(sec_send.id, r.from_section_id, u_send.section_id, 0) AS sender_section_id,
+      COALESCE(div_send.id, 0) AS sender_division_id,
+      COALESCE(u_send.full_name, '') AS sender_full_name,
+      " . ($hasOfficialTitle ? "COALESCE(u_send.official_title, '')" : "''") . " AS sender_official_title,
+      " . ($hasAuthorityRole ? "COALESCE(u_send.authority_role, '')" : "''") . " AS sender_authority_role,
+      " . chief_dashboard_user_photo_sql($conn, 'u_send') . " AS sender_profile_photo_url,
+      COALESCE(sec_send.name, '') AS sender_section_name,
+      COALESCE(div_send.name, '') AS sender_division_name,
       {$openRouteDeadlineSql} AS personal_deadline_at,
       r.sent_at AS accountable_since_at
     FROM routes r
     LEFT JOIN document_branches b ON b.id = r.branch_id
-    LEFT JOIN users u ON u.id = r.to_user_id
-    LEFT JOIN sections sec ON sec.id = COALESCE(r.to_section_id, u.section_id)
-    LEFT JOIN divisions divi ON divi.id = sec.division_id
+    LEFT JOIN users u_recv ON u_recv.id = r.to_user_id
+    LEFT JOIN sections sec_recv ON sec_recv.id = COALESCE(r.to_section_id, u_recv.section_id)
+    LEFT JOIN divisions div_recv ON div_recv.id = sec_recv.division_id
+    LEFT JOIN users u_send ON u_send.id = COALESCE(NULLIF(r.from_user_id, 0), NULLIF(r.sent_by_user_id, 0))
+    LEFT JOIN sections sec_send ON sec_send.id = COALESCE(r.from_section_id, u_send.section_id)
+    LEFT JOIN divisions div_send ON div_send.id = sec_send.division_id
     WHERE r.document_id = ?
       AND r.route_kind = 'ACTION'
       AND r.received_at IS NULL
@@ -422,7 +774,16 @@ function chief_dashboard_document_scope_allows(mysqli $conn, array $viewer, int 
   $branchStmt->execute();
   $branchRows = $branchStmt->get_result()->fetch_all(MYSQLI_ASSOC) ?: [];
 
-  $accountable = array_map(static fn(array $row): array => chief_dashboard_build_accountable_item($row, 'open_route'), $openRoutes);
+  $taskByDocument = chief_dashboard_fetch_open_task_accountables($conn, $documentId, $hasOfficialTitle, $hasAuthorityRole);
+  $accountable = $taskByDocument[$documentId] ?? [];
+  if ($accountable === []) {
+    $accountable = [];
+    foreach ($openRoutes as $row) {
+      foreach (chief_dashboard_build_route_participant_items($row) as $item) {
+        $accountable[] = $item;
+      }
+    }
+  }
   if ($accountable === []) {
     $accountable = array_map(static fn(array $row): array => chief_dashboard_build_accountable_item($row, 'branch'), $branchRows);
   }
@@ -430,13 +791,7 @@ function chief_dashboard_document_scope_allows(mysqli $conn, array $viewer, int 
     $accountable = [chief_dashboard_build_holder_item($document)];
   }
 
-  foreach ($accountable as $item) {
-    if (chief_dashboard_matches_scope($viewer, $item)) {
-      return true;
-    }
-  }
-
-  return false;
+  return chief_dashboard_scoped_accountable_items($viewer, $accountable) !== [];
 }
 
 function chief_dashboard_fetch_attention(mysqli $conn, array $viewer, array $filters = []): array
@@ -475,7 +830,16 @@ function chief_dashboard_fetch_attention(mysqli $conn, array $viewer, array $fil
       COALESCE(NULLIF(TRIM(u_holder_recv.full_name), ''), NULLIF(TRIM(u_holder_to.full_name), ''), '') AS holder_user_name,
       " . ($hasOfficialTitle ? "COALESCE(NULLIF(TRIM(u_holder_recv.official_title), ''), NULLIF(TRIM(u_holder_to.official_title), ''), '')" : "''") . " AS holder_user_title,
       " . ($hasAuthorityRole ? "COALESCE(NULLIF(TRIM(u_holder_recv.authority_role), ''), NULLIF(TRIM(u_holder_to.authority_role), ''), '')" : "''") . " AS holder_user_authority_role,
-      COALESCE(" . chief_dashboard_user_photo_sql($conn, 'u_holder_recv', true) . ", " . chief_dashboard_user_photo_sql($conn, 'u_holder_to', true) . ", '') AS holder_user_profile_photo_url
+      COALESCE(" . chief_dashboard_user_photo_sql($conn, 'u_holder_recv', true) . ", " . chief_dashboard_user_photo_sql($conn, 'u_holder_to', true) . ", '') AS holder_user_profile_photo_url,
+      COALESCE(d.created_by_user_id, 0) AS created_by_user_id,
+      COALESCE(NULLIF(TRIM(u_creator.full_name), ''), '') AS creator_user_name,
+      " . ($hasOfficialTitle ? "COALESCE(NULLIF(TRIM(u_creator.official_title), ''), '')" : "''") . " AS creator_user_title,
+      " . ($hasAuthorityRole ? "COALESCE(NULLIF(TRIM(u_creator.authority_role), ''), '')" : "''") . " AS creator_user_authority_role,
+      " . chief_dashboard_user_photo_sql($conn, 'u_creator') . " AS creator_user_profile_photo_url,
+      COALESCE(sec_creator.id, u_creator.section_id, 0) AS creator_section_id,
+      COALESCE(sec_creator.name, '') AS creator_section_name,
+      COALESCE(div_creator.id, 0) AS creator_division_id,
+      COALESCE(div_creator.name, '') AS creator_division_name
     FROM documents d
     LEFT JOIN sections sh ON sh.id = d.current_holder_section_id
     LEFT JOIN divisions dh ON dh.id = sh.division_id
@@ -483,12 +847,16 @@ function chief_dashboard_fetch_attention(mysqli $conn, array $viewer, array $fil
       SELECT r2.id
       FROM routes r2
       WHERE r2.document_id = d.id
+        AND r2.route_kind = 'ACTION'
         AND r2.received_at IS NOT NULL
       ORDER BY r2.received_at DESC, r2.id DESC
       LIMIT 1
     )
     LEFT JOIN users u_holder_recv ON u_holder_recv.id = r_last.received_by_user_id
     LEFT JOIN users u_holder_to ON u_holder_to.id = r_last.to_user_id
+    LEFT JOIN users u_creator ON u_creator.id = d.created_by_user_id
+    LEFT JOIN sections sec_creator ON sec_creator.id = u_creator.section_id
+    LEFT JOIN divisions div_creator ON div_creator.id = sec_creator.division_id
     WHERE d.current_status = 'ACTIVE'
     ORDER BY d.updated_at DESC, d.id DESC
   ";
@@ -513,6 +881,11 @@ function chief_dashboard_fetch_attention(mysqli $conn, array $viewer, array $fil
     $row['holder_since_at'] = trim((string)($row['last_received_at'] ?? '')) !== ''
       ? trim((string)$row['last_received_at'])
       : trim((string)($row['created_at'] ?? ''));
+    $creatorName = trim((string)($row['creator_user_name'] ?? ''));
+    $holderSectionLabel = trim((string)(($row['current_holder_section_name'] ?? '') . (((string)($row['current_holder_division_name'] ?? '') !== '') ? ' | ' . (string)$row['current_holder_division_name'] : '')));
+    $row['holder_display_label'] = (int)$row['holder_user_id'] <= 0 && $creatorName !== ''
+      ? $creatorName
+      : $holderSectionLabel;
     $documents[$row['id']] = $row;
   }
 
@@ -520,22 +893,34 @@ function chief_dashboard_fetch_attention(mysqli $conn, array $viewer, array $fil
   $openRoutesSql = "
     SELECT
       r.document_id,
-      COALESCE(r.to_user_id, 0) AS user_id,
-      COALESCE(sec.id, r.to_section_id, 0) AS section_id,
-      COALESCE(divi.id, 0) AS division_id,
-      COALESCE(u.full_name, '') AS full_name,
-      " . ($hasOfficialTitle ? "COALESCE(u.official_title, '')" : "''") . " AS official_title,
-      " . ($hasAuthorityRole ? "COALESCE(u.authority_role, '')" : "''") . " AS authority_role,
-      " . chief_dashboard_user_photo_sql($conn, 'u') . " AS profile_photo_url,
-      COALESCE(sec.name, '') AS section_name,
-      COALESCE(divi.name, '') AS division_name,
+      COALESCE(r.to_user_id, 0) AS receiver_user_id,
+      COALESCE(sec_recv.id, r.to_section_id, 0) AS receiver_section_id,
+      COALESCE(div_recv.id, 0) AS receiver_division_id,
+      COALESCE(u_recv.full_name, '') AS receiver_full_name,
+      " . ($hasOfficialTitle ? "COALESCE(u_recv.official_title, '')" : "''") . " AS receiver_official_title,
+      " . ($hasAuthorityRole ? "COALESCE(u_recv.authority_role, '')" : "''") . " AS receiver_authority_role,
+      " . chief_dashboard_user_photo_sql($conn, 'u_recv') . " AS receiver_profile_photo_url,
+      COALESCE(sec_recv.name, '') AS receiver_section_name,
+      COALESCE(div_recv.name, '') AS receiver_division_name,
+      COALESCE(NULLIF(r.from_user_id, 0), NULLIF(r.sent_by_user_id, 0), 0) AS sender_user_id,
+      COALESCE(sec_send.id, r.from_section_id, u_send.section_id, 0) AS sender_section_id,
+      COALESCE(div_send.id, 0) AS sender_division_id,
+      COALESCE(u_send.full_name, '') AS sender_full_name,
+      " . ($hasOfficialTitle ? "COALESCE(u_send.official_title, '')" : "''") . " AS sender_official_title,
+      " . ($hasAuthorityRole ? "COALESCE(u_send.authority_role, '')" : "''") . " AS sender_authority_role,
+      " . chief_dashboard_user_photo_sql($conn, 'u_send') . " AS sender_profile_photo_url,
+      COALESCE(sec_send.name, '') AS sender_section_name,
+      COALESCE(div_send.name, '') AS sender_division_name,
       {$openRouteDeadlineSql} AS personal_deadline_at,
       r.sent_at AS accountable_since_at
     FROM routes r
     LEFT JOIN document_branches b ON b.id = r.branch_id
-    LEFT JOIN users u ON u.id = r.to_user_id
-    LEFT JOIN sections sec ON sec.id = COALESCE(r.to_section_id, u.section_id)
-    LEFT JOIN divisions divi ON divi.id = sec.division_id
+    LEFT JOIN users u_recv ON u_recv.id = r.to_user_id
+    LEFT JOIN sections sec_recv ON sec_recv.id = COALESCE(r.to_section_id, u_recv.section_id)
+    LEFT JOIN divisions div_recv ON div_recv.id = sec_recv.division_id
+    LEFT JOIN users u_send ON u_send.id = COALESCE(NULLIF(r.from_user_id, 0), NULLIF(r.sent_by_user_id, 0))
+    LEFT JOIN sections sec_send ON sec_send.id = COALESCE(r.from_section_id, u_send.section_id)
+    LEFT JOIN divisions div_send ON div_send.id = sec_send.division_id
     WHERE r.route_kind = 'ACTION'
       AND r.received_at IS NULL
       AND r.cancelled_at IS NULL
@@ -552,7 +937,9 @@ function chief_dashboard_fetch_attention(mysqli $conn, array $viewer, array $fil
     if ($documentId <= 0 || !isset($documents[$documentId])) {
       continue;
     }
-    $openByDocument[$documentId][] = chief_dashboard_build_accountable_item($row, 'open_route');
+    foreach (chief_dashboard_build_route_participant_items($row) as $item) {
+      $openByDocument[$documentId][] = $item;
+    }
   }
 
   $branchSql = "
@@ -587,11 +974,15 @@ function chief_dashboard_fetch_attention(mysqli $conn, array $viewer, array $fil
     $branchesByDocument[$documentId][] = chief_dashboard_build_accountable_item($row, 'branch');
   }
 
+  $taskByDocument = chief_dashboard_fetch_open_task_accountables($conn, 0, $hasOfficialTitle, $hasAuthorityRole);
   $attentionRows = [];
   $stats = ['all' => 0, 'overdue' => 0, 'due_today' => 0, 'stale' => 0];
 
   foreach ($documents as $documentId => $document) {
-    $accountable = $openByDocument[$documentId] ?? [];
+    $accountable = $taskByDocument[$documentId] ?? [];
+    if ($accountable === []) {
+      $accountable = $openByDocument[$documentId] ?? [];
+    }
     if ($accountable === []) {
       $accountable = $branchesByDocument[$documentId] ?? [];
     }
@@ -599,9 +990,7 @@ function chief_dashboard_fetch_attention(mysqli $conn, array $viewer, array $fil
       $accountable = [chief_dashboard_build_holder_item($document)];
     }
 
-    $scopedAccountable = array_values(array_filter($accountable, static function (array $item) use ($viewer): bool {
-      return chief_dashboard_matches_scope($viewer, $item);
-    }));
+    $scopedAccountable = chief_dashboard_scoped_accountable_items($viewer, $accountable);
     if ($scopedAccountable === []) {
       continue;
     }
@@ -610,7 +999,7 @@ function chief_dashboard_fetch_attention(mysqli $conn, array $viewer, array $fil
     sort($personalDeadlines);
     $effectiveDeadlineRaw = $personalDeadlines[0] ?? trim((string)($document['deadline_at'] ?? ''));
     $effectiveDeadlineAt = chief_dashboard_end_of_day($effectiveDeadlineRaw, $timezone);
-    $stuckSinceRaw = trim((string)(($openByDocument[$documentId][0]['accountable_since_at'] ?? '') ?: ($document['last_received_at'] ?? '') ?: ($document['created_at'] ?? '')));
+    $stuckSinceRaw = trim((string)(($accountable[0]['accountable_since_at'] ?? '') ?: ($document['last_received_at'] ?? '') ?: ($document['created_at'] ?? '')));
     $workingMinutes = dt_working_minutes_between($stuckSinceRaw !== '' ? $stuckSinceRaw : null, null, $conn);
     $workingDays = dt_working_days_from_minutes($workingMinutes, $conn);
 
@@ -628,6 +1017,8 @@ function chief_dashboard_fetch_attention(mysqli $conn, array $viewer, array $fil
       (string)($document['requester'] ?? ''),
       (string)($document['current_holder_section_name'] ?? ''),
       implode(' ', array_map(static fn(array $item): string => ($item['primary_label'] ?? '') . ' ' . ($item['secondary_label'] ?? ''), $scopedAccountable)),
+      implode(' ', array_map(static fn(array $item): string => chief_dashboard_route_context_label($item), $scopedAccountable)),
+      implode(' ', array_map(static fn(array $item): string => chief_dashboard_task_kind_label($item), $scopedAccountable)),
     ], static fn($value): bool => trim((string)$value) !== '')));
 
     if ($search !== '' && !str_contains($searchHaystack, $search)) {
@@ -664,6 +1055,7 @@ function chief_dashboard_fetch_attention(mysqli $conn, array $viewer, array $fil
       'effective_deadline_label' => chief_dashboard_date_label($effectiveDeadlineRaw, $timezone),
       'current_holder_section_name' => (string)($document['current_holder_section_name'] ?? ''),
       'current_holder_division_name' => (string)($document['current_holder_division_name'] ?? ''),
+      'holder_display_label' => (string)($document['holder_display_label'] ?? ''),
       'stuck_since_at' => $stuckSinceRaw,
       'stuck_since_label' => chief_dashboard_datetime_label($stuckSinceRaw, $timezone),
       'working_days_stuck' => $workingDays,
@@ -714,12 +1106,13 @@ function chief_dashboard_group_attention(array $documents): array
 
   foreach ($documents as $document) {
     foreach ((array)($document['accountable_people'] ?? []) as $person) {
-      $key = 'u:' . (int)($person['user_id'] ?? 0) . '|s:' . (int)($person['section_id'] ?? 0) . '|d:' . (int)($person['division_id'] ?? 0) . '|p:' . strtolower(trim((string)($person['primary_label'] ?? '')));
+      $key = chief_dashboard_person_key($person);
       if (!isset($groups[$key])) {
         $groups[$key] = [
           'key' => $key,
           'person' => $person,
           'documents' => [],
+          'document_ids' => [],
           'stats' => [
             'all' => 0,
             'overdue' => 0,
@@ -730,7 +1123,17 @@ function chief_dashboard_group_attention(array $documents): array
         ];
       }
 
-      $groups[$key]['documents'][] = $document;
+      $documentId = (int)($document['id'] ?? 0);
+      if ($documentId > 0 && isset($groups[$key]['document_ids'][$documentId])) {
+        continue;
+      }
+
+      $documentForGroup = $document;
+      $documentForGroup['chief_person_context'] = $person;
+      $groups[$key]['documents'][] = $documentForGroup;
+      if ($documentId > 0) {
+        $groups[$key]['document_ids'][$documentId] = true;
+      }
       $groups[$key]['stats']['all']++;
       if (!empty($document['is_overdue'])) {
         $groups[$key]['stats']['overdue']++;
@@ -746,6 +1149,7 @@ function chief_dashboard_group_attention(array $documents): array
   }
 
   foreach ($groups as &$group) {
+    unset($group['document_ids']);
     usort($group['documents'], static function (array $a, array $b): int {
       $scoreDiff = chief_dashboard_priority_rank($b) <=> chief_dashboard_priority_rank($a);
       if ($scoreDiff !== 0) {

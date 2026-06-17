@@ -316,3 +316,72 @@ If a PHP page renders the first section and then silently stops:
 1. Check for typed helper calls in the template, especially `function h(string $value)`
 2. Check values coming from array keys, counts, IDs, or dates
 3. Remember that numeric string keys become integers in PHP arrays
+
+## 7. Chief dashboard in-transit rows must scope the person, not just the route
+
+Date encountered: 2026-06-16
+
+### Symptom
+
+- A section chief dashboard could show a person who was not under that section
+- A chief dashboard could include the chief's own personal backlog
+- Creation-only stale documents could appear under vague section names such as `Programming Section` instead of the actual document creator
+- Forward Attach and Signature/Approval work could be shown as generic in-transit work or missed because the dashboard only looked at normal route/branch state
+- Assistant-mode Forward Attach and Signature/Approval work could group under the assistant's name instead of the acting principal, causing assistants of chiefs to appear in another chief's personnel list
+- A Signature/Approval request sent by a chief's own staff to an outside boss or assistant could still group the outside recipient on the chief dashboard, even though the requester was the directly supervised person
+- After a Signature/Approval request was completed, the latest received `REFERENCE` route could make the dashboard holder fallback combine the outside receiver user with the document's real current holder section
+- This happened on in-transit documents where the outside person was the receiver or sender of an open route
+- The row did not clearly explain whether the scoped person was the sender or receiver
+
+### Actual root cause
+
+The chief dashboard treated open in-transit routes as a single accountable receiver row. That made the route direction unclear and could hide the in-scope sender context when the receiver was outside the chief's section or division.
+
+The first scoped filter also allowed the effective viewer's own user ID, which made the chief dashboard behave like a duplicate personal backlog instead of a pure oversight dashboard.
+
+For creation-only documents, the holder fallback used `documents.current_holder_section_id` even when there was no received route and no branch assignee. That produced section-name personnel buckets instead of the actual creator responsible for the untouched document.
+
+Forward Attach and Signature/Approval have first-class task tables:
+
+- `attachment_forward_tasks`
+- `document_action_requests`
+
+Those task rows carry the real sender, recipient, task status, and accountable timestamp. Treating only `routes.route_kind = 'ACTION'` and active non-reference branches as the dashboard source can miss `REFERENCE`-route signature/approval recipients or flatten task work into vague route movement.
+
+In assistant mode, the task sender columns can store the actual signed-in assistant because the assistant performed the click. The matching `document_events.payload_json` carries `acting_principal_user_id`, which is the business identity that should be used for chief-dashboard accountability.
+
+### Files involved
+
+- [core/chief_dashboard.php](C:/xampp/htdocs/document-tracker/core/chief_dashboard.php)
+- [public/documents.php](C:/xampp/htdocs/document-tracker/public/documents.php)
+- [assets/css/documents.css](C:/xampp/htdocs/document-tracker/assets/css/documents.css)
+
+### Final fix
+
+Open routes now build separate sender and receiver participant contexts, then apply chief scope to those participant records. The dashboard row labels in-transit documents with the scoped person's role and counterpart, such as `Receiver from ...` or `Sender to ...`.
+
+The personnel scope filter now excludes the effective chief/acting principal user ID so chiefs do not see their own assigned documents in the oversight dashboard.
+
+When the dashboard falls back to the document holder and no received-route holder exists, it now uses `documents.created_by_user_id` and the creator's org metadata before falling back to section-only labels.
+
+Open Forward Attach and Signature/Approval task rows now take precedence over generic route/branch fallback and are labeled by task type in the dashboard row.
+
+For assistant-mode Forward Attach and Signature/Approval task rows, the chief dashboard resolves the sender to `acting_principal_user_id` from the matching audit event before grouping or scope filtering. This keeps assistant names out of personnel lists unless the assistant is truly the scoped recipient/person.
+
+For Signature/Approval task rows, dashboard scoping now filters accountable people through a sender-first rule per request. If the scoped sender is already one of the chief's personnel, the outside receiver remains only as route context and is not grouped as dashboard personnel.
+
+For holder fallback, the chief dashboard now resolves the latest received holder from `ACTION` routes only. Completed Signature/Approval `REFERENCE` receipts are audit/context events and must not become the accountable holder source.
+
+### Best debugging path next time
+
+For chief dashboard scope bugs, inspect the participant being grouped, not only the document or route:
+
+1. Check whether the row comes from open routes, branch assignees, or holder fallback
+2. For open routes, compare both sender and receiver sections/divisions against the chief scope
+3. Render the scoped person's route role so the dashboard explains why the document appears
+4. Exclude the effective chief/acting principal user ID from personnel grouping; chief dashboard is for subordinate oversight, not personal backlog review
+5. For creation-only/no-route documents, use `documents.created_by_user_id` before falling back to `current_holder_section_id`; section-only labels are usually too vague for personnel grouping
+6. Check task tables before route/branch fallback for special workflows; Forward Attach and Signature/Approval have their own sender/recipient/status source of truth
+7. In assistant mode, normalize task senders through matching `document_events.payload_json.acting_principal_user_id` before grouping personnel for chief-dashboard accountability
+8. For Signature/Approval requests, if the requester is already in the chief's personnel scope, keep that sender as the grouped accountable person and treat the requested boss/assistant as counterpart context
+9. For holder fallback, do not use completed `REFERENCE` routes as current-holder evidence; use the latest received `ACTION` route or the creator fallback

@@ -2135,6 +2135,7 @@ $chiefViewEnabled = $chiefViewRequested && chief_dashboard_can_access($chiefView
 if ($chiefViewRequested && !$chiefViewEnabled) {
   $requestedDocumentsTab = 'my';
 }
+$chiefViewAvailable = chief_dashboard_can_access($chiefViewer) || $assistantPrincipals !== [];
 
 $currentDocumentsView = $chiefViewEnabled
   ? 'chief'
@@ -2373,6 +2374,9 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
   <div class="docsTopRail">
     <div class="docsViewTabs" aria-label="Documents view tabs">
       <a class="docsViewTab <?= $currentDocumentsView === 'my' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(documentsUrl(['view' => 'my', 'acting_principal_user_id' => null, 'page' => 1])) ?>">My documents</a>
+      <?php if ($chiefViewAvailable): ?>
+        <a class="docsViewTab <?= $currentDocumentsView === 'chief' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(documentsUrl(['view' => 'chief', 'acting_principal_user_id' => $assistantPrincipals !== [] ? (int)($activeAssistantPrincipal['id'] ?? $assistantPrincipals[0]['id'] ?? 0) : null, 'page' => 1])) ?>">Chief dashboard</a>
+      <?php endif; ?>
       <?php if ($assistantPrincipals !== []): ?>
         <a class="docsViewTab <?= $currentDocumentsView === 'assistant' ? 'isActive' : '' ?>" href="<?= htmlspecialchars(documentsUrl(['view' => 'assistant', 'acting_principal_user_id' => (int)($activeAssistantPrincipal['id'] ?? $assistantPrincipals[0]['id'] ?? 0), 'page' => 1])) ?>">Assistant mode</a>
       <?php endif; ?>
@@ -2576,18 +2580,41 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
 
               <div class="chiefInlineDocList">
                 <?php foreach ((array)($group['documents'] ?? []) as $row): ?>
+                  <?php
+                    $personContext = (array)($row['chief_person_context'] ?? []);
+                    $routeRole = strtolower(trim((string)($personContext['person_route_role'] ?? '')));
+                    $routeContextLabel = chief_dashboard_route_context_label($personContext);
+                    $taskKindLabel = chief_dashboard_task_kind_label($personContext);
+                    $counterpartSection = trim((string)($personContext['counterpart_section_name'] ?? ''));
+                    $counterpartDivision = trim((string)($personContext['counterpart_division_name'] ?? ''));
+                    $counterpartScope = trim($counterpartSection . ($counterpartDivision !== '' ? ' | ' . $counterpartDivision : ''));
+                  ?>
                   <article class="chiefInlineDocRow tone-<?= htmlspecialchars((string)($row['tone'] ?? 'default')) ?>">
                     <div class="chiefInlineDocMain">
                       <div class="chiefInlineDocTop">
                         <span class="chiefInlineTracking"><?= htmlspecialchars((string)($row['tracking_no'] ?? '')) ?></span>
+                        <?php if ((int)($personContext['in_transit'] ?? 0) === 1): ?>
+                          <span class="chiefInlineTransit"><?= htmlspecialchars($taskKindLabel !== '' ? $taskKindLabel : 'In transit') ?></span>
+                        <?php endif; ?>
+                        <?php if ($routeRole !== ''): ?>
+                          <span class="chiefInlineRouteRole <?= $routeRole === 'sender' ? 'isSender' : 'isReceiver' ?>"><?= htmlspecialchars($routeRole === 'sender' ? 'Sender' : 'Receiver') ?></span>
+                        <?php endif; ?>
                         <?php foreach (chief_dashboard_reason_labels($row) as $reason): ?>
                           <span class="chiefInlineReason"><?= htmlspecialchars($reason) ?></span>
                         <?php endforeach; ?>
                       </div>
                       <div class="chiefInlineSubject"><?= htmlspecialchars((string)($row['subject'] ?? 'Untitled document')) ?></div>
+                      <?php if ($routeContextLabel !== ''): ?>
+                        <div class="chiefInlineRouteContext">
+                          <strong><?= htmlspecialchars($routeContextLabel) ?></strong>
+                          <?php if ($counterpartScope !== ''): ?>
+                            <span><?= htmlspecialchars($counterpartScope) ?></span>
+                          <?php endif; ?>
+                        </div>
+                      <?php endif; ?>
                       <div class="chiefInlineMeta">
                         <span><strong>Requester:</strong> <?= htmlspecialchars((string)(($row['requester'] ?? '') !== '' ? $row['requester'] : 'Not set')) ?></span>
-                        <span><strong>Holder:</strong> <?= htmlspecialchars(trim((string)(($row['current_holder_section_name'] ?? '') . (((string)($row['current_holder_division_name'] ?? '') !== '') ? ' | ' . (string)$row['current_holder_division_name'] : '')))) ?></span>
+                        <span><strong>Holder:</strong> <?= htmlspecialchars(trim((string)(($row['holder_display_label'] ?? '') !== '' ? $row['holder_display_label'] : (($row['current_holder_section_name'] ?? '') . (((string)($row['current_holder_division_name'] ?? '') !== '') ? ' | ' . (string)$row['current_holder_division_name'] : ''))))) ?></span>
                         <span><strong>Deadline:</strong> <?= htmlspecialchars((string)($row['effective_deadline_label'] ?? 'Not set')) ?></span>
                         <span><strong>Stalled:</strong> <?= htmlspecialchars((string)($row['working_elapsed_label'] ?? '0 working hours')) ?></span>
                       </div>
