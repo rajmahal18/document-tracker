@@ -389,3 +389,38 @@ For chief dashboard scope bugs, inspect the participant being grouped, not only 
 8. For Signature/Approval and Forward Attach tasks, if the sender/requester is already in the chief's personnel scope, keep that sender as the grouped accountable person and treat the requested boss/assistant as counterpart context
 9. For holder fallback, do not use completed `REFERENCE` routes as current-holder evidence; use the latest received `ACTION` route or the creator fallback
 10. When a latest received `ACTION` route has different `to_user_id` and `received_by_user_id`, check whether the receiver is an assigned assistant for the addressed user before grouping the receiver as accountable
+
+## 8. Visible header controls can be unresponsive when a page omits the shared footer
+
+Date encountered: 2026-06-18
+
+### Symptom
+
+- On the Changelogs and Admin pages, the hamburger menu button was visible but did not open the side navigation.
+- Other pages using the same shell could still open the drawer normally.
+
+### Actual root cause
+
+The affected pages included the shared layout header but did not include `includes/footer.php` at the end of the page.
+
+The hamburger button is rendered by `includes/layout.php`, but its click listener is registered in `assets/js/pwa-ui.js`, which is loaded through the shared footer. Without the footer, the button stayed visible but had no drawer behavior attached.
+
+### Files involved
+
+- [includes/layout.php](C:/xampp/htdocs/document-tracker/includes/layout.php)
+- [public/changelogs.php](C:/xampp/htdocs/document-tracker/public/changelogs.php)
+- [public/admin.php](C:/xampp/htdocs/document-tracker/public/admin.php)
+- [includes/footer.php](C:/xampp/htdocs/document-tracker/includes/footer.php)
+- [assets/js/pwa-ui.js](C:/xampp/htdocs/document-tracker/assets/js/pwa-ui.js)
+
+### Final fix
+
+Added the missing shared footer include to `public/changelogs.php` and `public/admin.php`, matching working pages such as Issuances and Task Monitoring.
+
+### Best debugging path next time
+
+If a visible header button is not clickable:
+
+1. Compare the broken page against a working page that uses the same shell
+2. Confirm `includes/footer.php` is included and `assets/js/pwa-ui.js` is loaded
+3. Check whether `#navToggle` has its click listener initialized before investigating z-index

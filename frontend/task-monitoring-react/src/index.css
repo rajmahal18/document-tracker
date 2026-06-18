@@ -2,6 +2,16 @@
 
 :root {
   color: #13233f;
+  --tms-primary: #159a90;
+  --tms-primary-strong: #117f78;
+  --tms-ink: #13233f;
+  --tms-muted: #66758a;
+  --tms-soft: #f6f9fc;
+  --tms-line: rgba(208, 219, 229, 0.92);
+  --tms-neutral: #64748b;
+  --tms-soon: #d08320;
+  --tms-overdue: #cf4d42;
+  --tms-done: #178a62;
   font-family: "Inter", "Segoe UI", sans-serif;
 }
 
@@ -25,24 +35,43 @@ textarea {
 
 .tms-body-shell {
   margin: 0;
-  background:
-    radial-gradient(circle at top left, rgba(14, 165, 164, 0.1), transparent 24%),
-    radial-gradient(circle at 92% 4%, rgba(250, 204, 21, 0.12), transparent 22%),
-    linear-gradient(180deg, #f4f8fb 0%, #eef4f8 100%);
+  background: linear-gradient(180deg, #f6f8fb 0%, #eef3f7 100%);
 }
 
 .tms-body-shell .appTopbar.topbar {
-  background: rgba(255, 255, 255, 0.92);
-  border-bottom: 1px solid rgba(207, 218, 229, 0.9);
+  background: linear-gradient(180deg, #138c85 0%, #0f6f6a 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 10px 24px rgba(15, 111, 106, 0.18);
   backdrop-filter: blur(18px);
 }
 
-.tms-body-shell .brandTitle,
+.tms-body-shell .appBrandTextLink,
+.tms-body-shell .appBrandTextLink h1,
 .tms-body-shell .brandSubtitle,
 .tms-body-shell .topbarIconBtn,
 .tms-body-shell .topbarUserName,
 .tms-body-shell .topbarUserRole {
-  color: #17304f;
+  color: #fff;
+}
+
+.tms-body-shell .appBrandTextLink h1 {
+  display: block;
+  color: #fff;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.18);
+}
+
+.tms-body-shell .appBrandTextLink .brandSubtitle {
+  color: rgba(236, 253, 245, 0.86);
+}
+
+.tms-body-shell .navToggle {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.tms-body-shell .navToggle:hover {
+  background: rgba(255, 255, 255, 0.16);
 }
 
 .tms-body-shell .appSideNav {
@@ -70,7 +99,7 @@ textarea {
 
 .tms-content-shell {
   max-width: none;
-  padding: 18px 16px 28px;
+  padding: 14px 16px 28px;
 }
 
 .tms-app {
@@ -93,7 +122,7 @@ textarea {
   width: min(1560px, 100%);
   margin: 0 auto;
   display: grid;
-  gap: 18px;
+  gap: 14px;
 }
 
 .tms-hero,
@@ -103,18 +132,16 @@ textarea {
 .tms-modal,
 .tms-command-deck {
   border: 1px solid rgba(208, 219, 229, 0.92);
-  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.045);
 }
 
 .tms-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.88fr);
   gap: 18px;
-  padding: 22px;
-  border-radius: 28px;
-  background:
-    radial-gradient(circle at 0 0, rgba(20, 184, 166, 0.09), transparent 20%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 255, 0.98));
+  padding: 20px 22px 18px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.98);
 }
 
 .tms-hero-copy,
@@ -141,13 +168,13 @@ textarea {
 .tms-filter-chip span,
 .tms-focus-top span:first-child {
   font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.14em;
+  font-weight: 700;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
 }
 
 .tms-kicker {
-  color: #159a90;
+  color: #94a3b8;
 }
 
 .tms-date-pill {
@@ -158,7 +185,7 @@ textarea {
   border-radius: 999px;
   background: #eef7f8;
   border: 1px solid rgba(194, 224, 221, 0.92);
-  color: #446173;
+  color: #64748b;
   font-size: 11px;
   font-weight: 800;
 }
@@ -171,13 +198,13 @@ textarea {
   color: #13233f;
   font-family: "Plus Jakarta Sans", "Inter", sans-serif;
   font-weight: 800;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
 }
 
 .tms-hero h1 {
   max-width: 760px;
-  font-size: 52px;
-  line-height: 0.98;
+  font-size: 50px;
+  line-height: 1.02;
 }
 
 .tms-hero p,
@@ -186,63 +213,63 @@ textarea {
 .tms-modal-head p {
   margin: 0;
   color: #66758a;
-  font-size: 14px;
-  line-height: 1.65;
-  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.7;
+  font-weight: 500;
 }
 
 .tms-hero-pulses {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
 .tms-pulse {
   display: grid;
-  gap: 6px;
-  padding: 16px 17px;
-  border-radius: 20px;
+  gap: 7px;
+  padding: 14px 15px;
+  border-radius: 16px;
   border: 1px solid rgba(211, 221, 231, 0.9);
-  background: #fdfefe;
+  background: #fff;
 }
 
 .tms-pulse span {
-  color: #6f7d90;
+  color: #94a3b8;
   font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-weight: 700;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
 .tms-pulse strong {
   color: #13233f;
-  font-size: 30px;
+  font-size: 32px;
   line-height: 1;
   font-weight: 800;
 }
 
 .tms-pulse.tone-overdue {
-  background: linear-gradient(180deg, #fff9f8, #fffefe);
+  border-color: rgba(207, 77, 66, 0.24);
 }
 
 .tms-pulse.tone-overdue strong {
-  color: #cf4d42;
+  color: var(--tms-overdue);
 }
 
 .tms-pulse.tone-soon {
-  background: linear-gradient(180deg, #fffaf1, #fffefe);
+  border-color: rgba(208, 131, 32, 0.24);
 }
 
 .tms-pulse.tone-soon strong {
-  color: #cb7a18;
+  color: var(--tms-soon);
 }
 
 .tms-pulse.tone-done {
-  background: linear-gradient(180deg, #f5fcf8, #fffefe);
+  border-color: rgba(23, 138, 98, 0.22);
 }
 
 .tms-pulse.tone-done strong {
-  color: #158a61;
+  color: var(--tms-done);
 }
 
 .tms-hero-rail {
@@ -261,6 +288,10 @@ textarea {
 .tms-hero-actions,
 .tms-command-actions {
   justify-content: flex-end;
+  padding: 5px;
+  border-radius: 16px;
+  background: #f6f9fc;
+  border: 1px solid rgba(216, 225, 234, 0.9);
 }
 
 .tms-btn {
@@ -269,7 +300,7 @@ textarea {
   justify-content: center;
   min-height: 42px;
   padding: 0 16px;
-  border-radius: 14px;
+  border-radius: 12px;
   border: 1px solid transparent;
   text-decoration: none;
   cursor: pointer;
@@ -286,14 +317,14 @@ textarea {
 }
 
 .tms-btn-primary {
-  background: linear-gradient(135deg, #159a90, #21b9ad);
+  background: var(--tms-primary);
   color: #fff;
-  box-shadow: 0 14px 26px rgba(21, 154, 144, 0.22);
+  box-shadow: 0 12px 22px rgba(21, 154, 144, 0.2);
 }
 
 .tms-btn-secondary {
   background: #fff;
-  color: #17304f;
+  color: #334155;
   border-color: rgba(205, 216, 227, 0.94);
 }
 
@@ -307,15 +338,13 @@ textarea {
   display: grid;
   gap: 6px;
   padding: 16px 18px;
-  border-radius: 20px;
+  border-radius: 16px;
   background: #fff;
   border: 1px solid rgba(211, 221, 231, 0.92);
 }
 
 .tms-rail-panel.accent {
-  background:
-    radial-gradient(circle at top right, rgba(20, 184, 166, 0.08), transparent 28%),
-    linear-gradient(180deg, #fbfeff, #f7fbfd);
+  background: #fff;
 }
 
 .tms-panel-label,
@@ -327,6 +356,7 @@ textarea {
 .tms-filter-chip span,
 .tms-focus-top span:first-child {
   color: #76859a;
+  letter-spacing: 0.16em;
 }
 
 .tms-rail-panel strong {
@@ -360,7 +390,7 @@ textarea {
 
 .tms-segmented button.is-active {
   background: #fff;
-  color: #13233f;
+  color: var(--tms-primary-strong);
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
 }
 
@@ -368,15 +398,15 @@ textarea {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0;
-  border-radius: 24px;
+  border-radius: 18px;
   overflow: hidden;
   background: rgba(255, 255, 255, 0.96);
 }
 
 .tms-summary-cell {
   display: grid;
-  gap: 6px;
-  padding: 18px 20px;
+  gap: 7px;
+  padding: 15px 18px;
   border-right: 1px solid rgba(214, 223, 232, 0.88);
 }
 
@@ -387,44 +417,51 @@ textarea {
 .tms-summary-head {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .tms-summary-icon {
-  width: 14px;
-  height: 14px;
-  border-radius: 5px;
-  background: #159a90;
-  box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.42);
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #94a3b8;
 }
 
-.tms-summary-icon.tone-open,
+.tms-summary-icon.tone-open {
+  background: #94a3b8;
+}
+
 .tms-summary-cell.tone-open strong {
-  color: #2c6ad5;
-  background: #2c6ad5;
+  color: var(--tms-neutral);
 }
 
-.tms-summary-icon.tone-soon,
+.tms-summary-icon.tone-soon {
+  background: var(--tms-soon);
+}
+
 .tms-summary-cell.tone-soon strong {
-  color: #d08320;
-  background: #d08320;
+  color: var(--tms-soon);
 }
 
-.tms-summary-icon.tone-overdue,
+.tms-summary-icon.tone-overdue {
+  background: var(--tms-overdue);
+}
+
 .tms-summary-cell.tone-overdue strong {
-  color: #cf4d42;
-  background: #cf4d42;
+  color: var(--tms-overdue);
 }
 
-.tms-summary-icon.tone-done,
+.tms-summary-icon.tone-done {
+  background: var(--tms-done);
+}
+
 .tms-summary-cell.tone-done strong {
-  color: #178a62;
-  background: #178a62;
+  color: var(--tms-done);
 }
 
 .tms-summary-cell strong {
   color: #13233f;
-  font-size: 36px;
+  font-size: 34px;
   line-height: 1;
   font-weight: 800;
 }
@@ -445,7 +482,7 @@ textarea {
 .tms-summary-cell small {
   font-size: 12px;
   line-height: 1.45;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .tms-command-deck {
@@ -453,11 +490,9 @@ textarea {
   grid-template-columns: minmax(0, 1.3fr) auto;
   gap: 16px;
   align-items: center;
-  padding: 18px 20px;
-  border-radius: 24px;
-  background:
-    radial-gradient(circle at top left, rgba(20, 184, 166, 0.08), transparent 24%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 254, 0.98));
+  padding: 16px 18px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.98);
 }
 
 .tms-command-main {
@@ -479,7 +514,7 @@ textarea {
 
 .tms-command-head h2 {
   margin-top: 4px;
-  font-size: 28px;
+  font-size: 26px;
   line-height: 1.02;
 }
 
@@ -517,8 +552,8 @@ textarea {
 
 .tms-panel {
   padding: 20px;
-  border-radius: 24px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 252, 255, 0.98));
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.98);
 }
 
 .tms-section-head {
@@ -560,22 +595,22 @@ textarea {
   display: grid;
   gap: 8px;
   padding: 15px 16px;
-  border-radius: 18px;
+  border-radius: 14px;
 }
 
 .tms-focus-item.tone-overdue {
-  background: linear-gradient(180deg, #fff9f8, #fffefe);
-  border-color: rgba(224, 173, 168, 0.82);
+  background: #fff;
+  border-left: 3px solid var(--tms-overdue);
 }
 
 .tms-focus-item.tone-soon {
-  background: linear-gradient(180deg, #fffaf1, #fffefe);
-  border-color: rgba(238, 209, 161, 0.82);
+  background: #fff;
+  border-left: 3px solid var(--tms-soon);
 }
 
 .tms-focus-item.tone-done {
-  background: linear-gradient(180deg, #f5fcf8, #fffefe);
-  border-color: rgba(183, 226, 206, 0.92);
+  background: #fff;
+  border-left: 3px solid var(--tms-done);
 }
 
 .tms-focus-item strong,
@@ -617,13 +652,13 @@ textarea {
 }
 
 .tms-badge.tone-open {
-  background: rgba(44, 106, 213, 0.1);
-  color: #2c6ad5;
+  background: #f1f5f9;
+  color: #475569;
 }
 
 .tms-badge.tone-review,
 .tms-badge.tone-soon {
-  background: rgba(208, 131, 32, 0.12);
+  background: rgba(208, 131, 32, 0.1);
   color: #c27617;
 }
 
@@ -653,7 +688,7 @@ textarea {
 }
 
 .tms-status-bar {
-  height: 10px;
+  height: 6px;
   border-radius: 999px;
   background: #edf2f6;
   overflow: hidden;
@@ -663,7 +698,7 @@ textarea {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #16a39a, #4d8ff2);
+  background: var(--tms-primary);
 }
 
 .tms-recent-item {
@@ -719,7 +754,7 @@ textarea {
 }
 
 .tms-tabs button.is-active {
-  background: linear-gradient(135deg, #159a90, #20b6aa);
+  background: var(--tms-primary);
   border-color: transparent;
   color: #fff;
   box-shadow: 0 14px 26px rgba(21, 154, 144, 0.2);
@@ -775,7 +810,7 @@ textarea {
   gap: 4px;
   padding: 0 16px;
   border-radius: 16px;
-  background: linear-gradient(135deg, #17304f, #20557d);
+  background: #13233f;
 }
 
 .tms-filter-chip strong {
@@ -866,12 +901,28 @@ textarea {
 }
 
 .tms-empty {
-  padding: 14px;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 26px 18px;
   border-radius: 16px;
-  background: #f7fafc;
-  border: 1px dashed rgba(191, 203, 217, 0.78);
+  background: #fbfdff;
+  border: 1px dashed rgba(148, 163, 184, 0.58);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
+  text-align: center;
+}
+
+.tms-empty::before {
+  content: "";
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  background:
+    linear-gradient(#94a3b8, #94a3b8) center / 14px 2px no-repeat,
+    #fff;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.05);
 }
 
 .tms-empty.spacious {

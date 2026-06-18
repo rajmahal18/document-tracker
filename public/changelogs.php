@@ -471,3 +471,4 @@ require __DIR__ . '/../includes/layout.php';
   </div>
 </div>
 
+<?php require __DIR__ . '/../includes/footer.php'; ?>

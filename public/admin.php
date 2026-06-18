@@ -1358,3 +1358,5 @@ function copyAdminValue(id) {
   document.execCommand('copy');
 }
 </script>
+
+<?php require __DIR__ . '/../includes/footer.php'; ?>

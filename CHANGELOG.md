@@ -13,6 +13,8 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 - A separate Issuances page in the sidebar for memo-style public references, with admin file uploads, smart year tabs generated from each issuance date, and rows that open source documents in a new tab.
 
 ### Changed
+- Task Monitoring dashboard visuals now use a calmer KPI hierarchy, clearer semantic status colors, and more intentional empty states.
+- Task Monitoring is temporarily hidden from the main sidebar navigation while the pilot workflow is still being finalized.
 - Task Monitoring now enforces lead-assignee editing rules on existing monitoring records, so progress-driven workflows no longer let any editor change protected task details after assignment.
 - The chief dashboard now shows focal-person avatars in its grouped attention view, improving visual scanning for accountable personnel.
 - The chief dashboard layout is cleaner and easier to scan, with compact attention stats, clearer filters, priority rails, and structured document metadata for desktop and mobile views.
@@ -23,6 +25,7 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 - Transmittal Memo generation on Add Document now works with Save for Principal Review, matching the division tracking slip review flow.
 
 ### Fixed
+- Admin and Changelogs now load the shared footer scripts, so the hamburger menu opens the side navigation normally on those pages.
 - Due-today reminder logging now preserves nullable route references and surfaces rerun-protection write failures instead of silently reporting success.
 - Due-today reminder emails now build document links from the app base path during CLI runs, so production messages no longer point to `/scripts/public/...`.
 - Chief dashboard access is visible again from the documents view tabs and sidebar for chiefs and assigned assistants, without requiring manual URL changes.

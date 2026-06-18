@@ -502,7 +502,7 @@ export default function App() {
           </div>
 
           <div className="tms-command-actions">
-            <button className="tms-btn tms-btn-primary" type="button" onClick={openCreateModal}>
+            <button className="tms-btn tms-btn-secondary" type="button" onClick={openCreateModal}>
               Create task
             </button>
             <a className="tms-btn tms-btn-secondary" href={`${app.public}/documents.php`}>
