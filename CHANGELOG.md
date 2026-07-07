@@ -46,6 +46,7 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 - Legacy non-branch documents no longer stay stuck in a non-actionable state for a past signature/approval recipient after that same user later receives the real forwarded document through a normal route.
 - The documents page now provides a safe early view-context value before its inline JS bootstrap runs, preventing forward/receive interactions from failing when PHP warning output would otherwise corrupt the page script.
 - The Issuances page now renders year tabs and the listing for non-admin users who open the page without an explicit year filter.
+- Reopen Lifecycle now appears correctly after an End Now action when the document drawer reloads from the snapshot API.
 
 ### Removed
 

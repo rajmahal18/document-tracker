@@ -564,7 +564,8 @@
     const docId = Number(raw.id || 0);
     const trackingNo = clean(raw.tracking_display || raw.tracking_no || (docId > 0 ? `#${docId}` : ""));
     const holder = clean(raw.current_holder_text || raw.current_holder_name || raw.current_holder_section_name || "");
-    const status = clean(raw.status_label || raw.current_status || "ACTIVE") || "ACTIVE";
+    const currentStatus = clean(raw.current_status || "ACTIVE") || "ACTIVE";
+    const statusLabel = clean(raw.status_label || currentStatus) || currentStatus;
     const movementText = clean(raw.movement_text || raw.destination_text || "");
     const latestActivityTitle = clean(raw.latest_activity_title || raw.activity_text || "");
     const latestActivityDetail = clean(raw.latest_activity_detail || "");
@@ -583,8 +584,8 @@
       comm_type: clean(raw.comm_type || ""),
       project_codes: Array.isArray(raw.project_codes) ? raw.project_codes : [],
       project_ids: Array.isArray(raw.project_ids) ? raw.project_ids : [],
-      current_status: status,
-      status_label: status,
+      current_status: currentStatus,
+      status_label: statusLabel,
       current_holder_name: clean(raw.current_holder_name || holder),
       current_holder_text: holder || "—",
       current_holder_section_name: clean(raw.current_holder_section_name || holder),

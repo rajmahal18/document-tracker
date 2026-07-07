@@ -424,3 +424,43 @@ If a visible header button is not clickable:
 1. Compare the broken page against a working page that uses the same shell
 2. Confirm `includes/footer.php` is included and `assets/js/pwa-ui.js` is loaded
 3. Check whether `#navToggle` has its click listener initialized before investigating z-index
+
+## 9. Drawer display labels must not overwrite machine status values
+
+Date encountered: 2026-07-07
+
+### Symptom
+
+- A document ended through End Now showed `LIFECYCLE ENDED` in the drawer
+- `Reopen Lifecycle` did not appear
+- Admin lifecycle buttons like `Release` and `Archive` still appeared even though the document was already released by End Now
+
+### Actual root cause
+
+The row payload correctly contained:
+
+- `current_status = RELEASED`
+- `status_label = LIFECYCLE ENDED`
+- `last_end_here_kind = document_ended_here`
+
+But the frontend drawer normalizer preferred `status_label` when rebuilding `current_status`.
+
+That turned the machine status into `LIFECYCLE ENDED`, so the action logic skipped the `RELEASED` branch that calls `syncEndHereButtons()` and fell through to normal privileged active-action controls.
+
+### Files involved
+
+- [assets/js/documents-page.js](C:/xampp/htdocs/document-tracker/assets/js/documents-page.js)
+- [public/documents.php](C:/xampp/htdocs/document-tracker/public/documents.php)
+- [api/document_drawer_snapshot.php](C:/xampp/htdocs/document-tracker/api/document_drawer_snapshot.php)
+
+### Final fix
+
+Kept `current_status` as the raw lifecycle value and treated `status_label` as display-only during drawer payload normalization.
+
+### Best debugging path next time
+
+If drawer buttons disagree with the visible status chip:
+
+1. Compare `payload.current_status` against `payload.status_label`
+2. Confirm JS normalization does not replace raw status with display text
+3. Check action visibility against raw machine values like `ACTIVE`, `RELEASED`, and `ARCHIVED`, not labels such as `LIFECYCLE ENDED`

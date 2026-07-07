@@ -85,6 +85,20 @@ $stmt = $conn->prepare("
     d.created_at,
     d.updated_at,
     COALESCE((
+      SELECT JSON_UNQUOTE(JSON_EXTRACT(e_end.payload_json, '$.kind'))
+      FROM document_events e_end
+      WHERE e_end.document_id = d.id
+        AND e_end.event_type = 'updated'
+        AND JSON_UNQUOTE(JSON_EXTRACT(e_end.payload_json, '$.kind')) IN (
+          'branch_ended_here',
+          'document_ended_here',
+          'branch_end_here_undone',
+          'document_end_here_undone'
+        )
+      ORDER BY e_end.created_at DESC, e_end.id DESC
+      LIMIT 1
+    ), '') AS last_end_here_kind,
+    COALESCE((
       SELECT e_closed.created_at
       FROM document_events e_closed
       WHERE e_closed.document_id = d.id
@@ -405,6 +419,7 @@ echo json_encode([
     'current_status' => $currentStatus,
     'status_label' => $currentStatus,
     'status_chip_class' => $statusChipClass,
+    'last_end_here_kind' => (string)($doc['last_end_here_kind'] ?? ''),
     'current_holder_name' => $currentHolderName,
     'current_holder_text' => $currentHolderText,
     'movement_text' => $destinationText,
