@@ -272,9 +272,64 @@ function dt_working_minutes_between(?string $startRaw, ?string $endRaw = null, ?
   return max(1, $minutes);
 }
 
+function dt_working_minutes_between_exact(?string $startRaw, ?string $endRaw = null, ?mysqli $conn = null): int
+{
+  $calendar = dt_work_calendar($conn);
+  $start = dt_parse_manila_datetime($startRaw, $calendar);
+  if (!$start) {
+    return 0;
+  }
+
+  $end = $endRaw !== null
+    ? dt_parse_manila_datetime($endRaw, $calendar)
+    : new DateTimeImmutable('now', dt_work_timezone($calendar));
+
+  if (!$end || $end < $start) {
+    return 0;
+  }
+
+  $cursor = dt_next_work_start($start, $calendar);
+  $end = $end->setTimezone(dt_work_timezone($calendar));
+  $minutes = 0;
+
+  while ($cursor < $end) {
+    $window = dt_day_window($cursor, $calendar);
+    if ($window === null) {
+      $cursor = dt_next_work_start($cursor->modify('+1 day')->setTime(0, 0, 0), $calendar);
+      continue;
+    }
+
+    [, $dayEnd] = $window;
+    $segmentEnd = $end < $dayEnd ? $end : $dayEnd;
+
+    if ($segmentEnd > $cursor) {
+      $minutes += max(0, (int)floor(($segmentEnd->getTimestamp() - $cursor->getTimestamp()) / 60));
+    }
+
+    $cursor = dt_next_work_start($dayEnd->modify('+1 day')->setTime(0, 0, 0), $calendar);
+  }
+
+  return max(0, $minutes);
+}
+
 function dt_working_days_from_minutes(int $minutes, ?mysqli $conn = null): int
 {
   return max(0, intdiv(max(0, $minutes), dt_work_minutes_per_day($conn)));
+}
+
+function dt_working_days_from_minutes_ceil(int $minutes, ?mysqli $conn = null): int
+{
+  $minutes = max(0, $minutes);
+  if ($minutes <= 0) {
+    return 0;
+  }
+
+  return max(1, (int)ceil($minutes / dt_work_minutes_per_day($conn)));
+}
+
+function dt_working_days_between_ceil(?string $startRaw, ?string $endRaw = null, ?mysqli $conn = null): int
+{
+  return dt_working_days_from_minutes_ceil(dt_working_minutes_between_exact($startRaw, $endRaw, $conn), $conn);
 }
 
 function dt_format_working_elapsed(int $minutes, ?mysqli $conn = null): string

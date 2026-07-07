@@ -23,6 +23,7 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 - Dark mode now uses a more cohesive enterprise theme across shared controls, document tables, Chief Dashboard, Assistant Mode surfaces, and Org Atlas cards.
 - The Issuances list now sorts by oldest issued date first, keeping memo-series rows in natural order.
 - Transmittal Memo generation on Add Document now works with Save for Principal Review, matching the division tracking slip review flow.
+- Document deadline badges now count overdue and completed-in days using the configured working calendar instead of raw calendar days.
 
 ### Fixed
 - Admin and Changelogs now load the shared footer scripts, so the hamburger menu opens the side navigation normally on those pages.
@@ -55,6 +56,7 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 - Email Notifications
 - Issuances
 - Document Deadlines
+- Documents List
 - Scheduled Reminder Jobs
 - Task Monitoring
 - Task Monitoring Permissions

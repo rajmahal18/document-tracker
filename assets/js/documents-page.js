@@ -4106,9 +4106,11 @@
       const stamp = (payload.latest_activity_at_display || "").toString().trim();
       elLatestActivityTime.textContent = [detail, stamp].filter(Boolean).join(" • ");
     }
-    const deadlineOutcome = ((payload.current_status || "ACTIVE").toString().toUpperCase() === "ACTIVE")
-      ? ""
-      : (payload.deadline_badge_text || "");
+    const deadlineBadgeText = (payload.deadline_badge_text || "").toString().trim();
+    const deadlineStatus = (payload.current_status || "ACTIVE").toString().toUpperCase();
+    const deadlineOutcome = deadlineStatus !== "ACTIVE" || /^OVERDUE\b/.test(deadlineBadgeText)
+      ? deadlineBadgeText
+      : "";
     renderDeadline(payload.deadline_at || "", payload.my_personal_deadline_at || "", deadlineOutcome);
     if (elSubject) elSubject.textContent = payload.subject || "—";
     if (elType) elType.textContent = payload.content_type || "—";

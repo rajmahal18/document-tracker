@@ -82,7 +82,35 @@ $stmt = $conn->prepare("
     d.current_holder_section_id,
     d.origin_section_id,
     d.created_by_user_id,
+    d.created_at,
     d.updated_at,
+    COALESCE((
+      SELECT e_closed.created_at
+      FROM document_events e_closed
+      WHERE e_closed.document_id = d.id
+        AND (
+          (
+            d.current_status = 'ARCHIVED'
+            AND e_closed.event_type = 'archived'
+            AND JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.new_status')) = 'ARCHIVED'
+          )
+          OR (
+            d.current_status = 'RELEASED'
+            AND (
+              (
+                e_closed.event_type = 'released'
+                AND JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.new_status')) = 'RELEASED'
+              )
+              OR JSON_UNQUOTE(JSON_EXTRACT(e_closed.payload_json, '$.kind')) IN (
+                'branch_ended_here',
+                'document_ended_here'
+              )
+            )
+          )
+        )
+      ORDER BY e_closed.created_at DESC, e_closed.id DESC
+      LIMIT 1
+    ), d.updated_at) AS lifecycle_closed_at,
     sh.name AS current_holder_name,
     {$parentSelectSql}
   FROM documents d
@@ -118,6 +146,43 @@ $workingMinutesStuck = $stuckSince !== '' && strtoupper((string)($doc['current_s
 $currentHolderName = trim((string)($doc['current_holder_name'] ?? ''));
 $currentHolderText = $currentHolderName !== '' ? $currentHolderName : '—';
 $currentStatus = strtoupper(trim((string)($doc['current_status'] ?? 'ACTIVE')));
+$deadlineBadgeText = '';
+$deadlineBadgeClass = 'neutral';
+$deadlineRaw = trim((string)($doc['deadline_at'] ?? ''));
+$createdRaw = trim((string)($doc['created_at'] ?? ''));
+$closedRaw = trim((string)($doc['lifecycle_closed_at'] ?? $doc['updated_at'] ?? ''));
+if ($currentStatus === 'RELEASED') {
+  $completedDays = ($createdRaw !== '' && $closedRaw !== '')
+    ? dt_working_days_between_ceil($createdRaw, $closedRaw, $conn)
+    : 0;
+  $deadlineBadgeText = $completedDays === 1 ? 'COMPLETED IN 1 DAY' : "COMPLETED IN {$completedDays} DAYS";
+  $deadlineBadgeClass = 'safe';
+} elseif ($currentStatus === 'ARCHIVED') {
+  $deadlineBadgeText = 'ARCHIVED';
+  $deadlineBadgeClass = 'neutral';
+} elseif ($deadlineRaw !== '') {
+  $deadlineBaseTs = strtotime($deadlineRaw);
+  $deadlineTs = $deadlineBaseTs !== false ? strtotime(date('Y-m-d', $deadlineBaseTs) . ' 23:59:59') : false;
+  if ($deadlineTs !== false) {
+    $secondsLeft = $deadlineTs - time();
+    if ($secondsLeft < 0) {
+      $lateDays = dt_working_days_between_ceil(date('Y-m-d H:i:s', $deadlineTs), null, $conn);
+      $deadlineBadgeText = $lateDays === 1 ? 'OVERDUE 1 DAY' : "OVERDUE {$lateDays} DAYS";
+      $deadlineBadgeClass = 'danger';
+    } elseif ($secondsLeft <= 86400) {
+      $deadlineBadgeText = 'DUE TODAY';
+      $deadlineBadgeClass = 'today';
+    } elseif ($secondsLeft <= 259200) {
+      $daysLeft = (int)floor($secondsLeft / 86400);
+      $deadlineBadgeText = $daysLeft <= 1 ? '1 DAY LEFT' : "{$daysLeft} DAYS LEFT";
+      $deadlineBadgeClass = 'warn';
+    } else {
+      $daysLeft = (int)floor($secondsLeft / 86400);
+      $deadlineBadgeText = "{$daysLeft} DAYS LEFT";
+      $deadlineBadgeClass = 'safe';
+    }
+  }
+}
 $canSplitProjects = document_split_can_create_children($conn, $documentId, $myUserId, $mySectionId, $isChief, $isAdmin);
 $myDivisionTrackingNo = '';
 $hasMyDivisionSlip = 0;
@@ -351,6 +416,8 @@ echo json_encode([
     'open_to_user_id' => (int)($openRoute['to_user_id'] ?? 0),
     'my_open_route_id' => $myHasOpenInbound ? (int)($openRoute['id'] ?? 0) : 0,
     'my_personal_deadline_at' => null,
+    'deadline_badge_text' => $deadlineBadgeText,
+    'deadline_badge_class' => $deadlineBadgeClass,
     'can_edit_details' => $canEditDetails,
     'can_regenerate_division_slip' => $canRegenerateDivisionSlip,
     'has_my_division_slip' => $hasMyDivisionSlip,

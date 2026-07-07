@@ -966,6 +966,7 @@ $sql = "
     d.comm_type,
     d.current_status,
     {$parentDocumentIdSelectSql}
+    d.created_at,
     d.updated_at,
     CASE
       WHEN NOT EXISTS (
@@ -3026,6 +3027,9 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
             $isLifecycleEnded = in_array($lastEndHereKind, ["branch_ended_here", "document_ended_here"], true);
             $isInactiveLifecycle = in_array($currentStatus, ["RELEASED", "ARCHIVED"], true) || $isLifecycleEnded;
             $isDeadlineLifecycleClosed = in_array($currentStatus, ["RELEASED", "ARCHIVED"], true);
+            $createdRaw = trim((string)($d["created_at"] ?? ""));
+            $closedRaw = trim((string)($d["lifecycle_closed_at"] ?? ""));
+            $completionEndRaw = $closedRaw !== "" ? $closedRaw : trim((string)($d["updated_at"] ?? ""));
             $inactiveDayText = $inactiveDays === 1 ? "1 day" : $inactiveDays . " days";
             $stuckDayText = $days === 1 ? "1 working day" : $days . " working days";
             if ($currentStatus === "ARCHIVED") {
@@ -3047,7 +3051,13 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
             }
             $deadlineMetaLines[] = "Document: " . $docDeadlineText;
 
-            if ($effectiveDeadlineTs !== false) {
+            if ($isInactiveLifecycle && $currentStatus !== "ARCHIVED") {
+              $completedDays = ($createdRaw !== "" && $completionEndRaw !== "")
+                ? dt_working_days_between_ceil($createdRaw, $completionEndRaw, $conn)
+                : 0;
+              $deadlineBadgeText = $completedDays === 1 ? "COMPLETED IN 1 DAY" : "COMPLETED IN {$completedDays} DAYS";
+              $deadlineBadgeClass = "safe";
+            } elseif ($effectiveDeadlineTs !== false) {
               if ($isDeadlineLifecycleClosed) {
                 $closedRaw = trim((string)($d["lifecycle_closed_at"] ?? ""));
                 $closedTs = $closedRaw !== "" ? strtotime($closedRaw) : false;
@@ -3080,7 +3090,8 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
                 $daysLeft = (int)floor($secondsLeft / 86400);
 
                 if ($secondsLeft < 0) {
-                  $lateDays = max(1, (int)ceil(abs($secondsLeft) / 86400));
+                  $deadlineEndRaw = date("Y-m-d H:i:s", $effectiveDeadlineTs);
+                  $lateDays = dt_working_days_between_ceil($deadlineEndRaw, null, $conn);
                   $deadlineBadgeText = $lateDays === 1 ? "OVERDUE 1 DAY" : "OVERDUE {$lateDays} DAYS";
                   $deadlineBadgeClass = "danger";
                   $deadlineToneClass = "rowDeadlineOverdue";
