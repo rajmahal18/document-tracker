@@ -51,6 +51,162 @@
   min-width: 0;
 }
 
+.splitProjectsMode {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.splitProjectsModeOption {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid rgba(15, 23, 42, .1);
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.splitProjectsModeOption:has(input:checked) {
+  border-color: rgba(37, 99, 235, .45);
+  background: #eff6ff;
+}
+
+.splitProjectsModeOption input,
+.splitProjectCheck input {
+  accent-color: #2563eb;
+}
+
+.splitProjectsModeOption input {
+  margin-top: 2px;
+}
+
+.splitProjectsModeOption span,
+.splitProjectText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.splitProjectsModeOption strong {
+  color: #0f172a;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.splitProjectsModeOption small {
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.splitProjectsSection {
+  margin-top: 14px;
+}
+
+.splitProjectsSectionHead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.splitProjectsSectionTitle {
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.splitProjectsSummary {
+  color: #475569;
+  text-align: right;
+}
+
+.splitProjectsList {
+  display: grid;
+  gap: 8px;
+}
+
+.splitProjectRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(15, 23, 42, .08);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.splitProjectCheck {
+  display: grid;
+  place-items: center;
+}
+
+.splitProjectText strong,
+.splitProjectText .mini {
+  overflow-wrap: anywhere;
+}
+
+.splitProjectText strong {
+  color: #0f172a;
+}
+
+.splitProjectText .mini {
+  color: #64748b;
+}
+
+.splitProjectGroup {
+  display: none;
+}
+
+[data-split-mode="custom"] .splitProjectGroup {
+  display: block;
+}
+
+.splitProjectGroup select {
+  max-width: 120px;
+  min-height: 34px;
+  border: 1px solid rgba(15, 23, 42, .14);
+  border-radius: 10px;
+  padding: 6px 8px;
+  color: #0f172a;
+  background: #fff;
+}
+
+@media (max-width: 560px) {
+  .splitProjectsMode {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .splitProjectsSectionHead {
+    display: grid;
+    align-items: start;
+  }
+
+  .splitProjectsSummary {
+    text-align: left;
+  }
+
+  .splitProjectRow {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .splitProjectGroup {
+    grid-column: 1 / -1;
+  }
+
+  .splitProjectGroup select {
+    width: 100%;
+    max-width: none;
+  }
+}
+
 .docsPageShell > * {
   min-width: 0;
 }

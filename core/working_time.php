@@ -332,6 +332,45 @@ function dt_working_days_between_ceil(?string $startRaw, ?string $endRaw = null,
   return dt_working_days_from_minutes_ceil(dt_working_minutes_between_exact($startRaw, $endRaw, $conn), $conn);
 }
 
+function dt_add_working_minutes(?string $startRaw, int $minutes, ?mysqli $conn = null): ?DateTimeImmutable
+{
+  $minutes = max(0, $minutes);
+  $calendar = dt_work_calendar($conn);
+  $start = dt_parse_manila_datetime($startRaw, $calendar);
+  if (!$start) {
+    return null;
+  }
+
+  $cursor = dt_next_work_start($start, $calendar);
+  if ($minutes <= 0) {
+    return $cursor;
+  }
+
+  for ($guard = 0; $guard < 10000; $guard++) {
+    $window = dt_day_window($cursor, $calendar);
+    if ($window === null) {
+      $cursor = dt_next_work_start($cursor->modify('+1 day')->setTime(0, 0, 0), $calendar);
+      continue;
+    }
+
+    [, $dayEnd] = $window;
+    $available = max(0, (int)floor(($dayEnd->getTimestamp() - $cursor->getTimestamp()) / 60));
+    if ($minutes <= $available) {
+      return $cursor->modify('+' . $minutes . ' minutes');
+    }
+
+    $minutes -= $available;
+    $cursor = dt_next_work_start($dayEnd->modify('+1 day')->setTime(0, 0, 0), $calendar);
+  }
+
+  return $cursor;
+}
+
+function dt_add_working_days(?string $startRaw, int $days, ?mysqli $conn = null): ?DateTimeImmutable
+{
+  return dt_add_working_minutes($startRaw, max(0, $days) * dt_work_minutes_per_day($conn), $conn);
+}
+
 function dt_format_working_elapsed(int $minutes, ?mysqli $conn = null): string
 {
   $minutes = max(0, $minutes);

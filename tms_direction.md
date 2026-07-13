@@ -27,9 +27,13 @@ The system should support:
 
 - user-generated task types
 - user-designed workflows
+- task-specific timeline/subtask design during creation
+- task creation by focal persons and staff
 - multiple offices participating in one work item
 - multiple participants from different sections/divisions
+- participant invitations with join/decline responses
 - step-level assignments, outputs, evidence, validation, and timing
+- sequential, parallel, and mixed workflow step execution
 - working-day duration and overdue tracking
 - historical data for future estimates
 - IPCR-ready accomplishment summaries without automatically assigning final IPCR ratings
@@ -106,6 +110,29 @@ Workflow steps should support:
 - whether the step pauses or counts against SLA
 - whether the step completes the workflow
 
+### Task Timeline Builder
+
+Task creation should be timeline-first.
+
+After selecting a task type, the creator should be able to define the actual subtasks for that specific task:
+
+- subtask title
+- responsible division, required
+- responsible section, optional
+- responsible employee, optional
+- estimated duration in working days
+
+The system should calculate the estimated completion date from:
+
+- target start date/time
+- subtask duration totals
+- shared working calendar settings
+- shared working calendar exceptions/non-working days
+
+If a subtask has a division/section but no specific employee, it should remain office-assigned. The relevant section/division chief or authorized supervisor should be able to assign a staff member later.
+
+Reusable workflow templates still matter, but they should function as presets behind the task timeline builder, not as confusing required fields for ordinary task creators.
+
 ### Collaboration
 
 One task must allow multiple participants.
@@ -128,6 +155,22 @@ Participant roles should be flexible, such as:
 - receiving office
 - validating supervisor
 
+Participant role names should be user-input. The system may provide generic guide values, but it must not force every office into fixed titles.
+
+When a task creator includes another user, that user should be invited into the task instead of being silently assigned. The included user should be able to join or decline. The creator and current lead/responsible participant remain clear while invitations are pending.
+
+Chiefs should be treated primarily as supervisors/reviewers. TMS should not assume chiefs are the task lead by default, and it should avoid adding operational tasks to chief queues unless a workflow explicitly names them as a reviewer/validator/participant.
+
+### Workflow Execution Mode
+
+Task creators or template designers should be able to choose whether the work is:
+
+- `sequential`: steps run in order
+- `parallel`: steps can run at the same time
+- `mixed`: some steps can run together, with configured transitions
+
+The task page must make the current responsible office/user obvious at any given period, even when multiple participants share one work item.
+
 ### Step-Level Monitoring
 
 Each workflow step should track:
@@ -144,6 +187,8 @@ Each workflow step should track:
 - delay reason
 - remarks
 - proof/MOV
+- whether the step can run in parallel with other steps
+- whether validation is optional or required
 
 ### IPCR-Ready Accomplishments
 
@@ -162,6 +207,8 @@ The system should help generate:
 - summary by task type/output
 
 Final IPCR rating remains subject to supervisor/office evaluation.
+
+IPCR is not integrated yet. For now, the schema should preserve enough structure for future IPCR integration: accountable user, output/MOV, completion date, working-day timing, validation, and task type/output mapping.
 
 ### Historical Intelligence
 
@@ -186,6 +233,16 @@ Because TMS is not in production yet, the local TMS migration can be redesigned 
 
 Keep existing identity tables intact. TMS should reference them instead of duplicating identity.
 
+Reuse shared reference/system tables where appropriate:
+
+- `users`
+- `sections`
+- `divisions`
+- `projects` as an optional work context
+- existing working calendar configuration/helpers for working-day calculations
+
+Do not create TMS-only copies of users, sections, divisions, or working calendars.
+
 Likely TMS tables:
 
 - `tms_task_types`
@@ -199,6 +256,7 @@ Likely TMS tables:
 - `tms_task_activity`
 - `tms_task_metrics`
 - `tms_ipcr_links` or `tms_accomplishment_links`
+- `tms_participant_role_presets`
 
 Avoid hardcoding Survey/Design-specific rows, names, codes, or behaviors into schema or code.
 
@@ -219,6 +277,7 @@ Candidate local-only reset scope:
 - `tms_import_batches`
 - `tms_import_rows`
 - any new `tms_workflow_*`, `tms_task_steps`, `tms_task_participants`, or related TMS-only tables
+- any old SDD-specific seed data in `tms_task_types`
 
 Do not drop or modify:
 
@@ -266,3 +325,23 @@ Important views:
 - Use working days for duration/SLA calculations.
 - Make old SDD-specific assumptions disposable before production.
 - Add docs/changelog when TMS behavior becomes user-facing.
+
+## Current Implementation Phase
+
+Start with the generic foundation:
+
+- generic schema and migrations
+- task types and workflow templates as user-configurable records
+- task creation from a task-specific timeline/subtask list
+- participant invitations and visible responsible party
+- working-calendar based timing labels
+- generic task registry UI
+- office-assigned subtasks that chiefs can assign to staff later
+
+Defer for later:
+
+- automatic IPCR generation
+- automatic ratings
+- historical/smart duration suggestions
+- complex rework routing
+- full workflow designer UI

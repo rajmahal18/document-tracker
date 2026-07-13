@@ -27,6 +27,33 @@ $projectIdsRaw = $_POST['project_ids'] ?? [];
 $projectIds = is_array($projectIdsRaw)
   ? array_map('intval', $projectIdsRaw)
   : array_map('intval', preg_split('/\s*,\s*/', (string)$projectIdsRaw) ?: []);
+$splitMode = strtolower(trim((string)($_POST['split_mode'] ?? '')));
+$projectGroups = null;
+
+if ($splitMode === 'grouped') {
+  $groupedIds = array_values(array_unique(array_filter($projectIds, static fn(int $value): bool => $value > 0)));
+  $projectGroups = $groupedIds !== [] ? [$groupedIds] : [];
+} elseif ($splitMode === 'custom') {
+  $groupKeysRaw = $_POST['project_group_keys'] ?? [];
+  $groupKeys = is_array($groupKeysRaw) ? $groupKeysRaw : [];
+  $buckets = [];
+
+  foreach ($projectIds as $projectId) {
+    $projectId = (int)$projectId;
+    if ($projectId <= 0) {
+      continue;
+    }
+
+    $rawKey = trim((string)($groupKeys[(string)$projectId] ?? $groupKeys[$projectId] ?? '1'));
+    $key = preg_replace('/[^a-zA-Z0-9_-]+/', '', $rawKey) ?: '1';
+    $buckets[$key][] = $projectId;
+  }
+
+  uksort($buckets, 'strnatcasecmp');
+  $projectGroups = array_values($buckets);
+} elseif ($splitMode === 'separate') {
+  $projectGroups = null;
+}
 
 if ($documentId <= 0) {
   http_response_code(422);
@@ -48,7 +75,7 @@ if (!document_split_can_create_children($conn, $documentId, $userId, $sectionId,
 
 try {
   $conn->begin_transaction();
-  $created = document_split_create_children($conn, $documentId, $projectIds, $userId, $sectionId);
+  $created = document_split_create_children($conn, $documentId, $projectIds, $userId, $sectionId, $projectGroups);
   $conn->commit();
 
   foreach ($created as &$childRow) {

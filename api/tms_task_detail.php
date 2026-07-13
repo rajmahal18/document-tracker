@@ -29,31 +29,25 @@ if (!$task) {
 
 $actorUserId = (int)($_SESSION['user_id'] ?? 0);
 $permissions = tms_task_permissions($conn, $task, $actorUserId);
+if (!$permissions['can_view_task']) {
+  http_response_code(403);
+  echo json_encode(['ok' => false, 'error' => 'You are not allowed to view this task.']);
+  exit;
+}
 
-$task['id'] = (int)($task['id'] ?? 0);
-$task['task_type_id'] = (int)($task['task_type_id'] ?? 0);
-$task['project_id'] = isset($task['project_id']) ? (int)$task['project_id'] : null;
-$task['document_id'] = isset($task['document_id']) ? (int)$task['document_id'] : null;
-$task['progress_percent'] = isset($task['progress_percent']) ? (float)$task['progress_percent'] : null;
-$task['remaining_workdays'] = isset($task['remaining_workdays']) ? (int)$task['remaining_workdays'] : null;
+$task['permissions'] = $permissions;
 $task['can_edit'] = $permissions['can_edit_task'];
 $task['can_delete'] = $permissions['can_delete_task'];
-$task['permissions'] = $permissions;
-$task['assignee_user_ids'] = [];
+$task['participant_user_ids'] = [];
+$task['participant_role_labels'] = [];
 
-$assignees = is_array($task['assignees'] ?? null) ? $task['assignees'] : [];
-foreach ($assignees as &$assignee) {
-  $assignee['id'] = (int)($assignee['id'] ?? 0);
-  $assignee['task_id'] = (int)($assignee['task_id'] ?? 0);
-  $assignee['user_id'] = isset($assignee['user_id']) ? (int)$assignee['user_id'] : null;
-  $assignee['sort_order'] = (int)($assignee['sort_order'] ?? 0);
-  $assignee['is_primary'] = (int)($assignee['is_primary'] ?? 0);
-  if (($assignee['user_id'] ?? 0) > 0) {
-    $task['assignee_user_ids'][] = (int)$assignee['user_id'];
+foreach ((array)($task['participants'] ?? []) as $participant) {
+  $userId = (int)($participant['user_id'] ?? 0);
+  if ($userId > 0) {
+    $task['participant_user_ids'][] = $userId;
+    $task['participant_role_labels'][(string)$userId] = (string)($participant['participant_role_label'] ?? '');
   }
 }
-unset($assignee);
-$task['assignees'] = $assignees;
 
 echo json_encode([
   'ok' => true,

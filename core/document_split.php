@@ -166,12 +166,106 @@ function document_split_build_child_subject(string $parentSubject, string $proje
   $parentSubject = trim($parentSubject);
   $projectCode = trim($projectCode);
   if ($projectCode === '') {
-    return $parentSubject;
+    return document_split_truncate_text($parentSubject, 255);
   }
   if ($parentSubject === '') {
-    return $projectCode;
+    return document_split_truncate_text($projectCode, 255);
   }
-  return $parentSubject . ' [' . $projectCode . ']';
+
+  $suffix = ' [' . $projectCode . ']';
+  $candidate = $parentSubject . $suffix;
+  if (document_split_text_length($candidate) <= 255) {
+    return $candidate;
+  }
+
+  if (document_split_text_length($suffix) >= 255) {
+    return document_split_truncate_text($suffix, 255);
+  }
+
+  return document_split_truncate_text($parentSubject, 255 - document_split_text_length($suffix)) . $suffix;
+}
+
+function document_split_project_codes_label(array $projectCodes): string
+{
+  $projectCodes = array_values(array_filter(array_map(
+    static fn(mixed $value): string => trim((string)$value),
+    $projectCodes
+  ), static fn(string $value): bool => $value !== ''));
+
+  if ($projectCodes === []) {
+    return '';
+  }
+
+  if (count($projectCodes) <= 3) {
+    return implode(', ', $projectCodes);
+  }
+
+  $visible = array_slice($projectCodes, 0, 3);
+  return implode(', ', $visible) . ' +' . (count($projectCodes) - count($visible)) . ' more';
+}
+
+function document_split_text_length(string $value): int
+{
+  return function_exists('mb_strlen') ? mb_strlen($value, 'UTF-8') : strlen($value);
+}
+
+function document_split_truncate_text(string $value, int $maxLength): string
+{
+  $value = trim($value);
+  $maxLength = max(0, $maxLength);
+  if ($maxLength <= 0 || $value === '') {
+    return '';
+  }
+  if (document_split_text_length($value) <= $maxLength) {
+    return $value;
+  }
+
+  return function_exists('mb_substr')
+    ? rtrim(mb_substr($value, 0, $maxLength, 'UTF-8'))
+    : rtrim(substr($value, 0, $maxLength));
+}
+
+function document_split_normalize_project_groups(array $projectIds, ?array $projectGroups = null): array
+{
+  $projectIds = array_values(array_unique(array_filter(array_map('intval', $projectIds), static fn(int $v): bool => $v > 0)));
+
+  if ($projectIds === []) {
+    return [];
+  }
+
+  if ($projectGroups === null) {
+    return array_map(static fn(int $projectId): array => [$projectId], $projectIds);
+  }
+
+  $groups = [];
+  $seen = [];
+  foreach ($projectGroups as $group) {
+    if (!is_array($group)) {
+      continue;
+    }
+
+    $normalizedGroup = [];
+    foreach ($group as $projectId) {
+      $projectId = (int)$projectId;
+      if ($projectId <= 0 || !in_array($projectId, $projectIds, true) || isset($seen[$projectId])) {
+        continue;
+      }
+      $normalizedGroup[] = $projectId;
+      $seen[$projectId] = true;
+    }
+
+    if ($normalizedGroup !== []) {
+      $groups[] = $normalizedGroup;
+    }
+  }
+
+  foreach ($projectIds as $projectId) {
+    if (!isset($seen[$projectId])) {
+      $groups[] = [$projectId];
+    }
+  }
+
+  return $groups;
 }
 
 function document_split_create_children(
@@ -179,7 +273,8 @@ function document_split_create_children(
   int $parentDocumentId,
   array $projectIds,
   int $actorUserId,
-  int $actorSectionId
+  int $actorSectionId,
+  ?array $projectGroups = null
 ): array {
   if (!document_split_schema_ready($conn)) {
     throw new RuntimeException('Document split schema is not installed.');
@@ -191,6 +286,11 @@ function document_split_create_children(
 
   $projectIds = array_values(array_unique(array_filter(array_map('intval', $projectIds), static fn(int $v): bool => $v > 0)));
   if ($projectIds === []) {
+    throw new RuntimeException('Please select at least one project to split.');
+  }
+
+  $normalizedGroups = document_split_normalize_project_groups($projectIds, $projectGroups);
+  if ($normalizedGroups === []) {
     throw new RuntimeException('Please select at least one project to split.');
   }
 
@@ -267,11 +367,22 @@ function document_split_create_children(
     VALUES (?, ?, ?, ?, NULL, NULL, ?)
   ");
 
-  foreach ($projectIds as $projectId) {
-    $project = $projectMap[$projectId];
-    $projectCode = trim((string)($project['project_code'] ?? ''));
+  foreach ($normalizedGroups as $groupProjectIds) {
+    $groupProjectCodes = [];
+    foreach ($groupProjectIds as $projectId) {
+      $project = $projectMap[$projectId] ?? null;
+      if (!$project) {
+        throw new RuntimeException('One of the selected projects does not belong to the parent document.');
+      }
+      $projectCode = trim((string)($project['project_code'] ?? ''));
+      if ($projectCode !== '') {
+        $groupProjectCodes[] = $projectCode;
+      }
+    }
+
+    $projectLabel = document_split_project_codes_label($groupProjectCodes);
     $childTrackingNo = generate_document_tracking_no_for_split($conn);
-    $childSubject = document_split_build_child_subject((string)($parent['subject'] ?? ''), $projectCode);
+    $childSubject = document_split_build_child_subject((string)($parent['subject'] ?? ''), $projectLabel);
     $requester = (string)($parent['requester'] ?? '');
     $documentDate = (string)($parent['document_date'] ?? '');
     $deadlineAt = ($parent['deadline_at'] ?? null);
@@ -295,7 +406,7 @@ function document_split_create_children(
     $stmtInsertDoc->execute();
     $childDocumentId = (int)$conn->insert_id;
 
-    sync_document_projects($conn, $childDocumentId, [$projectId], $actorUserId);
+    sync_document_projects($conn, $childDocumentId, $groupProjectIds, $actorUserId);
 
     $stmtParticipant->bind_param('iii', $childDocumentId, $actorSectionId, $actorUserId);
     $stmtParticipant->execute();
@@ -309,8 +420,10 @@ function document_split_create_children(
       'subject' => $childSubject,
       'parent_document_id' => $parentDocumentId,
       'parent_tracking_no' => (string)($parent['tracking_no'] ?? ''),
-      'project_id' => $projectId,
-      'project_code' => $projectCode,
+      'project_id' => count($groupProjectIds) === 1 ? (int)$groupProjectIds[0] : null,
+      'project_ids' => array_values(array_map('intval', $groupProjectIds)),
+      'project_code' => count($groupProjectCodes) === 1 ? (string)$groupProjectCodes[0] : $projectLabel,
+      'project_codes' => array_values($groupProjectCodes),
       'kind' => 'split_child_created',
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     $createdEventType = 'created';
@@ -321,8 +434,10 @@ function document_split_create_children(
       'kind' => 'project_split_child_created',
       'child_document_id' => $childDocumentId,
       'child_tracking_no' => $childTrackingNo,
-      'project_id' => $projectId,
-      'project_code' => $projectCode,
+      'project_id' => count($groupProjectIds) === 1 ? (int)$groupProjectIds[0] : null,
+      'project_ids' => array_values(array_map('intval', $groupProjectIds)),
+      'project_code' => count($groupProjectCodes) === 1 ? (string)$groupProjectCodes[0] : $projectLabel,
+      'project_codes' => array_values($groupProjectCodes),
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     $updatedEventType = 'updated';
     $stmtEvent->bind_param('isiis', $parentDocumentId, $updatedEventType, $actorUserId, $actorSectionId, $parentPayload);
@@ -332,8 +447,10 @@ function document_split_create_children(
       'id' => $childDocumentId,
       'tracking_no' => $childTrackingNo,
       'subject' => $childSubject,
-      'project_id' => $projectId,
-      'project_code' => $projectCode,
+      'project_id' => count($groupProjectIds) === 1 ? (int)$groupProjectIds[0] : null,
+      'project_ids' => array_values(array_map('intval', $groupProjectIds)),
+      'project_code' => count($groupProjectCodes) === 1 ? (string)$groupProjectCodes[0] : $projectLabel,
+      'project_codes' => array_values($groupProjectCodes),
     ];
   }
 

@@ -464,3 +464,40 @@ If drawer buttons disagree with the visible status chip:
 1. Compare `payload.current_status` against `payload.status_label`
 2. Confirm JS normalization does not replace raw status with display text
 3. Check action visibility against raw machine values like `ACTIVE`, `RELEASED`, and `ARCHIVED`, not labels such as `LIFECYCLE ENDED`
+
+## 10. Optional foreign keys must be saved as NULL, not 0
+
+Date encountered: 2026-07-07
+
+### Symptom
+
+- Creating a Task Monitoring task showed `Failed to save task.`
+- Browser Network/Console showed `api/tms_task_save.php` returning HTTP 500.
+
+### Actual root cause
+
+The new TMS save flow inserted `0` into nullable foreign-key columns on generated task steps, task-specific timeline steps, and participants.
+
+For example, non-first workflow steps did not have a responsible user yet, but the API bound `0` into `tms_task_steps.responsible_user_id`. Task-specific timeline subtasks also do not have a source template row, but the API initially bound `0` into `tms_task_steps.workflow_step_id`.
+
+MySQL treated those `0` values as real referenced ids and rejected the insert because no matching parent row existed.
+
+### Files involved
+
+- [api/tms_task_save.php](C:/xampp/htdocs/document-tracker/api/tms_task_save.php)
+- `tms_task_steps`
+- `tms_task_participants`
+- `users`
+- `tms_workflow_steps`
+
+### Final fix
+
+Normalize optional foreign-key values to `NULL` before binding them into TMS inserts.
+
+### Best debugging path next time
+
+If a create/update endpoint returns a generic 500 while inserting rows with optional relationships:
+
+1. Check the PHP/Apache error log for the exact SQL constraint failure
+2. Inspect nullable foreign-key inputs for `0`
+3. Use `NULL` for absent optional relationships and reserve positive integers for actual referenced rows

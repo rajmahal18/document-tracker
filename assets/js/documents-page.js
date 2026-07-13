@@ -123,6 +123,7 @@
   const splitProjectsModalMsg = document.getElementById("splitProjectsModalMsg");
   const btnSplitProjectsCancel = document.getElementById("btnSplitProjectsCancel");
   const btnSplitProjectsConfirm = document.getElementById("btnSplitProjectsConfirm");
+  let splitProjectsModeControlsReady = false;
 
   const rowPpdSlip = document.getElementById("rowPpdSlip");
   const btnPpdSlipGenerate = document.getElementById("btnPpdSlipGenerate");
@@ -939,26 +940,162 @@
     openRelatedDocument(Number(trigger.getAttribute("data-related-doc-id") || "0"));
   });
 
+  function ensureSplitProjectsModeControls() {
+    if (!splitProjectsModal || !splitProjectsList || splitProjectsModeControlsReady) return;
+    const listSection = splitProjectsList.parentElement;
+    if (!listSection) return;
+
+    listSection.classList.add("splitProjectsSection");
+    const existingTitle = listSection.querySelector(".mini");
+    if (existingTitle) {
+      existingTitle.classList.add("splitProjectsSectionTitle");
+      existingTitle.textContent = "Project codes";
+    }
+    splitProjectsList.classList.add("splitProjectsList");
+
+    const summary = document.createElement("div");
+    summary.id = "splitProjectsSummary";
+    summary.className = "mini splitProjectsSummary";
+    summary.textContent = "Select project codes to split.";
+    if (existingTitle) {
+      const head = document.createElement("div");
+      head.className = "splitProjectsSectionHead";
+      listSection.insertBefore(head, existingTitle);
+      head.appendChild(existingTitle);
+      head.appendChild(summary);
+    } else {
+      listSection.insertBefore(summary, splitProjectsList);
+    }
+
+    const modeWrap = document.createElement("div");
+    modeWrap.className = "splitProjectsMode";
+    modeWrap.setAttribute("role", "radiogroup");
+    modeWrap.setAttribute("aria-label", "Split mode");
+    modeWrap.innerHTML = `
+      <label class="splitProjectsModeOption">
+        <input type="radio" name="split_projects_mode" value="grouped" checked>
+        <span>
+          <strong>One child document</strong>
+          <small>Selected project codes stay together.</small>
+        </span>
+      </label>
+      <label class="splitProjectsModeOption">
+        <input type="radio" name="split_projects_mode" value="separate">
+        <span>
+          <strong>Separate child documents</strong>
+          <small>One child per selected project code.</small>
+        </span>
+      </label>
+      <label class="splitProjectsModeOption">
+        <input type="radio" name="split_projects_mode" value="custom">
+        <span>
+          <strong>Custom groups</strong>
+          <small>Assign selected project codes to group numbers.</small>
+        </span>
+      </label>
+    `;
+    listSection.parentElement?.insertBefore(modeWrap, listSection);
+
+    const noticeTitle = splitProjectsModal.querySelector(".modalBody [style*='font-weight:900']");
+    if (noticeTitle) noticeTitle.textContent = "Split setup";
+    const noticeLines = splitProjectsModal.querySelector(".modalBody .mini[style*='display:grid']");
+    if (noticeLines) {
+      noticeLines.innerHTML = `
+        <div>Child documents start as active records under your current section.</div>
+        <div>The current parent document stays intact for reference and audit.</div>
+      `;
+    }
+
+    modeWrap.addEventListener("change", syncSplitProjectsMode);
+    splitProjectsList.addEventListener("change", syncSplitProjectsMode);
+    splitProjectsModeControlsReady = true;
+  }
+
+  function getSplitProjectsMode() {
+    const selected = splitProjectsModal?.querySelector('input[name="split_projects_mode"]:checked');
+    const mode = clean(selected?.value || "grouped").toLowerCase();
+    return ["grouped", "separate", "custom"].includes(mode) ? mode : "grouped";
+  }
+
+  function getSelectedSplitProjectRows() {
+    if (!splitProjectsList) return [];
+    return Array.from(splitProjectsList.querySelectorAll("[data-split-project-id]:checked")).map((input) => {
+      const row = input.closest("[data-split-project-row]");
+      const projectId = Number(input.getAttribute("data-split-project-id") || 0);
+      const groupInput = row?.querySelector("[data-split-project-group]");
+      const groupKey = clean(groupInput?.value || "1") || "1";
+      return { projectId, groupKey };
+    }).filter((row) => row.projectId > 0);
+  }
+
+  function syncSplitProjectsMode() {
+    if (!splitProjectsModal || !splitProjectsList) return;
+    const mode = getSplitProjectsMode();
+    splitProjectsModal.dataset.splitMode = mode;
+
+    splitProjectsList.querySelectorAll("[data-split-project-group]").forEach((input) => {
+      input.disabled = mode !== "custom";
+    });
+
+    const selected = getSelectedSplitProjectRows();
+    let childCount = selected.length > 0 ? 1 : 0;
+    if (mode === "separate") {
+      childCount = selected.length;
+    } else if (mode === "custom") {
+      childCount = new Set(selected.map((row) => row.groupKey || "1")).size;
+    }
+
+    const summary = document.getElementById("splitProjectsSummary");
+    if (summary) {
+      if (!selected.length) {
+        summary.textContent = "Select project codes to split.";
+      } else if (childCount === 1) {
+        summary.textContent = `${selected.length} project code${selected.length === 1 ? "" : "s"} into 1 child document.`;
+      } else {
+        summary.textContent = `${selected.length} project codes into ${childCount} child documents.`;
+      }
+    }
+
+    if (btnSplitProjectsConfirm) {
+      btnSplitProjectsConfirm.textContent = childCount > 1 ? `Create ${childCount} child documents` : "Create child document";
+    }
+  }
+
   function openSplitProjectsModal() {
     if (!splitProjectsModal || !currentPayload) return;
+    ensureSplitProjectsModeControls();
     const projects = normalizeProjectList(currentPayload);
     pendingSplitProjects = [];
+    const groupOptions = Array.from({ length: Math.max(projects.length, 1) }, (_, index) => {
+      const groupNo = index + 1;
+      return `<option value="${groupNo}">Group ${groupNo}</option>`;
+    }).join("");
     if (splitProjectsList) {
       splitProjectsList.innerHTML = projects.length
-        ? projects.map((project) => `<label style="display:flex; align-items:flex-start; gap:10px; padding:10px 12px; border:1px solid rgba(15,23,42,.08); border-radius:14px; background:#fff;">
-            <input type="checkbox" data-split-project-id="${Number(project.id || 0)}" style="margin-top:2px;">
-            <span>
+        ? projects.map((project) => `<label class="splitProjectRow" data-split-project-row>
+            <span class="splitProjectCheck">
+              <input type="checkbox" data-split-project-id="${Number(project.id || 0)}">
+            </span>
+            <span class="splitProjectText">
               <strong>${esc(project.project_code || `Project #${project.id || ""}`)}</strong>
-              <span class="mini" style="display:block; margin-top:2px; color:#64748b;">A linked child document will be created for this project.</span>
+              <span class="mini">Include this project code in the split.</span>
+            </span>
+            <span class="splitProjectGroup">
+              <select data-split-project-group aria-label="Child group for ${esc(project.project_code || `Project #${project.id || ""}`)}">
+                ${groupOptions}
+              </select>
             </span>
           </label>`).join("")
         : `<div class="mini">No projects available for splitting.</div>`;
     }
+    const groupedMode = splitProjectsModal.querySelector('input[name="split_projects_mode"][value="grouped"]');
+    if (groupedMode) groupedMode.checked = true;
     if (splitProjectsModalMsg) {
       splitProjectsModalMsg.textContent = "";
       splitProjectsModalMsg.className = "modalMsg";
       splitProjectsModalMsg.style.display = "none";
     }
+    syncSplitProjectsMode();
     splitProjectsModal.classList.add("open");
     splitProjectsModal.setAttribute("aria-hidden", "false");
     btnSplitProjectsConfirm?.focus();
@@ -992,8 +1129,15 @@
     if (btnSplitProjectsConfirm) btnSplitProjectsConfirm.disabled = true;
     try {
       const form = appendActingPrincipal(new FormData(), currentPayload);
+      const splitMode = getSplitProjectsMode();
       form.append("document_id", String(docId));
+      form.append("split_mode", splitMode);
       pendingSplitProjects.forEach((projectId) => form.append("project_ids[]", String(projectId)));
+      if (splitMode === "custom") {
+        getSelectedSplitProjectRows().forEach((row) => {
+          form.append(`project_group_keys[${row.projectId}]`, row.groupKey || "1");
+        });
+      }
       form.append("csrf_token", window.__CSRF__ || "");
 
       const res = await fetch(`${API}/split_document_projects.php`, {

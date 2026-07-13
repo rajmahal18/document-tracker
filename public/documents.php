@@ -4323,16 +4323,16 @@ $end   = min($totalPages, $page + 2);
     <div class="modalHeader">
       <div>
         <h3>Split Document by Project</h3>
-        <div class="attSub mini">This creates linked child documents from the selected project codes.</div>
+        <div class="attSub mini">Create linked child documents from selected project codes.</div>
       </div>
       <button id="splitProjectsModalClose" class="modalClose" type="button">✕</button>
     </div>
 
     <div class="modalBody forwardModalBody">
       <div style="padding:12px 14px; border-radius:14px; background:#eff6ff; border:1px solid rgba(37,99,235,.14); color:#1e3a8a;">
-        <div style="font-weight:900; margin-bottom:8px;">What this v1 split does</div>
+        <div style="font-weight:900; margin-bottom:8px;">Split setup</div>
         <div class="mini" style="display:grid; gap:6px; color:#1e3a8a;">
-          <div>• Creates one child document per selected project.</div>
+          <div>• Selected project codes can stay together in one child document.</div>
           <div>• Keeps the current parent document intact for reference and audit.</div>
           <div>• Child documents start as active records under your current section.</div>
         </div>
@@ -4348,7 +4348,7 @@ $end   = min($totalPages, $page + 2);
 
     <div class="modalFooter">
       <button id="btnSplitProjectsCancel" type="button" class="btnSecondary">Cancel</button>
-      <button id="btnSplitProjectsConfirm" type="button" class="btnComp">Create child documents</button>
+      <button id="btnSplitProjectsConfirm" type="button" class="btnComp">Create child document</button>
     </div>
   </div>
 </div>

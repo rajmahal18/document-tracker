@@ -19,23 +19,24 @@ $contentClass = 'tms-content-shell';
 $userId = (int)($_SESSION['user_id'] ?? 0);
 $canManageAll = tms_user_can_manage_all($conn, $userId);
 
-$tablesReady = db_table_exists($conn, 'tms_task_types')
-  && db_table_exists($conn, 'tms_tasks')
-  && db_table_exists($conn, 'tms_task_assignees')
-  && db_table_exists($conn, 'tms_task_activity');
+$tablesReady = tms_tables_ready($conn);
 
 $typeCode = trim((string)($_GET['type'] ?? ''));
 $status = trim((string)($_GET['status'] ?? ''));
 $viewMode = strtolower(trim((string)($_GET['view_mode'] ?? ($canManageAll ? 'all' : 'my'))));
-if (!in_array($viewMode, ['my', 'all'], true)) {
+if (!in_array($viewMode, ['my', 'section', 'division', 'all'], true)) {
   $viewMode = $canManageAll ? 'all' : 'my';
 }
-if (!$canManageAll) {
+if (!$canManageAll && $viewMode === 'all') {
   $viewMode = 'my';
 }
 $search = trim((string)($_GET['q'] ?? ''));
 
 $taskTypes = $tablesReady ? tms_task_types($conn, true) : [];
+$workflowTemplates = $tablesReady ? tms_workflow_templates($conn, true) : [];
+$rolePresets = $tablesReady ? tms_role_presets($conn) : [];
+$divisions = $tablesReady ? tms_divisions($conn) : [];
+$sections = $tablesReady ? tms_sections($conn) : [];
 $tasks = $tablesReady ? tms_fetch_tasks($conn, [
   'type_code' => $typeCode,
   'status' => $status,
@@ -54,7 +55,7 @@ $projects = project_codes_tables_ready($conn)
 
 $statusOptions = [];
 foreach ($tasks as $task) {
-  $statusLabel = trim((string)($task['status_label'] ?? ''));
+  $statusLabel = trim((string)($task['lifecycle_status'] ?? ''));
   if ($statusLabel !== '') {
     $statusOptions[$statusLabel] = $statusLabel;
   }
@@ -66,6 +67,8 @@ $viewer = [
   'full_name' => (string)($_SESSION['full_name'] ?? 'User'),
   'username' => (string)($_SESSION['username'] ?? ''),
   'official_title' => (string)($_SESSION['official_title'] ?? ''),
+  'division_id' => (int)($_SESSION['division_id'] ?? 0),
+  'section_id' => (int)($_SESSION['section_id'] ?? 0),
   'division_name' => (string)($_SESSION['division_name'] ?? ''),
   'section_name' => (string)($_SESSION['section_name'] ?? ''),
 ];
@@ -80,6 +83,10 @@ $bootstrap = [
     'q' => $search,
   ],
   'taskTypes' => array_values($taskTypes),
+  'workflowTemplates' => array_values($workflowTemplates),
+  'rolePresets' => array_values($rolePresets),
+  'divisions' => array_values($divisions),
+  'sections' => array_values($sections),
   'tasks' => array_values($tasks),
   'users' => array_values($users),
   'projects' => array_values($projects),

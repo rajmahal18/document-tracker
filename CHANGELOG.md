@@ -11,6 +11,7 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 - A CLI reminder-window runner for cron, so due-today reminder checks can safely repeat during the day without resending already logged reminders.
 - A chief dashboard that surfaces overdue, due-today, and no-movement documents together with the currently accountable personnel for director, division-chief, and section-chief scopes.
 - A separate Issuances page in the sidebar for memo-style public references, with admin file uploads, smart year tabs generated from each issuance date, and rows that open source documents in a new tab.
+- A generic Task Monitoring foundation with configurable task types, workflow templates, workflow steps, participant invitations, and IPCR-ready output tracking placeholders.
 
 ### Changed
 - Task Monitoring dashboard visuals now use a calmer KPI hierarchy, clearer semantic status colors, and more intentional empty states.
@@ -24,9 +25,17 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 - The Issuances list now sorts by oldest issued date first, keeping memo-series rows in natural order.
 - Transmittal Memo generation on Add Document now works with Save for Principal Review, matching the division tracking slip review flow.
 - Document deadline badges now count overdue and completed-in days using the configured working calendar instead of raw calendar days.
+- Task Monitoring now uses a generic task registry model instead of Survey and Design-specific project/progress fields, preparing the module for cross-office workflows.
+- Task Monitoring task creation now allows users to create a new task type from the modal, with a basic default workflow generated automatically.
+- Task Monitoring task creation now uses a timeline/subtask builder with required division, optional section, optional employee, and working-day duration per subtask.
+- Task Monitoring now computes task and subtask target dates from the shared working calendar and lets scoped chiefs assign staff to office-assigned subtasks.
+- Task Monitoring task creation modal now uses clearer sections for task details, schedule, subtasks, and remarks, with a cleaner timeline layout for desktop and mobile.
+- Split by Project Code now supports grouped project codes, so selected codes can create one linked child document instead of always creating one child per project.
 
 ### Fixed
 - Admin and Changelogs now load the shared footer scripts, so the hamburger menu opens the side navigation normally on those pages.
+- Task Monitoring task creation now saves tasks with pending workflow steps correctly when an optional responsible user, division, or section has not been set yet.
+- Task Monitoring task creation now saves user-designed timeline subtasks without requiring a source workflow-template step.
 - Due-today reminder logging now preserves nullable route references and surfaces rerun-protection write failures instead of silently reporting success.
 - Due-today reminder emails now build document links from the app base path during CLI runs, so production messages no longer point to `/scripts/public/...`.
 - Chief dashboard access is visible again from the documents view tabs and sidebar for chiefs and assigned assistants, without requiring manual URL changes.
@@ -58,6 +67,7 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 - Issuances
 - Document Deadlines
 - Documents List
+- Project Splitting
 - Scheduled Reminder Jobs
 - Task Monitoring
 - Task Monitoring Permissions
