@@ -1,4 +1,42 @@
 (function () {
+  if (window.DTAppSwitcher) return;
+
+  const FLIP_CLASS = 'app-page-flipping';
+  const SWITCHING_CLASS = 'isSwitching';
+  const FLIP_MS = 660;
+
+  function prefersReducedMotion() {
+    return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+  }
+
+  document.addEventListener('click', (evt) => {
+    const link = evt.target instanceof Element ? evt.target.closest('.appModeSwitch') : null;
+    if (!link || !(link instanceof HTMLAnchorElement)) return;
+    if (evt.defaultPrevented || evt.button !== 0 || evt.metaKey || evt.ctrlKey || evt.shiftKey || evt.altKey) return;
+    if (link.target && link.target !== '_self') return;
+    if (!link.href) return;
+
+    if (prefersReducedMotion()) return;
+
+    evt.preventDefault();
+    link.classList.add(SWITCHING_CLASS);
+    document.body.classList.add(FLIP_CLASS);
+    window.setTimeout(() => {
+      window.location.href = link.href;
+    }, FLIP_MS);
+  }, true);
+
+  window.addEventListener('pageshow', () => {
+    document.body.classList.remove(FLIP_CLASS);
+    document.querySelectorAll('.appModeSwitch.' + SWITCHING_CLASS).forEach((link) => {
+      link.classList.remove(SWITCHING_CLASS);
+    });
+  });
+
+  window.DTAppSwitcher = true;
+})();
+
+(function () {
   if (window.DTToast) return;
 
   const TOAST_HOST_ID = 'dtToastHost';

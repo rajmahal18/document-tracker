@@ -323,7 +323,12 @@ $flatAttachmentIsRecipient = (!$hasRealBranches && (int)($flatAttachmentForwardM
 $flatAttachmentSenderWaiting = $flatAttachmentIsSender && (int)($flatAttachmentForwardMeta['attachment_forward_open_task_count'] ?? 0) > 0;
 $flatAttachmentRecipientPendingReceive = $flatAttachmentIsRecipient && $flatAttachmentTaskStatus === 'PENDING_RECEIVE';
 $flatAttachmentRecipientInProgress = $flatAttachmentIsRecipient && $flatAttachmentTaskStatus === 'IN_PROGRESS';
-$flatAttachmentRecipientCompleted = $flatAttachmentIsRecipient && !$flatAttachmentRecipientPendingReceive && !$flatAttachmentRecipientInProgress && (int)($flatAttachmentForwardMeta['attachment_forward_open_task_count'] ?? 0) === 0;
+$flatAttachmentRecipientCompleted = $flatAttachmentIsRecipient
+  && !$flatAttachmentRecipientPendingReceive
+  && !$flatAttachmentRecipientInProgress
+  && (int)($flatAttachmentForwardMeta['attachment_forward_open_task_count'] ?? 0) === 0
+  && !$myHasOpenInbound
+  && !$myHasActionableRole;
 $flatActionRequestTaskStatus = strtoupper((string)($flatActionRequestMeta['action_request_task_status'] ?? ''));
 $flatActionRequestIsSender = (!$hasRealBranches && (int)($flatActionRequestMeta['action_request_source_branch'] ?? 0) === 1);
 $flatActionRequestIsRecipient = (!$hasRealBranches && (int)($flatActionRequestMeta['action_request_recipient_branch'] ?? 0) === 1);
@@ -407,6 +412,7 @@ echo json_encode([
     'document_date' => (string)($doc['document_date'] ?? ''),
     'deadline_at' => $doc['deadline_at'] ?? null,
     'subject' => (string)($doc['subject'] ?? ''),
+    'can_admin_edit_subject' => $isAdmin ? 1 : 0,
     'content_type' => (string)($doc['content_type'] ?? ''),
     'comm_type' => (string)($doc['comm_type'] ?? ''),
     'project_codes' => $projectCodes,

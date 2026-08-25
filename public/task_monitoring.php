@@ -33,7 +33,7 @@ if (!$canManageAll && $viewMode === 'all') {
 $search = trim((string)($_GET['q'] ?? ''));
 
 $taskTypes = $tablesReady ? tms_task_types($conn, true) : [];
-$workflowTemplates = $tablesReady ? tms_workflow_templates($conn, true) : [];
+$workflowTemplates = $tablesReady ? tms_workflow_templates_with_details($conn, true) : [];
 $rolePresets = $tablesReady ? tms_role_presets($conn) : [];
 $divisions = $tablesReady ? tms_divisions($conn) : [];
 $sections = $tablesReady ? tms_sections($conn) : [];

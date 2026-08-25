@@ -1,0 +1,2 @@
+ALTER TABLE routes
+  MODIFY COLUMN remarks TEXT NULL;

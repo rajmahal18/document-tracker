@@ -148,6 +148,7 @@ try {
     'kind' => 'action_request_decided',
     'request_id' => $taskId,
     'decision' => $decision,
+    'remarks' => $notes,
     'decision_notes' => $notes,
     'route_id' => $routeId,
     'branch_id' => $recipientBranchId > 0 ? $recipientBranchId : null,

@@ -8,6 +8,8 @@ require_once __DIR__ . "/../core/project_codes.php";
 require_once __DIR__ . "/../core/document_split.php";
 require_login();
 
+$dtsRemarksMaxChars = defined('DTS_REMARKS_MAX_CHARS') ? DTS_REMARKS_MAX_CHARS : 5000;
+
 
 
 
@@ -1073,7 +1075,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           $divisionHead = resolve_division_head($conn, $myDivisionId);
           $flowRows = build_division_slip_flow_rows($conn, $editDocumentId, $myDivisionId, $actualUserFullName);
           $nameEntries = build_division_name_initial_entries($conn, $myDivisionId, (int)($divisionHead['id'] ?? 0));
-          $assignedTo = build_division_slip_assigned_to_label($conn, $editDocumentId);
 
           DivisionTrackingSlip::generateA4([
             "division_tracking_no" => $divisionSlipNo,
@@ -1088,7 +1089,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             "received_datetime_label" => division_tracking_received_datetime_label($divisionSlipScope),
             "received_by"          => $actualUserFullName !== "" ? $actualUserFullName : trim((string)($_SESSION["full_name"] ?? "")),
             "received_datetime"    => (string)$divisionSlipReceivedDatetime,
-            "assigned_to"          => $assignedTo,
             "deadline_date"        => $deadlineAt ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("m/d/Y") : "",
             "deadline_time"        => $deadlineAt ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("g:i A") : "",
             "qr_url"               => $qrUrl,
@@ -1725,7 +1725,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
           $divisionHead = resolve_division_head($conn, $myDivisionId);
           $flowRows = build_division_slip_flow_rows($conn, $docId, $myDivisionId, $actualUserFullName);
           $nameEntries = build_division_name_initial_entries($conn, $myDivisionId, (int)($divisionHead['id'] ?? 0));
-          $assignedTo = build_division_slip_assigned_to_label($conn, $docId);
 
           DivisionTrackingSlip::generateA4([
             "division_tracking_no" => $divisionSlipNo,
@@ -1740,7 +1739,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $error === "") {
             "received_datetime_label" => division_tracking_received_datetime_label($divisionSlipScope),
             "received_by"          => $actualUserFullName !== "" ? $actualUserFullName : trim((string)($_SESSION["full_name"] ?? "")),
             "received_datetime"    => (string)$divisionSlipReceivedDatetime,
-            "assigned_to"          => $assignedTo,
             "deadline_date"        => $deadlineAt ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("m/d/Y") : "",
             "deadline_time"        => $deadlineAt ? (new DateTime($deadlineAt, new DateTimeZone("Asia/Manila")))->format("g:i A") : "",
             "qr_url"               => $qrUrl,
@@ -2277,12 +2275,12 @@ require __DIR__ . "/../includes/layout.php";
 
     <div class="authField span2">
       <label>Remarks <span class="mini" style="font-weight:700;">(optional)</span></label>
-      <input
-        type="text"
+      <textarea
         name="remarks"
+        rows="3"
+        maxlength="<?= (int)$dtsRemarksMaxChars ?>"
         placeholder="Add remarks only if needed"
-        value="<?= htmlspecialchars($_POST["remarks"] ?? "") ?>"
-      >
+      ><?= htmlspecialchars($_POST["remarks"] ?? "") ?></textarea>
       <div class="mini" style="margin-top:6px;">
         Leave blank if there is no special instruction.
       </div>

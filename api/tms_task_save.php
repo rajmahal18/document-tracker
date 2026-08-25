@@ -32,10 +32,12 @@ $priority = strtolower(trim((string)($_POST['priority'] ?? 'normal')));
 $flowMode = strtolower(trim((string)($_POST['flow_mode'] ?? '')));
 $targetStartAt = trim((string)($_POST['target_start_at'] ?? ''));
 $targetDueAt = trim((string)($_POST['target_due_at'] ?? ''));
+$hasIndefiniteTimeline = (int)($_POST['has_indefinite_timeline'] ?? 0) === 1;
 $remarks = tms_normalize_textarea((string)($_POST['remarks'] ?? ''));
 $participantUserIdsRaw = $_POST['participant_user_ids'] ?? [];
 $participantRoleLabelsRaw = $_POST['participant_role_labels'] ?? [];
 $timelineStepsRaw = $_POST['timeline_steps'] ?? [];
+$appendTimelineSteps = (int)($_POST['append_timeline_steps'] ?? 0) === 1;
 $leadUserId = (int)($_POST['lead_user_id'] ?? 0);
 
 if ($taskTypeId <= 0) {
@@ -161,6 +163,20 @@ function tms_section_belongs_to_division(mysqli $conn, int $sectionId, int $divi
   return $exists;
 }
 
+function tms_workflow_step_belongs_to_template(mysqli $conn, int $workflowStepId, int $workflowTemplateId): bool
+{
+  if ($workflowStepId <= 0 || $workflowTemplateId <= 0) {
+    return false;
+  }
+
+  $stmt = $conn->prepare("SELECT 1 FROM tms_workflow_steps WHERE id = ? AND workflow_template_id = ? LIMIT 1");
+  $stmt->bind_param('ii', $workflowStepId, $workflowTemplateId);
+  $stmt->execute();
+  $exists = (bool)$stmt->get_result()->fetch_row();
+  $stmt->close();
+  return $exists;
+}
+
 function tms_user_belongs_to_scope(mysqli $conn, int $userId, int $divisionId, ?int $sectionId): bool
 {
   if ($userId <= 0 || $divisionId <= 0) {
@@ -198,9 +214,11 @@ foreach (tms_indexed_rows($timelineStepsRaw) as $index => $row) {
   $divisionId = (int)($row['division_id'] ?? 0);
   $sectionId = (int)($row['section_id'] ?? 0);
   $responsibleUserId = (int)($row['responsible_user_id'] ?? 0);
-  $durationDays = (int)($row['duration_working_days'] ?? 0);
+  $workflowStepId = (int)($row['workflow_step_id'] ?? 0);
+  $durationRaw = trim((string)($row['duration_working_days'] ?? ''));
+  $durationDays = $durationRaw !== '' ? (int)$durationRaw : null;
 
-  if ($stepTitle === '' && $divisionId <= 0 && $sectionId <= 0 && $durationDays <= 0 && $responsibleUserId <= 0) {
+  if ($stepTitle === '' && $divisionId <= 0 && $sectionId <= 0 && $durationDays === null && $responsibleUserId <= 0) {
     continue;
   }
 
@@ -228,14 +246,21 @@ foreach (tms_indexed_rows($timelineStepsRaw) as $index => $row) {
     exit;
   }
 
-  if ($durationDays <= 0) {
+  if ($workflowStepId > 0 && !tms_workflow_step_belongs_to_template($conn, $workflowStepId, $workflowTemplateId)) {
     http_response_code(422);
-    echo json_encode(['ok' => false, 'error' => 'Each subtask needs a duration of at least 1 working day.']);
+    echo json_encode(['ok' => false, 'error' => 'A selected workflow step does not belong to the chosen template.']);
+    exit;
+  }
+
+  if ($durationDays !== null && $durationDays <= 0) {
+    http_response_code(422);
+    echo json_encode(['ok' => false, 'error' => 'Subtask duration must be at least 1 working day when provided.']);
     exit;
   }
 
   $timelineSteps[] = [
     'id' => 0,
+    'workflow_step_id' => $workflowStepId > 0 ? $workflowStepId : null,
     'step_order' => $index + 1,
     'title' => $stepTitle,
     'instructions' => tms_normalize_textarea((string)($row['instructions'] ?? '')),
@@ -243,7 +268,7 @@ foreach (tms_indexed_rows($timelineStepsRaw) as $index => $row) {
     'default_responsible_section_id' => $sectionId > 0 ? $sectionId : null,
     'responsible_user_id' => $responsibleUserId > 0 ? $responsibleUserId : null,
     'default_role_label' => 'Lead',
-    'estimated_working_minutes' => $durationDays * dt_work_minutes_per_day($conn),
+    'estimated_working_minutes' => $durationDays !== null ? $durationDays * dt_work_minutes_per_day($conn) : null,
     'can_run_parallel' => 0,
     'requires_output' => 0,
     'requires_validation' => 0,
@@ -256,6 +281,12 @@ foreach (tms_indexed_rows($timelineStepsRaw) as $index => $row) {
 if ($id <= 0 && $timelineSteps !== [] && $targetStartAt === '') {
   http_response_code(422);
   echo json_encode(['ok' => false, 'error' => 'Target start is required when creating a timeline.']);
+  exit;
+}
+
+if ($targetDueAt === '' && !$hasIndefiniteTimeline && ($timelineSteps === [] || $targetStartAt === '')) {
+  http_response_code(422);
+  echo json_encode(['ok' => false, 'error' => 'Target completion is required unless the task has an indefinite timeline.']);
   exit;
 }
 
@@ -332,24 +363,24 @@ if ($existing) {
 $ownerDivisionId = (int)($_SESSION['division_id'] ?? 0);
 $ownerSectionId = (int)($_SESSION['section_id'] ?? 0);
 $targetStartSql = $targetStartAt !== '' ? str_replace('T', ' ', $targetStartAt) : null;
-$targetDueSql = $targetDueAt !== '' ? str_replace('T', ' ', $targetDueAt) : null;
-$contextJson = tms_json_encode([
+$targetDueSql = (!$hasIndefiniteTimeline && $targetDueAt !== '') ? str_replace('T', ' ', $targetDueAt) : null;
+$existingContext = $existing ? tms_json_decode((string)($existing['context_json'] ?? '')) : [];
+$contextJson = tms_json_encode(array_merge($existingContext, [
   'project_id' => $projectId > 0 ? $projectId : null,
   'document_id' => $documentId > 0 ? $documentId : null,
-]);
+]));
 $ipcrJson = tms_json_encode([
   'ready_for_future_ipcr' => (int)($taskType['is_ipcr_relevant'] ?? 1) === 1,
 ]);
 
-$steps = $existing ? [] : ($timelineSteps !== [] ? $timelineSteps : tms_workflow_steps($conn, $workflowTemplateId));
-if (!$existing && $steps === []) {
-  http_response_code(422);
-  echo json_encode(['ok' => false, 'error' => 'Add at least one timeline subtask.']);
-  exit;
-}
+$steps = $existing ? [] : $timelineSteps;
 
-$estimatedMinutes = (int)array_sum(array_map(static fn(array $step): int => (int)($step['estimated_working_minutes'] ?? 0), $steps));
-if (!$existing && $targetStartSql !== null && ($timelineSteps !== [] || $targetDueSql === null)) {
+$estimatedValues = array_values(array_filter(
+  array_map(static fn(array $step): ?int => isset($step['estimated_working_minutes']) ? (int)$step['estimated_working_minutes'] : null, $steps),
+  static fn(?int $value): bool => $value !== null && $value > 0
+));
+$estimatedMinutes = $estimatedValues !== [] ? array_sum($estimatedValues) : null;
+if (!$existing && $timelineSteps !== [] && $targetStartSql !== null && $targetDueSql === null && $estimatedMinutes !== null) {
   $computedDue = dt_add_working_minutes($targetStartSql, $estimatedMinutes, $conn);
   if ($computedDue instanceof DateTimeImmutable) {
     $targetDueSql = $computedDue->format('Y-m-d H:i:s');
@@ -357,6 +388,13 @@ if (!$existing && $targetStartSql !== null && ($timelineSteps !== [] || $targetD
 }
 
 $participantRoleLabels = is_array($participantRoleLabelsRaw) ? $participantRoleLabelsRaw : [];
+$hasInvitedOtherParticipants = false;
+foreach ($participantUserIds as $participantUserId) {
+  if ($participantUserId !== $actorUserId) {
+    $hasInvitedOtherParticipants = true;
+    break;
+  }
+}
 $previousParticipantStatus = [];
 if ($existing) {
   foreach ((array)($existing['participants'] ?? []) as $participant) {
@@ -514,7 +552,7 @@ try {
       $requiresValidation = (int)($step['requires_validation'] ?? 0);
       $isIpcrCreditable = (int)($step['is_ipcr_creditable'] ?? 1);
       $isCompletion = $timelineSteps !== [] && $index === $lastStepIndex ? 1 : (int)($step['is_completion_step'] ?? 0);
-      $workflowStepId = (int)($step['id'] ?? 0);
+      $workflowStepId = (int)($step['workflow_step_id'] ?? $step['id'] ?? 0);
       $workflowStepId = $workflowStepId > 0 ? $workflowStepId : null;
       $stepOrder = (int)$step['step_order'];
       $stepTitle = (string)$step['title'];
@@ -551,6 +589,99 @@ try {
     if ($currentStepId > 0) {
       $stepStmt = $conn->prepare("UPDATE tms_tasks SET current_step_id = ? WHERE id = ? LIMIT 1");
       $stepStmt->bind_param('ii', $currentStepId, $taskId);
+      $stepStmt->execute();
+      $stepStmt->close();
+    }
+  }
+
+  if ($existing && $appendTimelineSteps && $timelineSteps !== []) {
+    $stepInfoStmt = $conn->prepare("
+      SELECT COALESCE(MAX(ts.step_order), 0) AS max_step_order, COALESCE(t.current_step_id, 0) AS current_step_id
+      FROM tms_tasks t
+      LEFT JOIN tms_task_steps ts ON ts.task_id = t.id
+      WHERE t.id = ?
+      GROUP BY t.id, t.current_step_id
+    ");
+    $stepInfoStmt->bind_param('i', $taskId);
+    $stepInfoStmt->execute();
+    $stepInfo = $stepInfoStmt->get_result()->fetch_assoc() ?: [];
+    $stepInfoStmt->close();
+
+    $nextStepOrder = (int)($stepInfo['max_step_order'] ?? 0);
+    $hasCurrentStep = (int)($stepInfo['current_step_id'] ?? 0) > 0;
+
+    $insertStep = $conn->prepare("
+      INSERT INTO tms_task_steps (
+        task_id,
+        workflow_step_id,
+        step_order,
+        title,
+        instructions,
+        responsible_division_id,
+        responsible_section_id,
+        responsible_user_id,
+        role_label,
+        status,
+        planned_start_at,
+        planned_due_at,
+        estimated_working_minutes,
+        can_run_parallel,
+        requires_output,
+        requires_validation,
+        is_ipcr_creditable,
+        is_completion_step
+      ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?)
+    ");
+
+    $newCurrentStepId = 0;
+    $lastStepIndex = count($timelineSteps) - 1;
+    foreach ($timelineSteps as $index => $step) {
+      $stepOrder = ++$nextStepOrder;
+      $stepTitle = (string)$step['title'];
+      $instructions = (string)($step['instructions'] ?? '');
+      $responsibleDivisionId = (int)($step['default_responsible_division_id'] ?? 0) ?: $ownerDivisionId;
+      $responsibleSectionId = (int)($step['default_responsible_section_id'] ?? 0) ?: $ownerSectionId;
+      $responsibleDivisionId = $responsibleDivisionId > 0 ? $responsibleDivisionId : null;
+      $responsibleSectionId = $responsibleSectionId > 0 ? $responsibleSectionId : null;
+      $stepResponsibleUserId = (int)($step['responsible_user_id'] ?? 0);
+      $responsibleUserId = $stepResponsibleUserId > 0 ? $stepResponsibleUserId : null;
+      $roleLabel = trim((string)($step['default_role_label'] ?? '')) ?: 'Contributor';
+      $stepStatus = $hasCurrentStep || $index > 0 ? 'PENDING' : 'READY';
+      $estimated = isset($step['estimated_working_minutes']) ? (int)$step['estimated_working_minutes'] : null;
+      $canParallel = (int)($step['can_run_parallel'] ?? 0);
+      $requiresOutput = (int)($step['requires_output'] ?? 0);
+      $requiresValidation = (int)($step['requires_validation'] ?? 0);
+      $isIpcrCreditable = (int)($step['is_ipcr_creditable'] ?? 1);
+      $isCompletion = $index === $lastStepIndex ? 1 : 0;
+
+      $insertStep->bind_param(
+        'iissiiissiiiiii',
+        $taskId,
+        $stepOrder,
+        $stepTitle,
+        $instructions,
+        $responsibleDivisionId,
+        $responsibleSectionId,
+        $responsibleUserId,
+        $roleLabel,
+        $stepStatus,
+        $estimated,
+        $canParallel,
+        $requiresOutput,
+        $requiresValidation,
+        $isIpcrCreditable,
+        $isCompletion
+      );
+      $insertStep->execute();
+      if (!$hasCurrentStep && $newCurrentStepId <= 0) {
+        $newCurrentStepId = (int)$insertStep->insert_id;
+      }
+    }
+    $insertStep->close();
+
+    if ($newCurrentStepId > 0) {
+      $stepStmt = $conn->prepare("UPDATE tms_tasks SET current_step_id = ? WHERE id = ? LIMIT 1");
+      $stepStmt->bind_param('ii', $newCurrentStepId, $taskId);
       $stepStmt->execute();
       $stepStmt->close();
     }
@@ -622,5 +753,7 @@ try {
 echo json_encode([
   'ok' => true,
   'task_id' => $taskId,
-  'message' => $existing ? 'Task updated.' : 'Task created. Invitations were recorded for added participants.',
+  'message' => $existing
+    ? 'Task updated.'
+    : ($hasInvitedOtherParticipants ? 'Task created. Invitations were recorded for added participants.' : 'Task created.'),
 ]);

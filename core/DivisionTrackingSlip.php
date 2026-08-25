@@ -134,17 +134,18 @@ final class DivisionTrackingSlip
     $txt = function(float $x, float $y, string $text, string $style = '', float $size = 9.0, string $align = 'L') use ($pdf, $setFont): void {
       $setFont($style, $size);
       $pdf->SetXY($x, $y);
-      $pdf->Cell(0, 5, $text, 0, 0, $align);
+      $pdf->Cell(0, 5, self::pdfText($text), 0, 0, $align);
     };
 
     $wrap = function(float $x, float $y, float $w, string $text, string $style = '', float $size = 9.0, float $lh = 4.2, string $align = 'L') use ($pdf, $setFont): float {
       $setFont($style, $size);
       $pdf->SetXY($x, $y);
-      $pdf->MultiCell($w, $lh, $text, 0, $align);
+      $pdf->MultiCell($w, $lh, self::pdfText($text), 0, $align);
       return (float)$pdf->GetY();
     };
 
     $fitFontSize = function(string $text, float $w, string $style = 'B', float $max = 8.4, float $min = 6.2) use ($pdf, $setFont): float {
+      $text = self::pdfText($text);
       $size = $max;
       do {
         $setFont($style, $size);
@@ -311,7 +312,7 @@ final class DivisionTrackingSlip
 
     $setFont('B', 9.4);
     $pdf->SetX($centerX);
-    $pdf->Cell($centerW, $headerLineH, $divisionName !== '' ? strtoupper($divisionName) : 'DIVISION', 0, 1, 'C');
+    $pdf->Cell($centerW, $headerLineH, self::pdfText($divisionName !== '' ? strtoupper($divisionName) : 'DIVISION'), 0, 1, 'C');
 
     $setFont('B', 9.4);
     $pdf->SetX($centerX);
@@ -389,7 +390,7 @@ final class DivisionTrackingSlip
     $setFont('B', $docTypeFontSize);
     if ($docType === '' || $pdf->GetStringWidth($docType) <= $docTypeMaxW) {
       $pdf->SetXY($xDocType + 2, $metaValueY);
-      $pdf->Cell($docTypeMaxW, 5.0, $docType, 0, 0, 'L');
+      $pdf->Cell($docTypeMaxW, 5.0, self::pdfText($docType), 0, 0, 'L');
     } else {
       $wrap($xDocType + 2, $y + 8.3, $docTypeMaxW, $docType, 'B', $docTypeFontSize, 3.2, 'L');
     }
@@ -421,7 +422,7 @@ final class DivisionTrackingSlip
       $assignedRowH = 7.2;
       $assignedSectionY = $y;
       $txt($x0 + 2, $y + 1.1, 'Assigned to:', '', 7.8);
-      $assignedTo = trim((string)($data['assigned_to'] ?? ''));
+      $assignedTo = '';
       $assignedX = $x0 + 21.0;
       $assignedW = $w0 - 23.0;
       $assignedFontSize = 8.6;
@@ -524,11 +525,11 @@ final class DivisionTrackingSlip
 
       $setFont('B', 8.6);
       $pdf->SetXY($remarksX + 2.0, $signatureY);
-      $pdf->Cell($remarksW - 4.0, 4.4, strtoupper(trim((string)($data['signatory_name'] ?? ''))) ?: ' ', 0, 1, 'L');
+      $pdf->Cell($remarksW - 4.0, 4.4, self::pdfText(strtoupper(trim((string)($data['signatory_name'] ?? ''))) ?: ' '), 0, 1, 'L');
 
       $setFont('', 7.2);
       $pdf->SetXY($remarksX + 2.0, $signatureY + 4.4);
-      $pdf->Cell($remarksW - 4.0, 4.0, trim((string)($data['signatory_title'] ?? '')) ?: ' ', 0, 1, 'L');
+      $pdf->Cell($remarksW - 4.0, 4.0, self::pdfText(trim((string)($data['signatory_title'] ?? '')) ?: ' '), 0, 1, 'L');
 
       $deadDate = trim((string)($data['deadline_date'] ?? ''));
 

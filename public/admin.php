@@ -103,7 +103,8 @@ if ($selectedSlipDivisionId > 0) {
       COALESCE(NULLIF(TRIM(u.official_title), ''), '') AS official_title,
       LOWER(TRIM(COALESCE(u.authority_role, ''))) AS authority_role,
       COALESCE(s.name, '') AS section_name,
-      COALESCE(o.sort_order, 999) AS sort_order
+      COALESCE(o.sort_order, 999) AS sort_order,
+      CASE WHEN o.user_id IS NULL THEN 0 ELSE 1 END AS has_custom_slip_order
     FROM users u
     JOIN sections s ON s.id = u.section_id
     JOIN divisions d ON d.id = s.division_id
@@ -114,20 +115,50 @@ if ($selectedSlipDivisionId > 0) {
       AND u.is_active = 1
       AND s.is_active = 1
       AND d.is_active = 1
-      AND LOWER(TRIM(COALESCE(u.authority_role, ''))) IN ('division_assistant', 'section_head')
+      AND (
+        LOWER(TRIM(COALESCE(u.authority_role, ''))) IN ('division_assistant', 'section_head')
+        OR o.user_id IS NOT NULL
+      )
     ORDER BY
+      CASE WHEN o.user_id IS NOT NULL THEN 0 ELSE 1 END ASC,
+      COALESCE(o.sort_order, 999) ASC,
       CASE LOWER(TRIM(COALESCE(u.authority_role, '')))
         WHEN 'division_assistant' THEN 0
         WHEN 'section_head' THEN 1
         ELSE 2
       END ASC,
-      COALESCE(o.sort_order, 999) ASC,
       s.name ASC,
       u.full_name ASC
   ");
   $stmt->bind_param('i', $selectedSlipDivisionId);
   $stmt->execute();
   $slipOrderUsers = $stmt->get_result()->fetch_all(MYSQLI_ASSOC) ?: [];
+  $stmt->close();
+}
+$slipOrderExtraCandidates = [];
+if ($selectedSlipDivisionId > 0) {
+  $existingSlipUserIds = array_values(array_filter(array_map(static fn(array $row): int => (int)($row['id'] ?? 0), $slipOrderUsers), static fn(int $id): bool => $id > 0));
+  $excludeSql = $existingSlipUserIds !== [] ? ('AND u.id NOT IN (' . implode(',', $existingSlipUserIds) . ')') : '';
+  $stmt = $conn->prepare("
+    SELECT
+      u.id,
+      u.full_name,
+      COALESCE(NULLIF(TRIM(u.official_title), ''), '') AS official_title,
+      LOWER(TRIM(COALESCE(u.authority_role, ''))) AS authority_role,
+      COALESCE(s.name, '') AS section_name
+    FROM users u
+    JOIN sections s ON s.id = u.section_id
+    JOIN divisions d ON d.id = s.division_id
+    WHERE d.id = ?
+      AND u.is_active = 1
+      AND s.is_active = 1
+      AND d.is_active = 1
+      {$excludeSql}
+    ORDER BY s.name ASC, u.full_name ASC
+  ");
+  $stmt->bind_param('i', $selectedSlipDivisionId);
+  $stmt->execute();
+  $slipOrderExtraCandidates = $stmt->get_result()->fetch_all(MYSQLI_ASSOC) ?: [];
   $stmt->close();
 }
 
@@ -361,8 +392,9 @@ require __DIR__ . '/../includes/layout.php';
 .adminCalendarSelectedHint { margin-top:10px; padding:9px 10px; border-radius:12px; background:#eef2ff; color:#3730a3; font-size:.84rem; font-weight:800; }
 .adminSlipOrderGrid { display:grid; grid-template-columns:minmax(240px,.36fr) minmax(0,1fr); gap:16px; align-items:start; }
 .adminSlipOrderList { display:grid; gap:10px; }
-.adminSlipOrderItem { display:grid; grid-template-columns:74px minmax(0,1fr); gap:12px; align-items:center; padding:12px; border:1px solid #e2e8f0; border-radius:14px; background:#fff; }
+.adminSlipOrderItem { display:grid; grid-template-columns:74px minmax(0,1fr) auto; gap:12px; align-items:center; padding:12px; border:1px solid #e2e8f0; border-radius:14px; background:#fff; }
 .adminSlipOrderItem input { width:100%; min-height:38px; border:1px solid #dbe2ea; border-radius:12px; padding:0 10px; font-weight:900; }
+.adminSlipOrderRemove { white-space:nowrap; }
 .adminSlipOrderName { font-weight:900; color:#0f172a; }
 .adminSlipPreview { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); border:1px solid #cbd5e1; border-radius:14px; overflow:hidden; background:#fff; }
 .adminSlipPreview div { min-height:48px; padding:10px; border-right:1px solid #e2e8f0; border-bottom:1px solid #e2e8f0; font-size:.88rem; font-weight:900; }
@@ -731,19 +763,67 @@ $activeDocs = count(array_filter($documents, static fn(array $row): bool => strt
               <?php endif; ?>
               <?php foreach ($slipOrderUsers as $idx => $user): ?>
                 <?php
-                  $roleLabel = (string)($user['authority_role'] ?? '') === 'division_assistant' ? 'Assistant Division Chief' : 'Section Chief';
+                  $authorityRole = (string)($user['authority_role'] ?? '');
+                  if ($authorityRole === 'division_assistant') {
+                    $roleLabel = 'Assistant Division Chief';
+                  } elseif ($authorityRole === 'section_head') {
+                    $roleLabel = 'Section Chief';
+                  } else {
+                    $roleLabel = trim((string)($user['official_title'] ?? '')) !== '' ? (string)$user['official_title'] : 'Additional staff';
+                  }
                   $currentOrder = (int)($user['sort_order'] ?? 999);
                   if ($currentOrder >= 999) $currentOrder = ($idx + 1) * 10;
                 ?>
-                <label class="adminSlipOrderItem">
+                <div class="adminSlipOrderItem">
                   <input type="number" min="1" max="999" name="order[<?= (int)$user['id'] ?>]" value="<?= (int)$currentOrder ?>" aria-label="Sort order for <?= htmlspecialchars((string)$user['full_name']) ?>">
                   <span>
                     <span class="adminSlipOrderName"><?= htmlspecialchars((string)$user['full_name']) ?></span>
                     <span class="adminMini"><?= htmlspecialchars($roleLabel) ?><?= trim((string)($user['section_name'] ?? '')) !== '' ? ' · ' . htmlspecialchars((string)$user['section_name']) : '' ?></span>
                   </span>
-                </label>
+                  <?php if (!in_array($authorityRole, ['division_assistant', 'section_head'], true) && (int)($user['has_custom_slip_order'] ?? 0) === 1): ?>
+                    <button
+                      type="button"
+                      class="adminGhost adminSlipOrderRemove"
+                      data-user-id="<?= (int)$user['id'] ?>"
+                      data-name="<?= htmlspecialchars((string)$user['full_name'], ENT_QUOTES, 'UTF-8') ?>"
+                      data-role="<?= htmlspecialchars($roleLabel, ENT_QUOTES, 'UTF-8') ?>"
+                      data-section="<?= htmlspecialchars((string)($user['section_name'] ?? ''), ENT_QUOTES, 'UTF-8') ?>"
+                      onclick="removeSlipOrderUser(this)"
+                    >Remove</button>
+                  <?php else: ?>
+                    <span></span>
+                  <?php endif; ?>
+                </div>
               <?php endforeach; ?>
             </div>
+            <?php if ($slipOrderExtraCandidates !== []): ?>
+              <div class="adminFormGrid" style="margin-top:12px;">
+                <div class="span2">
+                  <label>Add staff to slip names</label>
+                  <div style="display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px;">
+                    <select id="slipOrderExtraUser">
+                      <option value="">Select active staff</option>
+                      <?php foreach ($slipOrderExtraCandidates as $candidate): ?>
+                        <?php
+                          $candidateTitle = trim((string)($candidate['official_title'] ?? '')) !== '' ? (string)$candidate['official_title'] : 'Staff';
+                          $candidateSection = trim((string)($candidate['section_name'] ?? ''));
+                        ?>
+                        <option
+                          value="<?= (int)$candidate['id'] ?>"
+                          data-name="<?= htmlspecialchars((string)$candidate['full_name'], ENT_QUOTES, 'UTF-8') ?>"
+                          data-role="<?= htmlspecialchars($candidateTitle, ENT_QUOTES, 'UTF-8') ?>"
+                          data-section="<?= htmlspecialchars($candidateSection, ENT_QUOTES, 'UTF-8') ?>"
+                        >
+                          <?= htmlspecialchars((string)$candidate['full_name']) ?><?= $candidateSection !== '' ? ' - ' . htmlspecialchars($candidateSection) : '' ?>
+                        </option>
+                      <?php endforeach; ?>
+                    </select>
+                    <button type="button" class="adminGhost" onclick="addSlipOrderExtraUser()">Add</button>
+                  </div>
+                  <div class="adminMini" style="margin-top:6px;">Default entries stay limited to chiefs. Added staff will appear only after saving this list.</div>
+                </div>
+              </div>
+            <?php endif; ?>
             <div class="adminModalActions">
               <button type="submit" class="adminPrimary" <?= $selectedSlipDivisionId <= 0 ? 'disabled' : '' ?>>Save slip order</button>
             </div>
@@ -1196,6 +1276,75 @@ document.getElementById('calendarExceptionForm')?.addEventListener('submit', (ev
   event.preventDefault();
   saveCalendarForm(event.currentTarget);
 });
+
+function addSlipOrderExtraUser() {
+  const select = document.getElementById('slipOrderExtraUser');
+  const list = document.querySelector('#slipOrderForm .adminSlipOrderList');
+  if (!select || !list || !select.value) return;
+
+  const option = select.options[select.selectedIndex];
+  const userId = String(select.value || '');
+  if (!userId || list.querySelector(`[name="order[${userId}]"]`)) return;
+
+  const currentRows = list.querySelectorAll('.adminSlipOrderItem').length;
+  const label = document.createElement('div');
+  label.className = 'adminSlipOrderItem';
+
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.min = '1';
+  input.max = '999';
+  input.name = `order[${userId}]`;
+  input.value = String((currentRows + 1) * 10);
+  input.setAttribute('aria-label', `Sort order for ${option.dataset.name || option.textContent || 'selected staff'}`);
+
+  const textWrap = document.createElement('span');
+  const name = document.createElement('span');
+  name.className = 'adminSlipOrderName';
+  name.textContent = option.dataset.name || option.textContent || 'Selected staff';
+  const meta = document.createElement('span');
+  meta.className = 'adminMini';
+  meta.textContent = [option.dataset.role || 'Additional staff', option.dataset.section || ''].filter(Boolean).join(' · ');
+
+  textWrap.appendChild(name);
+  textWrap.appendChild(meta);
+  label.appendChild(input);
+  label.appendChild(textWrap);
+
+  const removeButton = document.createElement('button');
+  removeButton.type = 'button';
+  removeButton.className = 'adminGhost adminSlipOrderRemove';
+  removeButton.textContent = 'Remove';
+  removeButton.dataset.userId = userId;
+  removeButton.dataset.name = option.dataset.name || option.textContent || 'Selected staff';
+  removeButton.dataset.role = option.dataset.role || 'Additional staff';
+  removeButton.dataset.section = option.dataset.section || '';
+  removeButton.addEventListener('click', () => removeSlipOrderUser(removeButton));
+  label.appendChild(removeButton);
+  list.appendChild(label);
+
+  option.remove();
+  select.value = '';
+}
+
+function removeSlipOrderUser(button) {
+  const row = button?.closest('.adminSlipOrderItem');
+  const select = document.getElementById('slipOrderExtraUser');
+  const userId = String(button?.dataset?.userId || '');
+  if (!row || !userId) return;
+
+  if (select && !Array.from(select.options).some((option) => String(option.value) === userId)) {
+    const option = document.createElement('option');
+    option.value = userId;
+    option.dataset.name = button.dataset.name || '';
+    option.dataset.role = button.dataset.role || 'Staff';
+    option.dataset.section = button.dataset.section || '';
+    option.textContent = `${option.dataset.name || 'Selected staff'}${option.dataset.section ? ' - ' + option.dataset.section : ''}`;
+    select.appendChild(option);
+  }
+
+  row.remove();
+}
 
 document.getElementById('slipOrderForm')?.addEventListener('submit', async (event) => {
   event.preventDefault();

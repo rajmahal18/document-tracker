@@ -102,6 +102,15 @@ $pageTitle = $pageTitle ?? "Document Tracker";
 
   $isPpdNavigationUser = $resolvedDivisionCode === 'PPD'
     || str_contains(strtolower($resolvedDivisionName), 'planning and programming');
+  $isTaskMonitoringPage = $currentPage === 'task_monitoring.php';
+  $appSwitcherHref = PUBLIC_PATH . '/documents.php';
+  $appSwitcherLabel = 'Switch to Document Tracker';
+  $showAppSwitcher = $isTaskMonitoringPage;
+  $fullName = (string)($_SESSION["full_name"] ?? "User");
+  $officialTitle = trim((string)($_SESSION["official_title"] ?? ""));
+  $profilePhotoUrl = trim((string)($_SESSION["profile_photo_url"] ?? ""));
+  $profileInitials = function_exists('app_user_initials') ? app_user_initials($fullName) : strtoupper(substr($fullName, 0, 1));
+  $hideAppUserSummary = true;
 ?>
 <header class="topbar appTopbar">
   <div class="appTopbarMain">
@@ -125,6 +134,33 @@ $pageTitle = $pageTitle ?? "Document Tracker";
         <span class="brandSubtitle">Bangsamoro Autonomous Region in Muslim Mindanao</span>
       </span>
     </a>
+
+    <?php if (isset($_SESSION["user_id"])): ?>
+      <div class="appHeaderActions">
+        <a href="<?= PUBLIC_PATH ?>/account.php" class="appAccountLink" aria-label="Open My Account">
+          <span class="appAvatar appAvatarSm" aria-hidden="true">
+            <?php if ($profilePhotoUrl !== ""): ?>
+              <img src="<?= htmlspecialchars($profilePhotoUrl, ENT_QUOTES, "UTF-8") ?>" alt="">
+            <?php else: ?>
+              <span><?= htmlspecialchars($profileInitials) ?></span>
+            <?php endif; ?>
+          </span>
+          <span class="appAccountText">
+            <strong><?= htmlspecialchars($fullName, ENT_QUOTES, "UTF-8") ?></strong>
+            <?php if ($officialTitle !== ""): ?>
+              <small><?= htmlspecialchars($officialTitle, ENT_QUOTES, "UTF-8") ?></small>
+            <?php endif; ?>
+          </span>
+        </a>
+
+        <?php if ($showAppSwitcher): ?>
+          <a href="<?= htmlspecialchars($appSwitcherHref, ENT_QUOTES, "UTF-8") ?>" class="appModeSwitch">
+            <span><?= htmlspecialchars($appSwitcherLabel, ENT_QUOTES, "UTF-8") ?></span>
+            <span aria-hidden="true">&rarr;</span>
+          </a>
+        <?php endif; ?>
+      </div>
+    <?php endif; ?>
   </div>
 </header>
 

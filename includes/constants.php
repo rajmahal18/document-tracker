@@ -17,3 +17,4 @@ const ATTACHMENT_MAX_BYTES = 100 * 1024 * 1024;
 const ATTACHMENT_MAX_MB = 100;
 const ATTACHMENT_ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png'];
 const ATTACHMENT_ALLOWED_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
+const DTS_REMARKS_MAX_CHARS = 5000;

@@ -46,6 +46,41 @@ export type TmsWorkflowTemplate = {
   is_active: number
   step_count: number
   estimated_working_minutes: number
+  created_by_name?: string
+  steps?: TmsWorkflowStep[]
+  transitions?: TmsWorkflowTransition[]
+  average_working_days?: number | null
+}
+
+export type TmsWorkflowStep = {
+  id: number
+  workflow_template_id: number
+  step_order: number
+  title: string
+  instructions: string
+  default_responsible_division_id: number | null
+  default_responsible_section_id: number | null
+  default_role_label: string
+  estimated_working_minutes: number | null
+  can_run_parallel: number
+  requires_output: number
+  requires_validation: number
+  is_ipcr_creditable: number
+  is_completion_step: number
+  responsible_division_name: string
+  responsible_section_name: string
+}
+
+export type TmsWorkflowTransition = {
+  id: number
+  workflow_template_id: number
+  from_step_id: number | null
+  to_step_id: number
+  transition_label: string
+  transition_type: string
+  sort_order: number
+  from_step_order?: number | null
+  to_step_order?: number | null
 }
 
 export type TmsRolePreset = {
@@ -97,6 +132,7 @@ export type TmsTask = {
   timing_tone?: 'open' | 'soon' | 'overdue' | 'done' | string
   timing_label?: string
   timing_days?: number | null
+  progress_percent?: number
   can_edit?: boolean
   can_delete?: boolean
   permissions?: TmsTaskPermissions

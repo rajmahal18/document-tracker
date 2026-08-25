@@ -109,6 +109,14 @@
   const btnViewDocument = document.getElementById("btnViewDocument");
   const rowEditDocumentDetails = document.getElementById("rowEditDocumentDetails");
   const btnEditDocumentDetails = document.getElementById("btnEditDocumentDetails");
+  const btnEditDocumentSubject = document.getElementById("btnEditDocumentSubject");
+  const documentSubjectModal = document.getElementById("documentSubjectModal");
+  const documentSubjectModalBackdrop = document.getElementById("documentSubjectModalBackdrop");
+  const documentSubjectModalClose = document.getElementById("documentSubjectModalClose");
+  const documentSubjectInput = document.getElementById("documentSubjectInput");
+  const documentSubjectModalMsg = document.getElementById("documentSubjectModalMsg");
+  const btnDocumentSubjectCancel = document.getElementById("btnDocumentSubjectCancel");
+  const btnDocumentSubjectSave = document.getElementById("btnDocumentSubjectSave");
   const attachmentDeleteModal = document.getElementById("attachmentDeleteModal");
   const attachmentDeleteModalBackdrop = document.getElementById("attachmentDeleteModalBackdrop");
   const attachmentDeleteModalClose = document.getElementById("attachmentDeleteModalClose");
@@ -610,6 +618,7 @@
       my_is_for_reference: Number(raw.my_is_for_reference || 0),
       my_is_receive_only: Number(raw.my_is_receive_only || 0),
       can_edit_details: Number(raw.can_edit_details || 0),
+      can_admin_edit_subject: Number(raw.can_admin_edit_subject || 0),
       can_split_projects: Number(raw.can_split_projects || 0),
       can_regenerate_division_slip: Number(raw.can_regenerate_division_slip || 0),
       has_my_division_slip: Number(raw.has_my_division_slip || 0),
@@ -3445,6 +3454,95 @@
     }
   }
 
+  function setDocumentSubjectModalMessage(message, isError = false) {
+    if (!documentSubjectModalMsg) return;
+    documentSubjectModalMsg.textContent = String(message || "");
+    documentSubjectModalMsg.className = isError ? "modalMsg error" : "modalMsg";
+    documentSubjectModalMsg.style.display = message ? "" : "none";
+  }
+
+  function openDocumentSubjectModal() {
+    if (!documentSubjectModal || !currentPayload || Number(currentPayload.can_admin_edit_subject || 0) !== 1) return;
+    if (documentSubjectInput) documentSubjectInput.value = (currentPayload.subject || "").toString();
+    setDocumentSubjectModalMessage("");
+    documentSubjectModal.classList.add("open");
+    documentSubjectModal.setAttribute("aria-hidden", "false");
+    documentSubjectInput?.focus();
+    documentSubjectInput?.select();
+  }
+
+  function closeDocumentSubjectModal() {
+    if (!documentSubjectModal) return;
+    documentSubjectModal.classList.remove("open");
+    documentSubjectModal.setAttribute("aria-hidden", "true");
+    setDocumentSubjectModalMessage("");
+  }
+
+  function updateVisibleDocumentSubject(docId, subject) {
+    const targetId = Number(docId || 0);
+    if (targetId <= 0) return;
+    const row = document.querySelector(`tr[data-doc-id="${targetId}"]`);
+    if (!row) return;
+
+    const title = row.querySelector(".docInfoTitle");
+    if (title) title.textContent = subject || "Untitled document";
+
+    const rawPayload = row.getAttribute("data-doc") || "";
+    if (!rawPayload) return;
+    try {
+      const payload = JSON.parse(rawPayload);
+      payload.subject = subject;
+      row.setAttribute("data-doc", JSON.stringify(payload));
+    } catch {
+      // Keep the visible row corrected even if its cached payload cannot be parsed.
+    }
+  }
+
+  async function saveDocumentSubject() {
+    const docId = Number(currentPayload?.id || elId?.value || 0);
+    const nextSubject = (documentSubjectInput?.value || "").toString().trim().replace(/\s+/g, " ");
+    if (!docId || Number(currentPayload?.can_admin_edit_subject || 0) !== 1) return;
+    if (!nextSubject) {
+      setDocumentSubjectModalMessage("Subject is required.", true);
+      return;
+    }
+    if (nextSubject.length > 255) {
+      setDocumentSubjectModalMessage("Subject must be 255 characters or fewer.", true);
+      return;
+    }
+
+    if (btnDocumentSubjectSave) btnDocumentSubjectSave.disabled = true;
+    try {
+      const form = new FormData();
+      form.append("csrf_token", window.__CSRF__ || window.__APP__?.csrf || "");
+      form.append("document_id", String(docId));
+      form.append("subject", nextSubject);
+
+      const res = await fetch(`${API}/admin_update_document_subject.php`, {
+        method: "POST",
+        body: form,
+        credentials: "same-origin",
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        setDocumentSubjectModalMessage(data?.error || `Failed to update subject. (${res.status})`, true);
+        return;
+      }
+
+      const savedSubject = (data.subject || nextSubject).toString();
+      if (currentPayload) currentPayload.subject = savedSubject;
+      if (elSubject) elSubject.textContent = savedSubject || "—";
+      updateVisibleDocumentSubject(docId, savedSubject);
+      closeDocumentSubjectModal();
+      window.DTToast?.success(data?.message || "Subject updated.") || console.log(data?.message || "Subject updated.");
+      loadHistory(docId);
+    } catch {
+      setDocumentSubjectModalMessage("Failed to update subject (network error).", true);
+    } finally {
+      if (btnDocumentSubjectSave) btnDocumentSubjectSave.disabled = false;
+    }
+  }
+
   function movementParts(i) {
     const from = clean(i.from_section);
     const to = clean(i.to_section);
@@ -4258,6 +4356,9 @@
       : "";
     renderDeadline(payload.deadline_at || "", payload.my_personal_deadline_at || "", deadlineOutcome);
     if (elSubject) elSubject.textContent = payload.subject || "—";
+    if (btnEditDocumentSubject) {
+      btnEditDocumentSubject.style.display = Number(payload.can_admin_edit_subject || 0) === 1 ? "" : "none";
+    }
     if (elType) elType.textContent = payload.content_type || "—";
     projectManageOpen = false;
     renderProjectCodes(payload);
@@ -4559,6 +4660,7 @@
     currentCanAttachmentForward = false;
     currentCanActionRequestRespond = false;
     currentPendingRemarksState = null;
+    closeDocumentSubjectModal();
     renderPendingRemarksState(null);
     if (deadlineTicker) {
       clearInterval(deadlineTicker);
@@ -5739,6 +5841,11 @@ Now: ${data.remarks || ""}` : `Now: ${data?.remarks || ""}`),
   btnAttachmentDeleteCancel?.addEventListener("click", closeAttachmentDeleteModal);
   attachmentDeleteModalBackdrop?.addEventListener("click", closeAttachmentDeleteModal);
   btnAttachmentDeleteConfirm?.addEventListener("click", confirmAttachmentDelete);
+  btnEditDocumentSubject?.addEventListener("click", openDocumentSubjectModal);
+  documentSubjectModalClose?.addEventListener("click", closeDocumentSubjectModal);
+  documentSubjectModalBackdrop?.addEventListener("click", closeDocumentSubjectModal);
+  btnDocumentSubjectCancel?.addEventListener("click", closeDocumentSubjectModal);
+  btnDocumentSubjectSave?.addEventListener("click", saveDocumentSubject);
   btnSplitProjects?.addEventListener("click", openSplitProjectsModal);
   splitProjectsModalClose?.addEventListener("click", closeSplitProjectsModal);
   btnSplitProjectsCancel?.addEventListener("click", closeSplitProjectsModal);

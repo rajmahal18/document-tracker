@@ -47,6 +47,7 @@ function ensure_users_permanent_column(mysqli $conn): void
 function normalize_pdf_text(string $text): string
 {
   $text = str_replace(["\r\n", "\r"], "\n", $text);
+  $isUtf8 = preg_match('//u', $text) === 1;
   $map = [
     "\xE2\x86\x92" => ' to ',
     "→" => ' to ',
@@ -61,6 +62,9 @@ function normalize_pdf_text(string $text): string
     "\t" => ' ',
   ];
   $text = strtr($text, $map);
+  if (!$isUtf8) {
+    return preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $text) ?? $text;
+  }
   $text = preg_replace('/[^\P{C}\n]+/u', '', $text) ?? $text;
   if (function_exists('iconv')) {
     $converted = @iconv('UTF-8', 'windows-1252//TRANSLIT//IGNORE', $text);
@@ -222,7 +226,10 @@ function get_division_slip_head_staff(mysqli $conn, int $divisionId, int $exclud
       AND u.is_active = 1
       AND s.is_active = 1
       AND d.is_active = 1
-      AND LOWER(TRIM(COALESCE(u.authority_role, ''))) IN ('division_assistant', 'section_head')";
+      AND (
+        LOWER(TRIM(COALESCE(u.authority_role, ''))) IN ('division_assistant', 'section_head')
+        OR o.user_id IS NOT NULL
+      )";
   $types = 'i';
   $params = [$divisionId];
   if ($excludeUserId > 0) {
@@ -231,12 +238,13 @@ function get_division_slip_head_staff(mysqli $conn, int $divisionId, int $exclud
     $params[] = $excludeUserId;
   }
   $sql .= " ORDER BY
+    CASE WHEN o.user_id IS NOT NULL THEN 0 ELSE 1 END ASC,
+    COALESCE(o.sort_order, 999) ASC,
     CASE LOWER(TRIM(COALESCE(u.authority_role, '')))
       WHEN 'division_assistant' THEN 0
       WHEN 'section_head' THEN 1
       ELSE 2
     END ASC,
-    COALESCE(o.sort_order, 999) ASC,
     CASE WHEN LOWER(TRIM(COALESCE(u.authority_role, ''))) = 'section_head' AND u.is_chief = 1 THEN 0 ELSE 1 END ASC,
     s.name ASC,
     u.full_name ASC";

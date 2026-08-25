@@ -12,10 +12,18 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 - A chief dashboard that surfaces overdue, due-today, and no-movement documents together with the currently accountable personnel for director, division-chief, and section-chief scopes.
 - A separate Issuances page in the sidebar for memo-style public references, with admin file uploads, smart year tabs generated from each issuance date, and rows that open source documents in a new tab.
 - A generic Task Monitoring foundation with configurable task types, workflow templates, workflow steps, participant invitations, and IPCR-ready output tracking placeholders.
+- Task Monitoring workflow templates can now be created from a template builder and reused from the New Task modal, including flow structure, step durations, responsible offices, and approve/reject/return transitions.
+- Task Monitoring workflow templates now show an auto-generated visual workflow map with sequential, parallel, and conditional/rework paths.
+- Task Monitoring workflow templates can now be edited after creation, with clearer approved and not-approved/not-balanced branch options in the workflow map.
+- Task Monitoring workflow maps now draw routed connector lines, including side-loop arrows for rework paths that return to earlier steps.
+- Task Monitoring workflow maps now use a clearer graph model with a primary happy-path spine, structured decision panels, and quieter return-loop routes for better readability on complex templates.
+- Task Monitoring workflow template steps now support main-path, conditional, and optional placement so issue-only work such as rework or LOD steps can stay outside the normal task timeline until reached by a branch.
 
 ### Changed
 - Task Monitoring dashboard visuals now use a calmer KPI hierarchy, clearer semantic status colors, and more intentional empty states.
-- Task Monitoring is temporarily hidden from the main sidebar navigation while the pilot workflow is still being finalized.
+- Admins can now update a document subject directly from the Documents drawer for correction purposes, with the change recorded in the timeline.
+- Division tracking slips now keep the Assigned to field blank, preserve names with `ñ`, and allow admins to add or remove active non-chief staff in the slip name list when a division requests it.
+- Task Monitoring is temporarily hidden from Document Tracker navigation and switch links while the pilot workflow is still being finalized.
 - Task Monitoring now enforces lead-assignee editing rules on existing monitoring records, so progress-driven workflows no longer let any editor change protected task details after assignment.
 - The chief dashboard now shows focal-person avatars in its grouped attention view, improving visual scanning for accountable personnel.
 - The chief dashboard layout is cleaner and easier to scan, with compact attention stats, clearer filters, priority rails, and structured document metadata for desktop and mobile views.
@@ -30,10 +38,20 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 - Task Monitoring task creation now uses a timeline/subtask builder with required division, optional section, optional employee, and working-day duration per subtask.
 - Task Monitoring now computes task and subtask target dates from the shared working calendar and lets scoped chiefs assign staff to office-assigned subtasks.
 - Task Monitoring task creation modal now uses clearer sections for task details, schedule, subtasks, and remarks, with a cleaner timeline layout for desktop and mobile.
+- Task Monitoring schedules now include a "Task has indefinite timeline" option; unchecked tasks require a target completion date.
+- Task Monitoring subtasks are now optional during task creation; tasks can be saved without adding timeline rows.
+- Task Monitoring registry rows now use a compact clickable list layout for faster scanning and detail access.
+- Task Monitoring task rows now open into a detail-and-actions modal first, with Edit and Add Subtask available as explicit actions.
+- Task Monitoring task list rows now show a visible progress bar, with an adjustable progress slider in the task detail view.
+- Document Tracker and Task Monitoring now share a compact header account shortcut and a direct switch link between the two systems.
+- DTS remarks fields now allow longer notes for routing, receiving, release, attachment, and pending-route updates.
 - Split by Project Code now supports grouped project codes, so selected codes can create one linked child document instead of always creating one child per project.
 
 ### Fixed
 - Admin and Changelogs now load the shared footer scripts, so the hamburger menu opens the side navigation normally on those pages.
+- DTS timeline and document-list remarks now include pending-route remark events and signature/approval request or response notes that were already saved in the audit payload.
+- DTS document lists now treat completed Forward Attach tasks as completed list items instead of letting the attachment delivery route keep them in an active/incoming-style state.
+- Task Monitoring template use now autofills target completion from timed subtasks, and self-assignment labels no longer read like self-invitations.
 - Task Monitoring task creation now saves tasks with pending workflow steps correctly when an optional responsible user, division, or section has not been set yet.
 - Task Monitoring task creation now saves user-designed timeline subtasks without requiring a source workflow-template step.
 - Due-today reminder logging now preserves nullable route references and surfaces rerun-protection write failures instead of silently reporting success.
@@ -67,6 +85,8 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 - Issuances
 - Document Deadlines
 - Documents List
+- Add Document
+- DTS Remarks
 - Project Splitting
 - Scheduled Reminder Jobs
 - Task Monitoring

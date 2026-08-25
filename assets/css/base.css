@@ -134,6 +134,11 @@ body::before {
   z-index: 1;
 }
 
+.page {
+  transform-origin: center center;
+  backface-visibility: hidden;
+}
+
 .topbar {
   width: 100%;
   background: #0b3a66;

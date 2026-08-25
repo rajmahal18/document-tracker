@@ -28,6 +28,13 @@ function tms_json_decode(?string $value): array
   return is_array($decoded) ? $decoded : [];
 }
 
+function tms_progress_percent_from_context(?string $contextJson): int
+{
+  $context = tms_json_decode($contextJson);
+  $progress = (int)($context['progress_percent'] ?? 0);
+  return max(0, min(100, $progress));
+}
+
 function tms_tables_ready(mysqli $conn): bool
 {
   foreach ([
@@ -154,6 +161,10 @@ function tms_task_types(mysqli $conn, bool $activeOnly = true): array
 
 function tms_workflow_templates(mysqli $conn, bool $activeOnly = true): array
 {
+  $averageSelect = db_table_exists($conn, 'tms_task_metrics')
+    ? "(SELECT COALESCE(AVG(tm.metric_value), 0) FROM tms_task_metrics tm WHERE tm.workflow_template_id = wt.id AND tm.metric_key = 'actual_working_days')"
+    : "0";
+
   $sql = "
     SELECT
       wt.id,
@@ -166,11 +177,14 @@ function tms_workflow_templates(mysqli $conn, bool $activeOnly = true): array
       wt.owner_section_id,
       wt.is_default,
       wt.is_active,
-      COUNT(ws.id) AS step_count,
-      COALESCE(SUM(ws.estimated_working_minutes), 0) AS estimated_working_minutes
+      COALESCE(creator.full_name, '') AS created_by_name,
+      COUNT(DISTINCT ws.id) AS step_count,
+      COALESCE(SUM(ws.estimated_working_minutes), 0) AS estimated_working_minutes,
+      {$averageSelect} AS average_working_days
     FROM tms_workflow_templates wt
     LEFT JOIN tms_task_types tt ON tt.id = wt.task_type_id
     LEFT JOIN tms_workflow_steps ws ON ws.workflow_template_id = wt.id
+    LEFT JOIN users creator ON creator.id = wt.created_by_user_id
     " . ($activeOnly ? "WHERE wt.is_active = 1" : "") . "
     GROUP BY wt.id
     ORDER BY wt.is_default DESC, wt.name ASC
@@ -186,6 +200,8 @@ function tms_workflow_templates(mysqli $conn, bool $activeOnly = true): array
     $row['is_active'] = (int)($row['is_active'] ?? 0);
     $row['step_count'] = (int)($row['step_count'] ?? 0);
     $row['estimated_working_minutes'] = (int)($row['estimated_working_minutes'] ?? 0);
+    $averageDays = (float)($row['average_working_days'] ?? 0);
+    $row['average_working_days'] = $averageDays > 0 ? round($averageDays, 1) : null;
   }
   unset($row);
 
@@ -230,6 +246,51 @@ function tms_workflow_steps(mysqli $conn, int $templateId): array
   unset($row);
 
   return $rows;
+}
+
+function tms_workflow_transitions(mysqli $conn, int $templateId): array
+{
+  if ($templateId <= 0 || !db_table_exists($conn, 'tms_workflow_transitions')) {
+    return [];
+  }
+
+  $stmt = $conn->prepare("
+    SELECT
+      tr.*,
+      from_step.step_order AS from_step_order,
+      to_step.step_order AS to_step_order
+    FROM tms_workflow_transitions tr
+    LEFT JOIN tms_workflow_steps from_step ON from_step.id = tr.from_step_id
+    LEFT JOIN tms_workflow_steps to_step ON to_step.id = tr.to_step_id
+    WHERE tr.workflow_template_id = ?
+    ORDER BY tr.sort_order ASC, tr.id ASC
+  ");
+  $stmt->bind_param('i', $templateId);
+  $stmt->execute();
+  $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC) ?: [];
+  $stmt->close();
+
+  foreach ($rows as &$row) {
+    foreach (['id', 'workflow_template_id', 'from_step_id', 'to_step_id', 'sort_order', 'from_step_order', 'to_step_order'] as $key) {
+      $row[$key] = isset($row[$key]) ? (int)$row[$key] : null;
+    }
+  }
+  unset($row);
+
+  return $rows;
+}
+
+function tms_workflow_templates_with_details(mysqli $conn, bool $activeOnly = true): array
+{
+  $templates = tms_workflow_templates($conn, $activeOnly);
+  foreach ($templates as &$template) {
+    $templateId = (int)($template['id'] ?? 0);
+    $template['steps'] = tms_workflow_steps($conn, $templateId);
+    $template['transitions'] = tms_workflow_transitions($conn, $templateId);
+  }
+  unset($template);
+
+  return $templates;
 }
 
 function tms_role_presets(mysqli $conn): array
@@ -394,7 +455,7 @@ function tms_task_timing_state(mysqli $conn, array $task): array
   }
 
   if ($dueAt === '') {
-    return ['tone' => 'open', 'label' => 'No due date', 'days' => null];
+    return ['tone' => 'open', 'label' => 'Indefinite timeline', 'days' => null];
   }
 
   try {
@@ -402,7 +463,7 @@ function tms_task_timing_state(mysqli $conn, array $task): array
     $now = new DateTimeImmutable('now', dt_work_timezone($calendar));
     $due = new DateTimeImmutable($dueAt, dt_work_timezone($calendar));
   } catch (Throwable) {
-    return ['tone' => 'open', 'label' => 'No due date', 'days' => null];
+    return ['tone' => 'open', 'label' => 'Indefinite timeline', 'days' => null];
   }
 
   if ($now > $due) {
@@ -626,6 +687,7 @@ function tms_fetch_tasks(mysqli $conn, array $filters, int $viewerUserId): array
     $row['timing_tone'] = $timing['tone'];
     $row['timing_label'] = $timing['label'];
     $row['timing_days'] = $timing['days'];
+    $row['progress_percent'] = tms_progress_percent_from_context($row['context_json'] ?? null);
     $permissions = tms_task_permissions($conn, $row, $viewerUserId);
     $row['can_edit'] = $permissions['can_edit_task'];
     $row['can_delete'] = $permissions['can_delete_task'];
@@ -696,6 +758,7 @@ function tms_fetch_task(mysqli $conn, int $taskId): ?array
 
   tms_cast_task_row($task);
   $task['context'] = tms_json_decode($task['context_json'] ?? null);
+  $task['progress_percent'] = tms_progress_percent_from_context($task['context_json'] ?? null);
   $task['ipcr_metadata'] = tms_json_decode($task['ipcr_metadata_json'] ?? null);
   $task['timing'] = tms_task_timing_state($conn, $task);
   $task['steps'] = tms_fetch_task_steps($conn, $taskId);

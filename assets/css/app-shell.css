@@ -213,6 +213,150 @@ body[data-theme="dark"] .content {
 .navToggle:hover { background: rgba(255,255,255,0.14); cursor: pointer; }
 .navToggleLine { width: 18px; height: 2px; border-radius: 999px; background: currentColor; display: block; }
 
+.appHeaderActions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.appAccountLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: min(280px, 28vw);
+  min-height: 42px;
+  padding: 0 10px;
+  border-radius: 14px;
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.appAccountText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  line-height: 1.05;
+}
+
+.appAccountText strong,
+.appAccountText small {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+.appAccountText strong {
+  color: inherit;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.appAccountText small {
+  color: rgba(233, 240, 247, 0.78);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.appAccountLink:hover,
+.appAccountLink:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  text-decoration: none;
+  outline: none;
+}
+
+.appModeSwitch {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  min-height: 42px;
+  padding: 0 8px 0 12px;
+  color: rgba(255, 255, 255, 0.94);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 160ms ease;
+}
+
+.appModeSwitch:hover,
+.appModeSwitch:focus-visible {
+  color: #ffffff;
+  text-decoration: none;
+  outline: none;
+}
+
+.appModeSwitch.isSwitching {
+  pointer-events: none;
+  color: #ffffff;
+}
+
+body.app-page-flipping {
+  overflow-x: hidden;
+  perspective: 1200px;
+}
+
+body.app-page-flipping .page {
+  position: relative;
+  transform-style: preserve-3d;
+  animation: appPageFlipOut 680ms cubic-bezier(.22, .61, .36, 1) both;
+}
+
+body.app-page-flipping .page > .content {
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+body.app-page-flipping .page::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: 24px;
+  border-radius: 0;
+  background:
+    linear-gradient(135deg, rgba(11, 58, 102, 0.98), rgba(14, 91, 137, 0.96)),
+    var(--app-bg);
+  color: #ffffff;
+  font-size: clamp(20px, 3vw, 34px);
+  font-weight: 850;
+  letter-spacing: 0;
+  text-align: center;
+  transform: rotateY(180deg);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  pointer-events: none;
+  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.22);
+}
+
+@keyframes appPageFlipOut {
+  0% { transform: rotateY(0deg); }
+  100% { transform: rotateY(180deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.app-page-flipping .page {
+    animation: none;
+  }
+}
+
 .appNavBackdrop {
   position: fixed;
   inset: 0;
@@ -678,7 +822,7 @@ body[data-theme="dark"] .themeOrb.themeOrbDark {
   background: linear-gradient(180deg, #111827, #020617);
 }
 
-body[data-theme="dark"] a:not(.appSideNav a):not(.mobileScanFab):not(.docsAddBtn) { color: #9ac7ff; }
+body[data-theme="dark"] a:not(.appSideNav a):not(.mobileScanFab):not(.docsAddBtn):not(.appModeSwitch):not(.appAccountLink) { color: #9ac7ff; }
 
 :root {
   --app-topbar-height: 72px;
@@ -792,6 +936,10 @@ body[data-theme="dark"] a:not(.appSideNav a):not(.mobileScanFab):not(.docsAddBtn
   .topbar { padding-left: 14px; padding-right: 14px; }
   .logo { height: 50px; }
   .brand { gap: 10px; }
+  .appHeaderActions { gap: 4px; }
+  .appAccountLink { max-width: 42px; padding: 0 4px; }
+  .appAccountText { display: none; }
+  .appModeSwitch { gap: 6px; padding-left: 8px; font-size: 12px; }
   .docsStatsGrid { grid-template-columns: 1fr; }
   .docsSummaryPill { width: 100%; justify-content: center; }
   .drawerActions > * { flex-basis: 100%; }
@@ -1702,6 +1850,14 @@ body[data-theme="dark"] .qrStatusPill { background: rgba(96,165,250,0.12); color
   width: 38px;
   height: 38px;
   font-size: 12px;
+}
+
+.appAvatarSm {
+  width: 30px;
+  height: 30px;
+  font-size: 10px;
+  border-width: 1px;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, .14);
 }
 
 .appAvatar img {

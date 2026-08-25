@@ -52,7 +52,6 @@ $eligibleStmt = $conn->prepare("
     AND u.is_active = 1
     AND s.is_active = 1
     AND d.is_active = 1
-    AND LOWER(TRIM(COALESCE(u.authority_role, ''))) IN ('division_assistant', 'section_head')
 ");
 $eligibleStmt->bind_param('i', $divisionId);
 $eligibleStmt->execute();

@@ -107,6 +107,38 @@ export async function saveTaskType(formData: FormData) {
   return data
 }
 
+export async function saveWorkflowTemplate(formData: FormData) {
+  const app = getAppConfig()
+  const response = await fetch(`${app.api}/tms_workflow_template_save.php`, {
+    method: 'POST',
+    body: formData,
+    credentials: 'same-origin',
+    headers: { Accept: 'application/json' },
+  })
+  const data = await response.json().catch(() => ({ ok: false, error: 'Invalid server response.' }))
+  if (!response.ok || !data.ok) {
+    throw new Error(data.error || 'Failed to save workflow template.')
+  }
+  return data
+}
+
+export async function previewTaskDueDate(startAt: string, workingDays: number) {
+  const app = getAppConfig()
+  const params = new URLSearchParams({
+    start_at: startAt,
+    working_days: String(workingDays),
+  })
+  const response = await fetch(`${app.api}/tms_due_date_preview.php?${params.toString()}`, {
+    credentials: 'same-origin',
+    headers: { Accept: 'application/json' },
+  })
+  const data = await response.json().catch(() => ({ ok: false, error: 'Invalid server response.' }))
+  if (!response.ok || !data.ok) {
+    throw new Error(data.error || 'Failed to calculate target completion.')
+  }
+  return data
+}
+
 export async function assignTaskStep(taskStepId: number, userId: number) {
   const app = getAppConfig()
   const formData = new FormData()
@@ -123,6 +155,26 @@ export async function assignTaskStep(taskStepId: number, userId: number) {
   const data = await response.json().catch(() => ({ ok: false, error: 'Invalid server response.' }))
   if (!response.ok || !data.ok) {
     throw new Error(data.error || 'Failed to assign step.')
+  }
+  return data
+}
+
+export async function saveTaskProgress(taskId: number, progressPercent: number) {
+  const app = getAppConfig()
+  const formData = new FormData()
+  formData.set('csrf_token', app.csrf || '')
+  formData.set('task_id', String(taskId))
+  formData.set('progress_percent', String(progressPercent))
+
+  const response = await fetch(`${app.api}/tms_task_progress_save.php`, {
+    method: 'POST',
+    body: formData,
+    credentials: 'same-origin',
+    headers: { Accept: 'application/json' },
+  })
+  const data = await response.json().catch(() => ({ ok: false, error: 'Invalid server response.' }))
+  if (!response.ok || !data.ok) {
+    throw new Error(data.error || 'Failed to save progress.')
   }
   return data
 }

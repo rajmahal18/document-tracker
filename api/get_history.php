@@ -60,6 +60,16 @@ try {
     return $s;
   };
 
+  $payloadRemarksText = static function (array $payload) use ($normalizeRemarks): string {
+    foreach (['remarks', 'request_notes', 'decision_notes'] as $key) {
+      $text = $normalizeRemarks($payload[$key] ?? '');
+      if ($text !== '') {
+        return $text;
+      }
+    }
+    return '';
+  };
+
   $attachmentTaskSummaryCache = [];
   $buildAttachmentTaskSummary = static function (int $summaryDocId) use ($conn, &$attachmentTaskSummaryCache): ?array {
     if ($summaryDocId <= 0 || !workflow_attachment_forwarding_enabled($conn)) {
@@ -740,10 +750,10 @@ try {
     ], true)) {
       $eventKey = (string)$payload["kind"];
     }
-    if (in_array(($payload["kind"] ?? ""), ["attachment_forwarded", "attachment_forward_task_done", "action_request_created", "action_request_decided", "action_request_received"], true)) {
+    if (in_array(($payload["kind"] ?? ""), ["attachment_forwarded", "attachment_forward_task_done", "action_request_created", "action_request_decided", "action_request_received", "document_subject_updated"], true)) {
       $eventKey = (string)$payload["kind"];
     }
-    if (in_array(($payload["kind"] ?? ""), ["holder_progress_note_added", "holder_progress_note_updated", "holder_progress_note_cleared", "admin_closed_note_added", "admin_closed_note_updated", "admin_closed_note_cleared"], true)) {
+    if (in_array(($payload["kind"] ?? ""), ["pending_remarks_added", "pending_remarks_updated", "pending_remarks_cleared", "holder_progress_note_added", "holder_progress_note_updated", "holder_progress_note_cleared", "admin_closed_note_added", "admin_closed_note_updated", "admin_closed_note_cleared"], true)) {
       $eventKey = (string)$payload["kind"];
     }
 
@@ -1019,6 +1029,18 @@ try {
         }
         break;
 
+      case "pending_remarks_added":
+        $title = "{$actor} added pending route remarks";
+        break;
+
+      case "pending_remarks_updated":
+        $title = "{$actor} updated pending route remarks";
+        break;
+
+      case "pending_remarks_cleared":
+        $title = "{$actor} cleared pending route remarks";
+        break;
+
       case "holder_progress_note_added":
         $title = "{$actor} added work-in-progress remarks";
         break;
@@ -1043,8 +1065,12 @@ try {
         $title = "{$actor} cleared admin remarks on a closed document";
         break;
 
+      case "document_subject_updated":
+        $title = "{$actor} updated the document subject";
+        break;
+
       case "updated":
-        $remarksText = $normalizeRemarks($payload["remarks"] ?? "");
+        $remarksText = $payloadRemarksText($payload);
         if ($remarksText !== '') {
           $title = "{$actor} updated the document";
         } else {
@@ -1222,7 +1248,7 @@ try {
     }
 
     $shouldRedact = (!$viewerIsAdmin && !$sameDivision && $eventDivision !== '');
-    $remarksValue = $normalizeRemarks($payload["remarks"] ?? "");
+    $remarksValue = $payloadRemarksText($payload);
     $releasedToValue = $normalizeRemarks($payload["released_to"] ?? "");
     $personalDeadlineValue = trim((string)($payload["personal_deadline_at"] ?? ""));
     $canSeeRemarks = (

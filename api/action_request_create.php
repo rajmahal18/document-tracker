@@ -265,6 +265,7 @@ try {
     'recipient_names' => [(string)($recipient['full_name'] ?? '')],
     'source_branch_id' => $sourceBranchId,
     'new_branch_ids' => $recipientBranchId ? [$recipientBranchId] : [],
+    'remarks' => $notes,
     'request_notes' => $notes,
     'acting_principal_user_id' => ($userId > 0 && $userId !== $actualUserId) ? $userId : null,
     'acting_principal_name' => ($userId > 0 && $userId !== $actualUserId) ? (string)($identity['acting_principal_name'] ?? '') : '',

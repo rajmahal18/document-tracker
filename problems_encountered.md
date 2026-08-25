@@ -501,3 +501,136 @@ If a create/update endpoint returns a generic 500 while inserting rows with opti
 1. Check the PHP/Apache error log for the exact SQL constraint failure
 2. Inspect nullable foreign-key inputs for `0`
 3. Use `NULL` for absent optional relationships and reserve positive integers for actual referenced rows
+
+## 11. Timeline/list remarks can disappear when audit payload keys differ
+
+Date encountered: 2026-08-25
+
+### Symptom
+
+- Some remarks or notes were saved, but did not appear clearly in the document timeline.
+- Some saved notes did not appear in the Documents list `Latest remark` column.
+- Pending-route remark events could be logged, but the timeline treated them as generic updates instead of pending remark actions.
+
+### Actual root cause
+
+The display readers only treated `payload_json.remarks` as the remark source.
+
+Some DTS workflows store user-entered note text under more specific keys:
+
+- `request_notes` for signature/approval request notes
+- `decision_notes` for signature/approval response notes
+
+Also, pending-route remarks were logged with `kind` values such as `pending_remarks_added`, but `api/get_history.php` did not promote those kinds into first-class timeline actions.
+
+### Files involved
+
+- [api/get_history.php](C:/xampp/htdocs/document-tracker/api/get_history.php)
+- [public/documents.php](C:/xampp/htdocs/document-tracker/public/documents.php)
+- [api/action_request_create.php](C:/xampp/htdocs/document-tracker/api/action_request_create.php)
+- [api/action_request_decide.php](C:/xampp/htdocs/document-tracker/api/action_request_decide.php)
+- `document_events.payload_json`
+- `routes.remarks`
+
+### Final fix
+
+Timeline and document-list latest remark extraction now checks `remarks`, `request_notes`, and `decision_notes`.
+
+Pending-route remark kinds are now recognized as explicit timeline actions:
+
+- `pending_remarks_added`
+- `pending_remarks_updated`
+- `pending_remarks_cleared`
+
+New signature/approval request and response events also duplicate their notes into `remarks` while keeping the existing specific note keys for backward compatibility.
+
+### Best debugging path next time
+
+1. Confirm whether the text is stored in `routes.remarks` or `document_events.payload_json`
+2. Inspect the exact payload key, not just whether the UI says "remarks" or "notes"
+3. Check whether `api/get_history.php` maps the event `kind` to a first-class timeline action
+4. Check whether `public/documents.php` latest remark extraction reads that same payload key
+5. For old records, prefer reader-side support for existing payload keys instead of migration-only fixes
+
+## 12. Completed Forward Attach tasks can be misclassified by legacy route predicates
+
+Date encountered: 2026-08-25
+
+### Symptom
+
+- A document that passed through Forward Attach still appeared as active/incoming-style work for the attachment recipient after the recipient marked the attachment task done.
+- The row payload could know the Forward Attach task was complete, but quick filters, counts, sorting, or fallback status text could still be influenced by the underlying route.
+
+### Actual root cause
+
+Forward Attach stores its real task state in `attachment_forward_tasks`.
+
+Legacy document-list predicates in [public/documents.php](C:/xampp/htdocs/document-tracker/public/documents.php) also inspect `routes` to decide whether a user has open inbound or actionable work. A Forward Attach delivery uses a route, but that route is only the delivery mechanism for the attachment task. Once the task is done, it should not count as a normal ownership transfer.
+
+The shared workflow helper already ignored Forward Attach routes for legacy actionable checks, but the documents list SQL had its own predicate copy that did not make the same exclusion.
+
+### Files involved
+
+- [public/documents.php](C:/xampp/htdocs/document-tracker/public/documents.php)
+- [api/document_drawer_snapshot.php](C:/xampp/htdocs/document-tracker/api/document_drawer_snapshot.php)
+- [core/workflow.php](C:/xampp/htdocs/document-tracker/core/workflow.php)
+- `attachment_forward_tasks`
+- `routes`
+
+### Final fix
+
+The documents list predicates now treat flat Forward Attach task state as first-class:
+
+- `PENDING_RECEIVE` recipient tasks count as Incoming
+- `IN_PROGRESS` recipient tasks and sender-waiting tasks count as Pending
+- completed Forward Attach recipient tasks no longer inherit normal actionable state from the attachment delivery route
+
+Completed Forward Attach rows also use completed styling and a completed attachment-task activity line.
+
+The drawer snapshot keeps the same guard so old completed Forward Attach history does not hide normal actions if the same user later receives a real forward.
+
+### Best debugging path next time
+
+1. Check `attachment_forward_tasks.task_status` before trusting `routes` for Forward Attach documents
+2. Compare list SQL predicates against `workflow_user_can_act_legacy_document()` when a row, filter count, and drawer payload disagree
+3. For legacy documents, exclude Forward Attach delivery routes from normal holder/actionable fallback
+4. Do not let completed task history override a later normal route to the same user
+
+## 13. Division tracking slip PDF fields can break from double text normalization or route-derived labels
+
+Date encountered: 2026-08-25
+
+### Symptom
+
+- Names with `ñ` did not print correctly on generated division tracking slips.
+- The `Assigned to` field could be filled with the current route recipient, such as a boss who received a document from a focal person.
+- That made the slip look like the focal person was assigning work to the boss.
+
+### Actual root cause
+
+Division tracking slip text is rendered through FPDF, which expects single-byte PDF font text. Some values were normalized to PDF-compatible text before reaching the renderer, then normalized again inside the renderer. That second pass could treat already-converted text as invalid UTF-8 and strip non-ASCII characters.
+
+Separately, `Assigned to` was sourced from active branches/routes through `build_division_slip_assigned_to_label()`. That route-derived value is useful for workflow state, but it is not appropriate for the printed slip field because the slip's purpose is to provide a blank form plus an auto-filled movement table.
+
+### Files involved
+
+- [core/division_tracking.php](C:/xampp/htdocs/document-tracker/core/division_tracking.php)
+- [core/DivisionTrackingSlip.php](C:/xampp/htdocs/document-tracker/core/DivisionTrackingSlip.php)
+- [api/division_tracking_slip_generate.php](C:/xampp/htdocs/document-tracker/api/division_tracking_slip_generate.php)
+- [public/add_document.php](C:/xampp/htdocs/document-tracker/public/add_document.php)
+- `division_tracking_slip_user_order`
+
+### Final fix
+
+PDF text normalization is now idempotent for already-converted single-byte text, so names like `Peña` and `Niño` survive repeated normalization.
+
+The active division slip renderer now normalizes text at draw-time consistently, and the `Assigned to` printed value is forced blank even if an older caller passes a value.
+
+Slip name ordering still defaults to Assistant Division Chief and Section Chiefs, but admins can deliberately add another active staff member to a division's slip name list through the Admin slip-order screen.
+
+### Best debugging path next time
+
+1. Check whether the PDF renderer expects UTF-8, Windows-1252, or another single-byte font encoding
+2. Make text normalization idempotent before normalizing in both helpers and renderers
+3. Verify whether a printed form field should be workflow-derived or intentionally blank
+4. For slip name-list changes, preserve the default query and use explicit saved order rows for division-specific exceptions

@@ -75,6 +75,7 @@ if ($branchMode && function_exists('workflow_repair_reference_only_source_lanes'
   workflow_repair_reference_only_source_lanes($conn);
 }
 $routePersonalDeadlineEnabled = workflow_has_column($conn, 'routes', 'personal_deadline_at');
+$dtsRemarksMaxChars = defined('DTS_REMARKS_MAX_CHARS') ? DTS_REMARKS_MAX_CHARS : 5000;
 $documentContextSectionId = $assistantModeEnabled
   ? (int)($activeAssistantPrincipal['section_id'] ?? 0)
   : (int)($_SESSION['section_id'] ?? 0);
@@ -262,6 +263,7 @@ function documents_latest_activity_line(
   bool $flatAttachmentSenderWaiting,
   bool $flatAttachmentRecipientPendingReceive,
   bool $flatAttachmentRecipientInProgress,
+  bool $flatAttachmentRecipientCompleted,
   bool $flatActionRequestSenderWaiting,
   bool $flatActionRequestRecipientPendingReceive,
   bool $flatActionRequestRecipientInProgress
@@ -329,6 +331,13 @@ function documents_latest_activity_line(
     $detail = 'Your attachment-forward task is still open';
     $at = trim((string)($latestAttachmentTask['created_at'] ?? '')) ?: $sentAt;
     $badge = 'WAITING';
+  } elseif ($flatAttachmentRecipientCompleted) {
+    $title = 'Attachment task completed';
+    $detail = trim((string)($latestAttachmentTask['sender_name'] ?? '')) !== ''
+      ? 'Forwarded by ' . trim((string)$latestAttachmentTask['sender_name'])
+      : 'Completed attachment-forward task';
+    $at = trim((string)($latestAttachmentTask['done_at'] ?? '')) ?: $latestAt;
+    $badge = 'DONE';
   } elseif ($myHasOpenInbound) {
     $title = $incomingKind === 'REFERENCE'
       ? 'Shared with you'
@@ -582,6 +591,67 @@ $myHasOpenActionRequestInProgressPredicate = (workflow_action_requests_enabled($
     )"
   : "0";
 
+$attachmentForwardingEnabled = workflow_attachment_forwarding_enabled($conn);
+$myHasOpenAttachmentForwardPendingReceivePredicate = ($attachmentForwardingEnabled && $myUid > 0)
+  ? "EXISTS (
+      SELECT 1
+      FROM attachment_forward_tasks aft_inbox
+      WHERE aft_inbox.document_id = d.id
+        AND aft_inbox.recipient_user_id = {$myUid}
+        AND aft_inbox.task_status = 'PENDING_RECEIVE'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM document_branches b_aft_inbox
+          WHERE b_aft_inbox.document_id = d.id
+        )
+    )"
+  : "0";
+
+$myHasOpenAttachmentForwardInProgressPredicate = ($attachmentForwardingEnabled && $myUid > 0)
+  ? "EXISTS (
+      SELECT 1
+      FROM attachment_forward_tasks aft_pending
+      WHERE aft_pending.document_id = d.id
+        AND aft_pending.recipient_user_id = {$myUid}
+        AND aft_pending.task_status = 'IN_PROGRESS'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM document_branches b_aft_pending
+          WHERE b_aft_pending.document_id = d.id
+        )
+    )"
+  : "0";
+
+$myHasOpenAttachmentForwardSenderWaitingPredicate = ($attachmentForwardingEnabled && $myUid > 0)
+  ? "EXISTS (
+      SELECT 1
+      FROM attachment_forward_tasks aft_sender_wait
+      WHERE aft_sender_wait.document_id = d.id
+        AND aft_sender_wait.sender_user_id = {$myUid}
+        AND aft_sender_wait.task_status IN ('PENDING_RECEIVE', 'IN_PROGRESS')
+        AND NOT EXISTS (
+          SELECT 1
+          FROM document_branches b_aft_sender_wait
+          WHERE b_aft_sender_wait.document_id = d.id
+        )
+    )"
+  : "0";
+
+$excludeAttachmentForwardReceivedAnySql = $attachmentForwardingEnabled
+  ? "AND NOT EXISTS (
+          SELECT 1
+          FROM attachment_forward_tasks aft_received_any
+          WHERE aft_received_any.route_id = r_received_any.id
+        )"
+  : "";
+$excludeAttachmentForwardLastPickSql = $attachmentForwardingEnabled
+  ? "AND NOT EXISTS (
+              SELECT 1
+              FROM attachment_forward_tasks aft_last_pick
+              WHERE aft_last_pick.route_id = r_last_pick.id
+            )"
+  : "";
+
 $myHasOpenInboundPredicate = "EXISTS (
   SELECT 1
   FROM routes r_in
@@ -614,7 +684,8 @@ $myHasOpenInboundPredicate = "EXISTS (
       )
     )
 )
-OR ({$myHasOpenActionRequestPendingReceivePredicate})";
+OR ({$myHasOpenActionRequestPendingReceivePredicate})
+OR ({$myHasOpenAttachmentForwardPendingReceivePredicate})";
 
 $myHasActionableRolePredicate = "(
   (
@@ -655,6 +726,7 @@ $myHasActionableRolePredicate = "(
             AND r_received_any.route_kind = 'ACTION'
             AND r_received_any.received_at IS NOT NULL
             AND r_received_any.cancelled_at IS NULL
+            {$excludeAttachmentForwardReceivedAnySql}
         )
       )
       OR EXISTS (
@@ -667,6 +739,7 @@ $myHasActionableRolePredicate = "(
             AND r_last_pick.route_kind = 'ACTION'
             AND r_last_pick.received_at IS NOT NULL
             AND r_last_pick.cancelled_at IS NULL
+            {$excludeAttachmentForwardLastPickSql}
           ORDER BY r_last_pick.received_at DESC, r_last_pick.id DESC
           LIMIT 1
         )
@@ -682,6 +755,8 @@ $myHasActionableRolePredicate = "(
     )
   )
   OR ({$myHasOpenActionRequestInProgressPredicate})
+  OR ({$myHasOpenAttachmentForwardInProgressPredicate})
+  OR ({$myHasOpenAttachmentForwardSenderWaitingPredicate})
 )";
 
 $myHasParticipationPredicate = "(
@@ -1770,6 +1845,23 @@ unset($docRow);
 
 $docIdsOnPage = array_values(array_unique(array_filter(array_map(static fn($row) => (int)($row['id'] ?? 0), $docs), static fn($id) => $id > 0)));
 if ($docIdsOnPage !== []) {
+  $normalizeRemarkText = static function ($value): string {
+    $text = trim((string)$value);
+    if ($text === '') {
+      return '';
+    }
+    return in_array(strtolower($text), ['none', '-', 'â€”', 'n/a', 'na', 'null', 'undefined'], true) ? '' : $text;
+  };
+  $payloadRemarkText = static function (array $payload) use ($normalizeRemarkText): string {
+    foreach (['remarks', 'request_notes', 'decision_notes'] as $key) {
+      $text = $normalizeRemarkText($payload[$key] ?? '');
+      if ($text !== '') {
+        return $text;
+      }
+    }
+    return '';
+  };
+
   $remarkEventSql = "
     SELECT id, document_id, actor_user_id, actor_section_id, from_section_id, to_section_id, payload_json
     FROM document_events
@@ -1797,12 +1889,23 @@ if ($docIdsOnPage !== []) {
       }
     }
 
+    if ($normalizeRemarkText($payload['remarks'] ?? '') === '') {
+      $noteText = $payloadRemarkText($payload);
+      if ($noteText !== '') {
+        $payload['remarks'] = $noteText;
+      }
+    }
+
     $remarkText = trim((string)($payload['remarks'] ?? ''));
     if ($remarkText === '' || in_array(strtolower($remarkText), ['none', '-', '—', 'n/a', 'na', 'null', 'undefined'], true)) {
       continue;
     }
 
+    $remarkKind = (string)($payload['kind'] ?? '');
+    $isExplicitRemarkEvent = in_array($remarkKind, ['pending_remarks_added', 'pending_remarks_updated', 'pending_remarks_cleared', 'holder_progress_note_added', 'holder_progress_note_updated', 'holder_progress_note_cleared', 'admin_closed_note_added', 'admin_closed_note_updated', 'admin_closed_note_cleared'], true);
+
     $canSeeRemark = $isPrivileged
+      || $isExplicitRemarkEvent
       || in_array((string)($payload['kind'] ?? ''), ['holder_progress_note_added', 'holder_progress_note_updated', 'holder_progress_note_cleared', 'admin_closed_note_added', 'admin_closed_note_updated', 'admin_closed_note_cleared'], true)
       || (int)($remarkRow['actor_user_id'] ?? 0) === $myUserId
       || (int)($remarkRow['actor_section_id'] ?? 0) === $mySectionId
@@ -2722,12 +2825,6 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
         </div>
       </div>
 
-      <?php /*
-      <a href="<?= htmlspecialchars(PUBLIC_PATH . '/task_monitoring.php') ?>" class="docsTmsBtn" style="text-decoration:none;">
-        Switch to Task Monitoring
-      </a>
-      */ ?>
-
       <a href="<?= htmlspecialchars(PUBLIC_PATH . '/add_document.php' . ($assistantModeEnabled && (int)($activeAssistantPrincipal['id'] ?? 0) > 0 ? '?acting_principal_user_id=' . (int)($activeAssistantPrincipal['id'] ?? 0) : '')) ?>" class="btnComp docsAddBtn" style="text-decoration:none;">
         + Add Document
       </a>
@@ -3348,7 +3445,9 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
             $flatAttachmentRecipientCompleted = $flatAttachmentIsRecipient
               && !$flatAttachmentRecipientPendingReceive
               && !$flatAttachmentRecipientInProgress
-              && (int)($flatAttachmentForwardMeta["attachment_forward_open_task_count"] ?? 0) === 0;
+              && (int)($flatAttachmentForwardMeta["attachment_forward_open_task_count"] ?? 0) === 0
+              && !$myHasOpenInbound
+              && !$myHasActionableRole;
             $flatActionRequestTaskStatus = strtoupper((string)($flatActionRequestMeta["action_request_task_status"] ?? ""));
             $flatActionRequestIsSender = (
               !$hasRealBranches
@@ -3396,7 +3495,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
                 $myHasActionableRole = false;
                 $myCanChangeLifecycle = false;
                 $myStatusLabel = "COMPLETE";
-                $myStatusChipClass = "chip incoming";
+                $myStatusChipClass = "chip released";
                 $rowToneClass = "rowToneComplete";
               } elseif ($flatActionRequestRecipientPendingReceive) {
                 $myHasOpenInbound = true;
@@ -3435,6 +3534,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
               $flatAttachmentSenderWaiting,
               $flatAttachmentRecipientPendingReceive,
               $flatAttachmentRecipientInProgress,
+              $flatAttachmentRecipientCompleted,
               $flatActionRequestSenderWaiting,
               $flatActionRequestRecipientPendingReceive,
               $flatActionRequestRecipientInProgress
@@ -3467,6 +3567,7 @@ $calendarInitialWeekIndex = max(0, min(count($calendarWeeks) - 1, (int)floor(($c
                 "deadline_badge_text" => $deadlineBadgeText,
                 "deadline_badge_class" => $deadlineBadgeClass,
                 "subject" => $d["subject"],
+                "can_admin_edit_subject" => $adminModeEnabled ? 1 : 0,
                 "content_type" => $d["content_type"],
                 "comm_type" => $d["comm_type"],
                 "project_codes" => $projectCodes,
@@ -3830,7 +3931,13 @@ $end   = min($totalPages, $page + 2);
     <div class="kv"><div class="k">Your deadline</div><div class="v" id="d_personal_deadline">—</div></div>
     <div class="kv"><div class="k">Urgency</div><div class="v" id="d_deadline_countdown">—</div></div>
     <div class="kv"><div class="k" id="d_activity_label">Days stuck</div><div class="v" id="d_days"></div></div>
-    <div class="kv"><div class="k">Subject</div><div class="v" id="d_subject"></div></div>
+    <div class="kv">
+      <div class="k">Subject</div>
+      <div class="v" style="display:grid; gap:8px; justify-items:end;">
+        <div id="d_subject"></div>
+        <button type="button" class="btnSecondary" id="btnEditDocumentSubject" style="display:none;">Edit subject</button>
+      </div>
+    </div>
     <div class="kv"><div class="k">Type</div><div class="v" id="d_type"></div></div>
     <div class="kv" id="rowEditDocumentDetails" style="display:none;">
       <div class="k">Correction</div>
@@ -4007,7 +4114,7 @@ $end   = min($totalPages, $page + 2);
 
       <div class="drawerActionRemarks" style="margin-top:12px;">
         <label for="d_forward_remarks" class="drawerActionRemarksLabel">Forward remarks (optional)</label>
-        <textarea id="d_forward_remarks" class="search drawerActionRemarksInput" rows="3" placeholder="Add remarks for the recipient right before sending if needed"></textarea>
+        <textarea id="d_forward_remarks" class="search drawerActionRemarksInput" rows="3" maxlength="<?= (int)$dtsRemarksMaxChars ?>" placeholder="Add remarks for the recipient right before sending if needed"></textarea>
       </div>
 
       <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer; margin-top:10px;">
@@ -4088,7 +4195,7 @@ $end   = min($totalPages, $page + 2);
 
       <div class="drawerActionRemarks" style="margin-top:12px;">
         <label for="d_action_request_notes" class="drawerActionRemarksLabel">Request notes (optional)</label>
-        <textarea id="d_action_request_notes" class="search drawerActionRemarksInput" rows="3" placeholder="Add context before sending the request if needed"></textarea>
+        <textarea id="d_action_request_notes" class="search drawerActionRemarksInput" rows="3" maxlength="<?= (int)$dtsRemarksMaxChars ?>" placeholder="Add context before sending the request if needed"></textarea>
       </div>
     </div>
 
@@ -4115,7 +4222,7 @@ $end   = min($totalPages, $page + 2);
 
       <div class="drawerActionRemarks" style="margin-top:12px;">
         <label for="d_action_request_decision_notes" class="drawerActionRemarksLabel">Notes (optional)</label>
-        <textarea id="d_action_request_decision_notes" class="search drawerActionRemarksInput" rows="3" placeholder="Add notes before confirming if needed"></textarea>
+        <textarea id="d_action_request_decision_notes" class="search drawerActionRemarksInput" rows="3" maxlength="<?= (int)$dtsRemarksMaxChars ?>" placeholder="Add notes before confirming if needed"></textarea>
       </div>
       <div id="actionRequestDecisionModalMsg" class="modalMsg" style="display:none;"></div>
     </div>
@@ -4195,7 +4302,7 @@ $end   = min($totalPages, $page + 2);
 
       <div class="drawerActionRemarks" style="margin-top:12px;">
         <label for="d_share_remarks" class="drawerActionRemarksLabel">Share remarks (optional)</label>
-        <textarea id="d_share_remarks" class="search drawerActionRemarksInput" rows="3" placeholder="Add a note for the visibility recipients if needed"></textarea>
+        <textarea id="d_share_remarks" class="search drawerActionRemarksInput" rows="3" maxlength="<?= (int)$dtsRemarksMaxChars ?>" placeholder="Add a note for the visibility recipients if needed"></textarea>
       </div>
 
       <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer; margin-top:10px;">
@@ -4280,7 +4387,7 @@ $end   = min($totalPages, $page + 2);
 
       <div class="drawerActionRemarks" style="margin-top:12px;">
         <label for="d_attachment_forward_remarks" class="drawerActionRemarksLabel">Forward remarks (optional)</label>
-        <textarea id="d_attachment_forward_remarks" class="search drawerActionRemarksInput" rows="3" placeholder="Add one shared note for this attachment-forward batch if needed"></textarea>
+        <textarea id="d_attachment_forward_remarks" class="search drawerActionRemarksInput" rows="3" maxlength="<?= (int)$dtsRemarksMaxChars ?>" placeholder="Add one shared note for this attachment-forward batch if needed"></textarea>
       </div>
     </div>
 
@@ -4305,7 +4412,7 @@ $end   = min($totalPages, $page + 2);
     <div class="modalBody forwardModalBody">
       <div class="drawerActionRemarks">
         <label for="d_attachment_task_done_remarks" class="drawerActionRemarksLabel">Task done remarks (optional)</label>
-        <textarea id="d_attachment_task_done_remarks" class="search drawerActionRemarksInput" rows="3" placeholder="Add completion notes if needed"></textarea>
+        <textarea id="d_attachment_task_done_remarks" class="search drawerActionRemarksInput" rows="3" maxlength="<?= (int)$dtsRemarksMaxChars ?>" placeholder="Add completion notes if needed"></textarea>
       </div>
       <div id="attachmentTaskDoneModalMsg" class="modalMsg" style="display:none;"></div>
     </div>
@@ -4388,6 +4495,31 @@ $end   = min($totalPages, $page + 2);
   </div>
 </div>
 
+<div id="documentSubjectModal" class="modalWrap" aria-hidden="true">
+  <div id="documentSubjectModalBackdrop" class="modalBackdrop"></div>
+  <div class="modalCard forwardModalCard" style="max-width:620px;">
+    <div class="modalHeader">
+      <div>
+        <h3>Edit subject</h3>
+        <div class="attSub mini">Admin correction for this document's subject.</div>
+      </div>
+      <button id="documentSubjectModalClose" class="modalClose" type="button" aria-label="Close">&times;</button>
+    </div>
+
+    <div class="modalBody forwardModalBody">
+      <label for="documentSubjectInput" style="font-size:12px; font-weight:900;">Subject</label>
+      <textarea id="documentSubjectInput" class="search drawerActionRemarksInput" rows="4" maxlength="255" style="width:100%; margin-top:6px;" placeholder="Enter document subject"></textarea>
+      <div class="mini" style="margin-top:6px; opacity:.75;">Maximum 255 characters.</div>
+      <div id="documentSubjectModalMsg" class="modalMsg" style="display:none;"></div>
+    </div>
+
+    <div class="modalFooter">
+      <button id="btnDocumentSubjectCancel" type="button" class="btnSecondary">Cancel</button>
+      <button id="btnDocumentSubjectSave" type="button" class="btnComp">Save subject</button>
+    </div>
+  </div>
+</div>
+
 <div id="releaseModal" class="modalWrap" aria-hidden="true">
   <div id="releaseModalBackdrop" class="modalBackdrop"></div>
   <div class="modalCard forwardModalCard">
@@ -4406,7 +4538,7 @@ $end   = min($totalPages, $page + 2);
 
       <div class="drawerActionRemarks" style="margin-top:12px;">
         <label for="d_release_remarks" class="drawerActionRemarksLabel">Remarks (optional)</label>
-        <textarea id="d_release_remarks" class="search drawerActionRemarksInput" rows="3" placeholder="Add release notes if needed"></textarea>
+        <textarea id="d_release_remarks" class="search drawerActionRemarksInput" rows="3" maxlength="<?= (int)$dtsRemarksMaxChars ?>" placeholder="Add release notes if needed"></textarea>
       </div>
 
       <div id="releaseModalMsg" class="modalMsg" style="display:none;"></div>
@@ -4433,7 +4565,7 @@ $end   = min($totalPages, $page + 2);
     <div class="modalBody forwardModalBody">
       <div class="drawerActionRemarks">
         <label for="d_end_here_remarks" class="drawerActionRemarksLabel">Final note (optional)</label>
-        <textarea id="d_end_here_remarks" class="search drawerActionRemarksInput" rows="3" placeholder="Add a short final note if needed"></textarea>
+        <textarea id="d_end_here_remarks" class="search drawerActionRemarksInput" rows="3" maxlength="<?= (int)$dtsRemarksMaxChars ?>" placeholder="Add a short final note if needed"></textarea>
       </div>
 
       <div id="endHereModalMsg" class="modalMsg" style="display:none;"></div>
@@ -4463,7 +4595,7 @@ $end   = min($totalPages, $page + 2);
 
       <div class="drawerActionRemarks" id="d_pending_route_composer">
         <label for="d_pending_route_remarks" class="drawerActionRemarksLabel">Remarks</label>
-        <textarea id="d_pending_route_remarks" class="search drawerActionRemarksInput" rows="3" placeholder="Add a clear note"></textarea>
+        <textarea id="d_pending_route_remarks" class="search drawerActionRemarksInput" rows="3" maxlength="<?= (int)$dtsRemarksMaxChars ?>" placeholder="Add a clear note"></textarea>
       </div>
     </div>
 

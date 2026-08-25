@@ -13,8 +13,9 @@ $remarks = trim((string)($_POST['remarks'] ?? ''));
 if (strcasecmp($remarks, 'none') === 0) {
   $remarks = '';
 }
-if (mb_strlen($remarks) > 500) {
-  $remarks = mb_substr($remarks, 0, 500);
+$remarksMaxChars = defined('DTS_REMARKS_MAX_CHARS') ? DTS_REMARKS_MAX_CHARS : 5000;
+if (mb_strlen($remarks) > $remarksMaxChars) {
+  $remarks = mb_substr($remarks, 0, $remarksMaxChars);
 }
 
 if ($docId <= 0) {
