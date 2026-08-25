@@ -23,6 +23,7 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 - Task Monitoring dashboard visuals now use a calmer KPI hierarchy, clearer semantic status colors, and more intentional empty states.
 - Admins can now update a document subject directly from the Documents drawer for correction purposes, with the change recorded in the timeline.
 - Division tracking slips now keep the Assigned to field blank, preserve names with `ñ`, and allow admins to add or remove active non-chief staff in the slip name list when a division requests it.
+- Document listing now has targeted database indexes for repeated route/event lookups used by dashboard sorting, status, and visibility calculations.
 - Task Monitoring is temporarily hidden from Document Tracker navigation and switch links while the pilot workflow is still being finalized.
 - Task Monitoring now enforces lead-assignee editing rules on existing monitoring records, so progress-driven workflows no longer let any editor change protected task details after assignment.
 - The chief dashboard now shows focal-person avatars in its grouped attention view, improving visual scanning for accountable personnel.

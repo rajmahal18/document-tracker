@@ -20,6 +20,12 @@ Do not store secrets in this file. Keep credentials, tokens, and private keys ou
 - Current backup script intentionally relies on the server's existing MySQL client auth setup
 - Do not assume explicit `mysqldump -u ... -p ...` flags are needed on prod unless the server auth model changes
 
+## Database Migrations
+
+- Document listing performance indexes: run `db/migrations/20260825_document_listing_performance_indexes.sql` during the next deployment.
+- DTS long remarks: run `db/migrations/20260825_routes_remarks_text.sql` if it has not been applied yet.
+- After index migrations on prod, run `ANALYZE TABLE routes, document_events, documents, document_branches;` so MariaDB refreshes optimizer statistics.
+
 ## Reminder Automation
 
 ### Main reminder scripts
