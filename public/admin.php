@@ -312,100 +312,375 @@ try {
 require __DIR__ . '/../includes/layout.php';
 ?>
 <style>
-.adminShell { display:grid; gap:16px; }
-.adminHero { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; padding:18px 20px; border:1px solid rgba(15,23,42,.08); border-radius:18px; background:linear-gradient(180deg, rgba(255,255,255,.92), rgba(248,250,252,.96)); box-shadow:0 18px 40px rgba(15,23,42,.05); }
-.adminHero h2 { margin:0 0 4px; font-size:1.15rem; }
-.adminHero p { margin:0; color:#475569; max-width:720px; }
-.adminCounts { display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
-.adminStat { min-width:128px; border:1px solid rgba(15,23,42,.08); border-radius:14px; padding:10px 12px; background:#fff; }
-.adminStat strong { display:block; font-size:1.1rem; }
-.adminTabs { display:flex; gap:8px; flex-wrap:wrap; }
-.adminTab { display:inline-flex; align-items:center; gap:8px; padding:10px 14px; border-radius:999px; border:1px solid rgba(15,23,42,.08); background:#fff; color:#0f172a; text-decoration:none; font-weight:600; }
-.adminTab.isActive { background:#0f172a; color:#fff; border-color:#0f172a; }
-.adminCard { border:1px solid rgba(15,23,42,.08); border-radius:18px; background:#fff; box-shadow:0 14px 34px rgba(15,23,42,.04); }
-.adminCardHeader { padding:16px 18px 10px; display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap; }
-.adminCardHeader h3 { margin:0; font-size:1rem; }
-.adminCardHeader p { margin:4px 0 0; color:#64748b; }
-.adminCardBody { padding:0 18px 18px; }
-.adminToolbar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:14px; }
-.adminToolbar form { display:flex; gap:10px; flex-wrap:wrap; align-items:center; width:100%; }
-.adminToolbar input, .adminToolbar select, .adminModalGrid input, .adminModalGrid select { min-height:40px; border-radius:12px; border:1px solid #dbe2ea; padding:0 12px; }
-.adminToolbar .grow { flex:1 1 260px; }
-.adminTableWrap { overflow:auto; }
-.adminTable { width:100%; min-width:980px; border-collapse:collapse; }
-.adminTable th, .adminTable td { padding:12px 10px; border-bottom:1px solid #eef2f7; vertical-align:top; text-align:left; font-size:.94rem; }
-.adminTable th { font-size:.76rem; text-transform:uppercase; letter-spacing:.05em; color:#64748b; }
-.adminMini { font-size:.82rem; color:#64748b; }
-.adminBadge { display:inline-flex; align-items:center; border-radius:999px; padding:4px 9px; font-size:.75rem; font-weight:700; }
-.adminBadge.ok { background:#ecfdf3; color:#166534; }
-.adminBadge.warn { background:#fff7ed; color:#c2410c; }
-.adminBadge.neutral { background:#eef2ff; color:#3730a3; }
-.adminRowActions { display:flex; gap:8px; flex-wrap:wrap; }
-.adminRowActions button, .adminToolbar button, .adminToolbar a { min-height:36px; border-radius:8px; padding:0 12px; font-size:.8rem; font-weight:800; box-shadow:none; }
-.adminDanger { background:#b42318 !important; border:1px solid #b42318 !important; color:#fff !important; }
-.adminGhost { background:transparent; border:1px solid #cfd6dd; color:#0b3a66; }
-.adminPrimary { background:#0b3a66; border:1px solid #0b3a66; color:#fff; }
-.adminPrimary:hover { background:#082b4d; border-color:#082b4d; }
-.adminDanger:hover { background:#912018 !important; border-color:#912018 !important; }
-.adminGhost:hover { background:rgba(11,58,102,.08); border-color:#0b3a66; }
-.adminModalWrap[hidden] { display:none !important; }
-.adminModalWrap { position:fixed; inset:0; z-index:11000; }
-.adminModalBackdrop { position:absolute; inset:0; background:rgba(15,23,42,.42); }
-.adminModalCard { position:relative; z-index:1; width:min(760px, calc(100vw - 28px)); max-height:calc(100vh - 28px); overflow:auto; margin:14px auto; background:#fff; border-radius:22px; box-shadow:0 24px 70px rgba(15,23,42,.32); }
-.adminModalHead { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding:18px 18px 10px; border-bottom:1px solid #eef2f7; }
-.adminModalHead h3 { margin:0; }
-.adminModalBody { padding:18px; }
-.adminModalGrid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; }
-.adminModalGrid .span2 { grid-column:1 / -1; }
-.adminModalActions { display:flex; justify-content:flex-end; gap:10px; margin-top:16px; flex-wrap:wrap; }
-.adminMessage { display:none; margin-top:12px; padding:11px 13px; border-radius:12px; font-size:.92rem; }
-.adminMessage.ok { display:block; background:#ecfdf3; color:#166534; border:1px solid #bbf7d0; }
-.adminMessage.error { display:block; background:#fef2f2; color:#991b1b; border:1px solid #fecaca; }
-.adminCalendarGrid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px; }
-.adminFormGrid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; }
-.adminFormGrid .span2 { grid-column:1 / -1; }
-.adminFormGrid label { display:block; margin-bottom:6px; font-size:.78rem; font-weight:800; color:#475569; text-transform:uppercase; letter-spacing:.04em; }
-.adminFormGrid input, .adminFormGrid select, .adminFormGrid textarea { width:100%; min-height:40px; border-radius:12px; border:1px solid #dbe2ea; padding:0 12px; }
-.adminFormGrid textarea { min-height:86px; padding:10px 12px; resize:vertical; }
-.adminChecks { display:flex; gap:8px; flex-wrap:wrap; }
-.adminChecks label { margin:0; display:inline-flex; align-items:center; gap:6px; border:1px solid #dbe2ea; border-radius:999px; padding:8px 10px; text-transform:none; letter-spacing:0; font-size:.84rem; color:#0f172a; }
-.adminChecks input { width:auto; min-height:auto; }
-.adminCalendarPicker { border:1px solid #e2e8f0; border-radius:18px; padding:14px; background:linear-gradient(180deg,#fff,#f8fafc); }
-.adminCalendarPickerHead { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px; }
-.adminCalendarPickerTitle { font-weight:900; color:#0f172a; }
-.adminCalendarPickerNav { display:flex; gap:8px; }
-.adminCalendarPickerNav button { min-height:30px; border-radius:8px; padding:0 10px; }
+.adminShell,
+.adminModalWrap {
+  --admin-blue: #0b3a66;
+  --admin-blue-soft: #eaf3fb;
+  --admin-orange: #e87722;
+  --admin-line: #dde6ee;
+  --admin-soft: #f6f8fb;
+  --admin-text: #0f172a;
+  --admin-muted: #64748b;
+}
+.adminShell {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+.adminHero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: end;
+  padding: 16px 0 14px;
+  border-bottom: 1px solid var(--admin-line);
+}
+.adminHero h2 { margin: 0 0 4px; color: var(--admin-text); font-size: 1.35rem; line-height: 1.18; }
+.adminHero p { margin: 0; max-width: 760px; color: var(--admin-muted); font-size: .94rem; line-height: 1.45; }
+.adminCounts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(118px, 1fr));
+  gap: 8px;
+  min-width: 260px;
+}
+.adminStat {
+  padding: 10px 12px;
+  border: 1px solid var(--admin-line);
+  border-left: 4px solid var(--admin-orange);
+  border-radius: 8px;
+  background: #fff;
+}
+.adminStat strong { display: block; margin: 2px 0; color: var(--admin-text); font-size: 1.2rem; line-height: 1; }
+.adminTabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding-bottom: 2px;
+}
+.adminTab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  text-decoration: none;
+  font-size: .86rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.adminTab::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #cbd5e1;
+}
+.adminTab:hover { border-color: #9cc2e5; color: var(--admin-blue); background: #f8fbff; }
+.adminTab.isActive { background: var(--admin-blue); color: #fff; border-color: var(--admin-blue); }
+.adminTab.isActive::before { background: var(--admin-orange); }
+.adminCard {
+  min-width: 0;
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  background: #fff;
+}
+.adminCard .adminCard {
+  border-radius: 8px;
+  background: #fbfcfe;
+  box-shadow: none !important;
+}
+.adminCardHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  border-bottom: 1px solid #edf2f7;
+}
+.adminCardHeader h3 { margin: 0; color: var(--admin-text); font-size: 1rem; line-height: 1.25; }
+.adminCardHeader p { margin: 4px 0 0; max-width: 780px; color: var(--admin-muted); font-size: .88rem; line-height: 1.42; }
+.adminCardBody { min-width: 0; padding: 14px 16px 16px; }
+.adminToolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.adminToolbar form { display: grid; grid-template-columns: minmax(220px, 1fr) 180px auto auto; gap: 8px; align-items: center; width: 100%; }
+.adminToolbar input,
+.adminToolbar select,
+.adminModalGrid input,
+.adminModalGrid select,
+.adminFormGrid input,
+.adminFormGrid select,
+.adminFormGrid textarea,
+.adminRowActions input,
+.adminRowActions select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #cfd8e3;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--admin-text);
+  padding: 0 10px;
+  font: inherit;
+  font-size: .9rem;
+}
+.adminToolbar .grow { min-width: 0; }
+.adminTableWrap {
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  border: 1px solid #e8eef5;
+  border-radius: 8px;
+}
+.adminTable { width: 100%; min-width: 880px; border-collapse: collapse; background: #fff; }
+.adminTable th,
+.adminTable td {
+  padding: 11px 10px;
+  border-bottom: 1px solid #edf2f7;
+  vertical-align: top;
+  text-align: left;
+  color: var(--admin-text);
+  font-size: .9rem;
+  line-height: 1.38;
+}
+.adminTable tbody tr:hover { background: #f8fbff; }
+.adminTable tbody tr:last-child td { border-bottom: 0; }
+.adminTable th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f8fafc;
+  color: #475569;
+  font-size: .72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.adminTable strong { color: var(--admin-text); }
+.adminMini { display: block; min-width: 0; color: var(--admin-muted); font-size: .8rem; line-height: 1.35; overflow-wrap: anywhere; }
+.adminBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: .72rem;
+  font-weight: 900;
+  line-height: 1.1;
+}
+.adminBadge.ok { background: #e8f8ef; color: #087443; }
+.adminBadge.warn { background: #fff3e6; color: #b54708; }
+.adminBadge.neutral { background: var(--admin-blue-soft); color: var(--admin-blue); }
+.adminRowActions { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; }
+.adminRowActions button,
+.adminRowActions a,
+.adminToolbar button,
+.adminToolbar a,
+.adminPrimary,
+.adminGhost,
+.adminDanger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  border-radius: 8px;
+  padding: 0 11px;
+  font-size: .78rem;
+  font-weight: 900;
+  line-height: 1;
+  text-decoration: none;
+  box-shadow: none;
+  cursor: pointer;
+}
+.adminDanger { background: #b42318 !important; border: 1px solid #b42318 !important; color: #fff !important; }
+.adminGhost { background: #fff; border: 1px solid #cfd8e3; color: var(--admin-blue); }
+.adminPrimary { background: var(--admin-blue); border: 1px solid var(--admin-blue); color: #fff; }
+.adminPrimary:hover { background: #082b4d; border-color: #082b4d; }
+.adminDanger:hover { background: #912018 !important; border-color: #912018 !important; }
+.adminGhost:hover { background: var(--admin-blue-soft); border-color: #8fb8dd; }
+.adminModalWrap[hidden] { display: none !important; }
+.adminModalWrap { position: fixed; inset: 0; z-index: 11000; }
+.adminModalBackdrop { position: absolute; inset: 0; background: rgba(15, 23, 42, .48); }
+.adminModalCard {
+  position: relative;
+  z-index: 1;
+  width: min(760px, calc(100vw - 28px));
+  max-height: calc(100vh - 28px);
+  overflow: auto;
+  margin: 14px auto;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, .32);
+}
+.adminModalHead { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 16px; border-bottom: 1px solid #edf2f7; }
+.adminModalHead h3 { margin: 0; }
+.adminModalBody { padding: 16px; }
+.adminModalGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.adminModalGrid .span2 { grid-column: 1 / -1; }
+.adminModalGrid label { display: block; margin-bottom: 6px; color: #475569; font-size: .76rem; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; }
+.adminModalActions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.adminMessage { display: none; margin: 0 0 12px; padding: 10px 12px; border-radius: 8px; font-size: .88rem; }
+.adminMessage.ok { display: block; background: #ecfdf3; color: #166534; border: 1px solid #bbf7d0; }
+.adminMessage.error { display: block; background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+.adminCalendarGrid { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 14px; align-items: start; }
+.adminFormGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.adminFormGrid .span2 { grid-column: 1 / -1; }
+.adminFormGrid label { display: block; margin-bottom: 6px; color: #475569; font-size: .76rem; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; }
+.adminFormGrid textarea { min-height: 86px; padding: 10px; resize: vertical; }
+.adminChecks { display: flex; gap: 7px; flex-wrap: wrap; }
+.adminChecks label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  margin: 0;
+  padding: 0 10px;
+  border: 1px solid #cfd8e3;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--admin-text);
+  font-size: .82rem;
+  font-weight: 800;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.adminChecks input { width: auto; min-height: auto; }
+.adminCalendarPicker { border: 1px solid #dbe5ef; border-radius: 8px; padding: 12px; background: #fff; }
+.adminCalendarPickerHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.adminCalendarPickerTitle { color: var(--admin-text); font-weight: 900; }
+.adminCalendarPickerNav { display: flex; gap: 8px; }
+.adminCalendarPickerNav button { min-height: 30px; border-radius: 8px; padding: 0 10px; }
 .adminCalendarWeekdays,
-.adminCalendarDays { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); gap:6px; }
-.adminCalendarWeekdays span { text-align:center; font-size:.72rem; font-weight:900; color:#64748b; text-transform:uppercase; letter-spacing:.04em; }
-.adminCalendarDayBtn { position:relative; min-height:42px; border:1px solid #e2e8f0; border-radius:12px; background:#fff; color:#0f172a; font-weight:900; cursor:pointer; }
-.adminCalendarDayBtn.isMuted { opacity:.42; }
-.adminCalendarDayBtn.isToday { border-color:#0f172a; }
+.adminCalendarDays { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; }
+.adminCalendarWeekdays span { text-align: center; color: #64748b; font-size: .68rem; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; }
+.adminCalendarDayBtn { position: relative; min-height: 40px; border: 1px solid #dbe5ef; border-radius: 8px; background: #fff; color: var(--admin-text); font-weight: 900; cursor: pointer; }
+.adminCalendarDayBtn.isMuted { opacity: .42; }
+.adminCalendarDayBtn.isToday { border-color: var(--admin-orange); box-shadow: inset 0 0 0 1px var(--admin-orange); }
 .adminCalendarDayBtn.isSelected,
-.adminCalendarDayBtn.isRange { background:#0f172a; color:#fff; border-color:#0f172a; }
-.adminCalendarDayBtn.hasException::after { content:""; position:absolute; left:50%; bottom:6px; width:5px; height:5px; border-radius:999px; background:#f97316; transform:translateX(-50%); }
-.adminCalendarDayBtn.isWorkingException::after { background:#16a34a; }
-.adminCalendarLegend { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; font-size:.78rem; color:#64748b; font-weight:700; }
-.adminCalendarLegend span { display:inline-flex; align-items:center; gap:6px; }
-.adminCalendarLegend i { width:7px; height:7px; border-radius:999px; display:inline-block; background:#f97316; }
-.adminCalendarLegend .work i { background:#16a34a; }
-.adminCalendarSelectedHint { margin-top:10px; padding:9px 10px; border-radius:12px; background:#eef2ff; color:#3730a3; font-size:.84rem; font-weight:800; }
-.adminSlipOrderGrid { display:grid; grid-template-columns:minmax(240px,.36fr) minmax(0,1fr); gap:16px; align-items:start; }
-.adminSlipOrderList { display:grid; gap:10px; }
-.adminSlipOrderItem { display:grid; grid-template-columns:74px minmax(0,1fr) auto; gap:12px; align-items:center; padding:12px; border:1px solid #e2e8f0; border-radius:14px; background:#fff; }
-.adminSlipOrderItem input { width:100%; min-height:38px; border:1px solid #dbe2ea; border-radius:12px; padding:0 10px; font-weight:900; }
-.adminSlipOrderRemove { white-space:nowrap; }
-.adminSlipOrderName { font-weight:900; color:#0f172a; }
-.adminSlipPreview { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); border:1px solid #cbd5e1; border-radius:14px; overflow:hidden; background:#fff; }
-.adminSlipPreview div { min-height:48px; padding:10px; border-right:1px solid #e2e8f0; border-bottom:1px solid #e2e8f0; font-size:.88rem; font-weight:900; }
-.adminSlipPreview div:nth-child(4n) { border-right:0; }
-.adminSlipPreview div:nth-last-child(-n+4) { border-bottom:0; }
-@media (max-width: 860px) {
-  .adminHero { flex-direction:column; }
-  .adminCounts { justify-content:flex-start; }
-  .adminModalGrid { grid-template-columns:1fr; }
-  .adminCalendarGrid, .adminFormGrid, .adminSlipOrderGrid { grid-template-columns:1fr; }
-  .adminFormGrid .span2 { grid-column:auto; }
+.adminCalendarDayBtn.isRange { background: var(--admin-blue); color: #fff; border-color: var(--admin-blue); }
+.adminCalendarDayBtn.hasException::after { content: ""; position: absolute; left: 50%; bottom: 5px; width: 5px; height: 5px; border-radius: 999px; background: #f97316; transform: translateX(-50%); }
+.adminCalendarDayBtn.isWorkingException::after { background: #16a34a; }
+.adminCalendarLegend { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; color: var(--admin-muted); font-size: .78rem; font-weight: 700; }
+.adminCalendarLegend span { display: inline-flex; align-items: center; gap: 6px; }
+.adminCalendarLegend i { display: inline-block; width: 7px; height: 7px; border-radius: 999px; background: #f97316; }
+.adminCalendarLegend .work i { background: #16a34a; }
+.adminCalendarSelectedHint { margin-top: 10px; padding: 9px 10px; border-radius: 8px; background: var(--admin-blue-soft); color: var(--admin-blue); font-size: .84rem; font-weight: 800; }
+.adminSlipOrderGrid { display: grid; grid-template-columns: minmax(260px, .38fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.adminSlipOrderList { display: grid; gap: 8px; }
+.adminSlipOrderItem { display: grid; grid-template-columns: 68px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px; border: 1px solid #dbe5ef; border-radius: 8px; background: #fff; }
+.adminSlipOrderItem input { width: 100%; min-height: 36px; border: 1px solid #cfd8e3; border-radius: 8px; padding: 0 10px; font-weight: 900; }
+.adminSlipOrderRemove { white-space: nowrap; }
+.adminSlipOrderName { display: block; color: var(--admin-text); font-weight: 900; overflow-wrap: anywhere; }
+.adminSlipPreview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; background: #fff; }
+.adminSlipPreview div { min-height: 46px; padding: 9px; border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; font-size: .82rem; font-weight: 900; overflow-wrap: anywhere; }
+.adminSlipPreview div:nth-child(4n) { border-right: 0; }
+.adminSlipPreview div:nth-last-child(-n+4) { border-bottom: 0; }
+@media (max-width: 980px) {
+  .adminHero { grid-template-columns: minmax(0, 1fr); align-items: start; }
+  .adminCounts { min-width: 0; width: 100%; }
+  .adminToolbar form { grid-template-columns: minmax(0, 1fr) 160px auto auto; }
+  .adminCalendarGrid,
+  .adminFormGrid,
+  .adminSlipOrderGrid { grid-template-columns: minmax(0, 1fr); }
+  .adminFormGrid .span2 { grid-column: auto; }
+}
+@media (max-width: 720px) {
+  .adminShell { gap: 12px; }
+  .adminHero { padding-top: 8px; }
+  .adminHero h2 { font-size: 1.15rem; }
+  .adminHero p { font-size: .86rem; }
+  .adminCounts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .adminStat { min-width: 0; padding: 9px 10px; }
+  .adminTabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 7px; scrollbar-width: thin; }
+  .adminTab { flex: 0 0 auto; min-height: 36px; padding: 0 11px; font-size: .82rem; }
+  .adminCardHeader,
+  .adminCardBody,
+  .adminModalHead,
+  .adminModalBody { padding: 12px; }
+  .adminToolbar form { grid-template-columns: minmax(0, 1fr); }
+  .adminToolbar button,
+  .adminToolbar a,
+  .adminPrimary,
+  .adminGhost,
+  .adminDanger { width: 100%; }
+  .adminTableWrap { overflow: visible; border: 0; border-radius: 0; }
+  .adminTable,
+  .adminTable thead,
+  .adminTable tbody,
+  .adminTable tr,
+  .adminTable td {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .adminTable thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .adminTable tbody { display: grid; gap: 10px; }
+  .adminTable tr {
+    border: 1px solid #dbe5ef;
+    border-left: 4px solid var(--admin-blue);
+    border-radius: 8px;
+    background: #fff;
+    overflow: hidden;
+  }
+  .adminTable td {
+    display: grid;
+    grid-template-columns: 96px minmax(0, 1fr);
+    gap: 10px;
+    padding: 9px 10px;
+    border-bottom: 1px solid #edf2f7;
+    font-size: .86rem;
+  }
+  .adminTable td:last-child { border-bottom: 0; }
+  .adminTable td[data-label]::before {
+    content: attr(data-label);
+    color: #64748b;
+    font-size: .7rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+  }
+  .adminTable td[colspan] {
+    display: block;
+  }
+  .adminRowActions { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  .adminRowActions input,
+  .adminRowActions select {
+    min-width: 0 !important;
+  }
+  .adminRowActions button,
+  .adminRowActions a { width: 100%; }
+  .adminFormGrid [style*="grid-template-columns"] {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .adminModalGrid { grid-template-columns: minmax(0, 1fr); }
+  .adminModalGrid .span2 { grid-column: auto; }
+  .adminModalActions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .adminCalendarDayBtn { min-height: 36px; font-size: .8rem; }
+  .adminSlipOrderItem { grid-template-columns: 62px minmax(0, 1fr); }
+  .adminSlipOrderRemove { grid-column: 1 / -1; }
+  .adminSlipPreview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .adminSlipPreview div:nth-child(2n) { border-right: 0; }
+  .adminSlipPreview div:nth-last-child(-n+4) { border-bottom: 1px solid #e2e8f0; }
+  .adminSlipPreview div:nth-last-child(-n+2) { border-bottom: 0; }
+}
+@media (max-width: 420px) {
+  .adminCounts,
+  .adminRowActions { grid-template-columns: minmax(0, 1fr); }
+  .adminTable td { grid-template-columns: minmax(0, 1fr); gap: 4px; }
 }
 </style>
 
@@ -420,7 +695,7 @@ $activeDocs = count(array_filter($documents, static fn(array $row): bool => strt
   <section class="adminHero">
     <div>
       <h2>Admin workspace</h2>
-      <p>Manage users and documents from one place. This page is system-level only: full visibility, no redaction, and destructive actions stay isolated from normal workflow screens.</p>
+      <p>Manage system users, document records, project codes, working calendar settings, and DTS slip order.</p>
     </div>
     <div class="adminCounts">
       <div class="adminStat"><span class="adminMini">Users</span><strong><?= (int)$totalUsers ?></strong><span class="adminMini"><?= (int)$activeUsers ?> active</span></div>
@@ -481,19 +756,19 @@ $activeDocs = count(array_filter($documents, static fn(array $row): bool => strt
                       'authority_role' => $authorityRole,
                       'section_id' => isset($user['section_id']) ? (int)$user['section_id'] : 0,
                     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') ?>'>
-                  <td>
+                  <td data-label="Name">
                     <strong><?= htmlspecialchars((string)$user['full_name']) ?></strong>
                     <?php if ((string)($user['official_title'] ?? '') !== ''): ?>
                       <div class="adminMini"><?= htmlspecialchars((string)$user['official_title']) ?></div>
                     <?php endif; ?>
                   </td>
-                  <td>
+                  <td data-label="Login">
                     <?php if (trim((string)($user['username'] ?? '')) !== ''): ?>
                       <div><strong>@<?= htmlspecialchars((string)$user['username']) ?></strong></div>
                     <?php endif; ?>
                     <div class="adminMini"><?= htmlspecialchars((string)$user['email']) ?></div>
                   </td>
-                  <td>
+                  <td data-label="Office">
                     <?php if ((string)($user['division_name'] ?? '') !== '' || (string)($user['section_name'] ?? '') !== ''): ?>
                       <div><?= htmlspecialchars(trim((string)($user['division_name'] ?? ''))) ?></div>
                       <div class="adminMini"><?= htmlspecialchars(trim((string)($user['section_name'] ?? ''))) ?></div>
@@ -501,24 +776,24 @@ $activeDocs = count(array_filter($documents, static fn(array $row): bool => strt
                       <span class="adminMini">No section assigned</span>
                     <?php endif; ?>
                   </td>
-                  <td>
+                  <td data-label="Role">
                     <span class="adminBadge <?= (string)($user['role'] ?? 'user') === 'admin' ? 'neutral' : 'ok' ?>"><?= htmlspecialchars(strtoupper((string)($user['role'] ?? 'user'))) ?></span>
                     <div class="adminMini" style="margin-top:6px;"><?= htmlspecialchars(str_replace('_', ' ', $authorityRole)) ?></div>
                   </td>
-                  <td>
+                  <td data-label="Status">
                     <span class="adminBadge <?= (int)($user['is_active'] ?? 0) === 1 ? 'ok' : 'warn' ?>"><?= (int)($user['is_active'] ?? 0) === 1 ? 'ACTIVE' : 'INACTIVE' ?></span>
                     <?php if ((int)($user['must_change_password'] ?? 0) === 1): ?>
                       <div class="adminMini" style="margin-top:6px;">Must change password</div>
                     <?php endif; ?>
                   </td>
-                  <td>
+                  <td data-label="Last seen">
                     <?php if (!empty($user['last_seen_at'])): ?>
                       <?= htmlspecialchars((string)$user['last_seen_at']) ?>
                     <?php else: ?>
                       <span class="adminMini">Never</span>
                     <?php endif; ?>
                   </td>
-                  <td>
+                  <td data-label="Actions">
                     <div class="adminRowActions">
                       <button type="button" class="adminGhost" onclick="openUserModalFromRow(this)">Edit</button>
                       <button type="button" class="adminGhost" onclick="resetUserPassword(<?= (int)$user['id'] ?>, '<?= htmlspecialchars((string)$user['full_name'], ENT_QUOTES, 'UTF-8') ?>')">Reset password</button>
@@ -574,29 +849,29 @@ $activeDocs = count(array_filter($documents, static fn(array $row): bool => strt
               <?php endif; ?>
               <?php foreach ($documents as $doc): ?>
                 <tr id="doc-row-<?= (int)$doc['id'] ?>">
-                  <td>
+                  <td data-label="Tracking">
                     <strong><?= htmlspecialchars((string)($doc['tracking_no'] ?? '—')) ?></strong>
                     <div class="adminMini">#<?= (int)$doc['id'] ?></div>
                   </td>
-                  <td>
+                  <td data-label="Subject">
                     <strong><?= htmlspecialchars((string)($doc['subject'] ?? 'Untitled')) ?></strong>
                     <div class="adminMini">Requester: <?= htmlspecialchars((string)($doc['requester'] ?? '—')) ?></div>
                     <div class="adminMini">Attachments: <?= (int)($doc['attachment_count'] ?? 0) ?></div>
                   </td>
-                  <td>
+                  <td data-label="Origin">
                     <div><?= htmlspecialchars(trim((string)($doc['origin_division_name'] ?? ''))) ?></div>
                     <div class="adminMini"><?= htmlspecialchars(trim((string)($doc['origin_section_name'] ?? ''))) ?></div>
                   </td>
-                  <td>
+                  <td data-label="Holder">
                     <div><?= htmlspecialchars(trim((string)($doc['holder_division_name'] ?? ''))) ?></div>
                     <div class="adminMini"><?= htmlspecialchars(trim((string)($doc['holder_section_name'] ?? ''))) ?></div>
                   </td>
-                  <td><span class="adminBadge neutral"><?= htmlspecialchars(strtoupper((string)($doc['current_status'] ?? ''))) ?></span></td>
-                  <td>
+                  <td data-label="Status"><span class="adminBadge neutral"><?= htmlspecialchars(strtoupper((string)($doc['current_status'] ?? ''))) ?></span></td>
+                  <td data-label="Created">
                     <div><?= htmlspecialchars((string)($doc['created_at'] ?? '')) ?></div>
                     <div class="adminMini">by <?= htmlspecialchars((string)($doc['created_by_name'] ?? 'Unknown')) ?></div>
                   </td>
-                  <td>
+                  <td data-label="Actions">
                     <div class="adminRowActions">
                       <a class="adminGhost" href="<?= PUBLIC_PATH ?>/view_document.php?id=<?= (int)$doc['id'] ?>" target="_blank" rel="noopener">View</a>
                       <button type="button" class="adminDanger" onclick="deleteDocument(<?= (int)$doc['id'] ?>, '<?= htmlspecialchars((string)($doc['tracking_no'] ?: ('#' . (int)$doc['id'])), ENT_QUOTES, 'UTF-8') ?>')">Delete</button>
@@ -655,15 +930,15 @@ $activeDocs = count(array_filter($documents, static fn(array $row): bool => strt
               <tbody>
                 <?php foreach ($projectsMasterlist as $project): ?>
                   <tr>
-                    <td><strong><?= htmlspecialchars((string)($project['project_code'] ?? '')) ?></strong></td>
-                    <td><?= htmlspecialchars((string)($project['title'] ?? '')) ?></td>
-                    <td>
+                    <td data-label="Project Code"><strong><?= htmlspecialchars((string)($project['project_code'] ?? '')) ?></strong></td>
+                    <td data-label="Title"><?= htmlspecialchars((string)($project['title'] ?? '')) ?></td>
+                    <td data-label="Status">
                       <span class="adminBadge <?= (int)($project['is_active'] ?? 0) === 1 ? 'ok' : 'warn' ?>">
                         <?= (int)($project['is_active'] ?? 0) === 1 ? 'ACTIVE' : 'INACTIVE' ?>
                       </span>
                     </td>
-                    <td><?= htmlspecialchars((string)($project['updated_at'] ?? '')) ?></td>
-                    <td>
+                    <td data-label="Updated"><?= htmlspecialchars((string)($project['updated_at'] ?? '')) ?></td>
+                    <td data-label="Actions">
                       <form method="post" class="adminRowActions" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
                         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
                         <input type="hidden" name="project_action" value="update">
@@ -995,22 +1270,22 @@ $activeDocs = count(array_filter($documents, static fn(array $row): bool => strt
                           : substr((string)($exception['start_time'] ?? ''), 0, 5) . ' - ' . substr((string)($exception['end_time'] ?? ''), 0, 5);
                       ?>
                       <tr id="calendar-exception-<?= (int)$exception['id'] ?>">
-                        <td><strong><?= htmlspecialchars((string)$exception['exception_date']) ?></strong></td>
-                        <td><span class="adminBadge <?= $isNonWorkingException ? 'warn' : 'ok' ?>"><?= htmlspecialchars(str_replace('_', ' ', strtoupper($exceptionType))) ?></span></td>
-                        <td><?= htmlspecialchars($hours) ?></td>
-                        <td>
+                        <td data-label="Date"><strong><?= htmlspecialchars((string)$exception['exception_date']) ?></strong></td>
+                        <td data-label="Type"><span class="adminBadge <?= $isNonWorkingException ? 'warn' : 'ok' ?>"><?= htmlspecialchars(str_replace('_', ' ', strtoupper($exceptionType))) ?></span></td>
+                        <td data-label="Hours"><?= htmlspecialchars($hours) ?></td>
+                        <td data-label="Title / Notes">
                           <strong><?= htmlspecialchars((string)($exception['title'] ?? '')) ?></strong>
                           <?php if (trim((string)($exception['notes'] ?? '')) !== ''): ?>
                             <div class="adminMini"><?= htmlspecialchars((string)$exception['notes']) ?></div>
                           <?php endif; ?>
                         </td>
-                        <td>
+                        <td data-label="Updated">
                           <div><?= htmlspecialchars((string)($exception['updated_at'] ?? '')) ?></div>
                           <?php if (trim((string)($exception['updated_by_name'] ?? '')) !== ''): ?>
                             <div class="adminMini">by <?= htmlspecialchars((string)$exception['updated_by_name']) ?></div>
                           <?php endif; ?>
                         </td>
-                        <td>
+                        <td data-label="Actions">
                           <button type="button" class="adminDanger" onclick="deleteCalendarException(<?= (int)$exception['id'] ?>)">Delete</button>
                         </td>
                       </tr>

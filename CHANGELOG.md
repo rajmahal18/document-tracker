@@ -20,6 +20,7 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 - Task Monitoring workflow template steps now support main-path, conditional, and optional placement so issue-only work such as rework or LOD steps can stay outside the normal task timeline until reached by a branch.
 
 ### Changed
+- Admin workspace layout now uses clearer tabs, denser management tables, cleaner controls, and responsive mobile rows for easier system maintenance.
 - Task Monitoring dashboard visuals now use a calmer KPI hierarchy, clearer semantic status colors, and more intentional empty states.
 - Admins can now update a document subject directly from the Documents drawer for correction purposes, with the change recorded in the timeline.
 - Division tracking slips now keep the Assigned to field blank, preserve names with `ñ`, and allow admins to add or remove active non-chief staff in the slip name list when a division requests it.
@@ -49,6 +50,7 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 - Split by Project Code now supports grouped project codes, so selected codes can create one linked child document instead of always creating one child per project.
 
 ### Fixed
+- Mobile document list rows now keep overdue deadline badges and long requester names from overlapping in the latest activity area.
 - Admin and Changelogs now load the shared footer scripts, so the hamburger menu opens the side navigation normally on those pages.
 - DTS timeline and document-list remarks now include pending-route remark events and signature/approval request or response notes that were already saved in the audit payload.
 - DTS document lists now treat completed Forward Attach tasks as completed list items instead of letting the attachment delivery route keep them in an active/incoming-style state.

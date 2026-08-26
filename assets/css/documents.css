@@ -2030,6 +2030,13 @@ body[data-theme="dark"] .docsCalendarWeekBtn {
 .requesterBadgeRow { display: flex; flex-wrap: wrap; gap: 6px; }
 .requesterName { font-size: 14px; line-height: 1.35; font-weight: 800; color: #101828; }
 .requesterCell .requesterName { overflow-wrap: anywhere; }
+.requesterMeta span,
+.requesterValueStrong {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.requesterMeta .docMetaDot { flex: 0 0 auto; }
 .requesterValueStrong { font-weight: 900; color: #0f172a; }
 .docsEmptyState { padding: 34px 18px !important; text-align: center; color: #667085; }
 .docsRowJustFocused {
@@ -2910,9 +2917,13 @@ body[data-theme="dark"] .chiefInlineEmpty {
   .deadlineBadge {
     align-self: flex-start;
     max-width: 100%;
+    min-width: 0;
     min-height: 30px;
     padding: 0 10px;
     font-size: 11px;
+    line-height: 1.25;
+    text-align: center;
+    white-space: normal;
   }
   .deadlineMetaLine {
     color: #667085;
@@ -2942,6 +2953,24 @@ body[data-theme="dark"] .chiefInlineEmpty {
 }
 
 @media (max-width: 560px) {
+  .docsTableModern tbody tr {
+    grid-template-areas:
+      "status state"
+      "document document"
+      "route route"
+      "deadline deadline"
+      "requester requester"
+      "remark remark";
+  }
+
+  .requesterCell {
+    padding-top: 8px;
+  }
+
+  .requesterMeta {
+    align-items: flex-start;
+  }
+
   .chiefInlineStats {
     grid-template-columns: 1fr;
   }
