@@ -2,6 +2,16 @@
 
 Purpose: keep a short, practical record of recurring bug patterns, where they were actually rooted, and the fastest way to debug them next time.
 
+## PDF preview fails on compressed cross-reference streams
+
+Date encountered: 2026-09-10
+
+- Source: `public/view_document.php` reads ordered, branch-scoped `document_attachments` files, converts images, and imports every page through FPDI. Ghostscript is intentionally disabled in this flow.
+- Root cause: the free FPDI parser cannot read some valid PDFs with compressed cross-reference streams. An uncaught `CrossReferenceException` from `setSourceFile()` caused HTTP 500; parsing can also fail during page import or final serialization.
+- Fix: `core/document_pdf_preview.php` builds the complete PDF in memory before response headers and releases parser handles even on failure. The viewer catches FPDI exceptions and provides the complete selected attachment list in its existing order, with links to the original preview/download endpoints. Assistant links preserve the validated acting principal; attachment endpoints still enforce access checks.
+- Debugging lesson: a PDF opening in a browser does not mean FPDI can import it. Do not skip failed attachments and return an incomplete merged PDF. Catch the entire import/serialization operation before emitting PDF headers or bytes, and keep parser details in server logs.
+- Regression check: `php tests/document_pdf_preview_test.php` uses real FPDI fixtures with stubbed metadata/access to cover compatible merges, unsupported compression, assistant link context, and denied access.
+
 ## 1. Sender action buttons stayed visible during pending signature/approval request
 
 Date encountered: 2026-06-03

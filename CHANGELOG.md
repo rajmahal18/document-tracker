@@ -50,6 +50,7 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 - Split by Project Code now supports grouped project codes, so selected codes can create one linked child document instead of always creating one child per project.
 
 ### Fixed
+- Document preview now provides individual attachment preview and download links when a PDF cannot be combined, instead of failing to open the document.
 - Mobile document list rows now keep overdue deadline badges and long requester names from overlapping in the latest activity area.
 - Admin and Changelogs now load the shared footer scripts, so the hamburger menu opens the side navigation normally on those pages.
 - DTS timeline and document-list remarks now include pending-route remark events and signature/approval request or response notes that were already saved in the audit payload.
@@ -81,6 +82,7 @@ Summary: Ongoing improvements that are not yet packaged into a released patch.
 ### Removed
 
 ### Affected Areas
+- Document Preview
 - Chief Dashboard
 - Forward Attach
 - Signature / Approval Request Flow

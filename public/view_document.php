@@ -397,18 +397,59 @@ if (is_file($autoload)) {
   require_once $autoload;
 
   if (class_exists('setasign\\Fpdi\\Fpdi')) {
-    $pdf = new setasign\Fpdi\Fpdi();
-    $pdf->SetAutoPageBreak(false);
-
-    foreach ($mergeFiles as $file) {
-      $pageCount = $pdf->setSourceFile($file);
-      for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
-        $tpl  = $pdf->importPage($pageNo);
-        $size = $pdf->getTemplateSize($tpl);
-
-        $pdf->AddPage($size['orientation'], [$size['width'], $size['height']]);
-        $pdf->useTemplate($tpl);
-      }
+    require_once __DIR__ . '/../core/document_pdf_preview.php';
+    try {
+      $preview = build_document_pdf_preview($mergeFiles);
+    } catch (setasign\Fpdi\FpdiException $e) {
+      error_log('Document PDF preview failed for document ' . $docId . ': ' . get_class($e) . ': ' . $e->getMessage());
+      // Keep every selected attachment available; never return a partial merge.
+      // These endpoints recheck attachment access and stream the original files.
+      $identity = effective_document_identity($conn);
+      $principalId = (int)($identity['acting_principal_user_id'] ?? 0);
+      $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+      header('Content-Type: text/html; charset=utf-8');
+      header('X-Content-Type-Options: nosniff');
+      header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+      header('Pragma: no-cache');
+      ?>
+      <!doctype html>
+      <html lang="en">
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Document attachments</title>
+        <style>
+          body { margin: 0; font: 15px/1.5 system-ui, sans-serif; color: #263445; background: #fff; }
+          main { max-width: 900px; margin: 32px auto; padding: 0 20px; }
+          h1 { font-size: 22px; margin-bottom: 8px; }
+          ol { padding-left: 24px; }
+          li { padding: 12px 0; border-bottom: 1px solid #e3e8ef; overflow-wrap: anywhere; }
+          .actions { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 4px; }
+          a { color: #1769aa; }
+        </style>
+      </head>
+      <body><main>
+        <h1>Document attachments</h1>
+        <p>One or more files could not be combined for preview. Open or download the attachments individually.</p>
+        <ol>
+          <?php foreach ($atts as $attachment):
+            $params = ['id' => (int)$attachment['id']];
+            if ($principalId > 0) $params['acting_principal_user_id'] = $principalId;
+            $query = http_build_query($params);
+          ?>
+            <li>
+              <?= $escape((string)$attachment['original_name']) ?>
+              <span class="actions">
+                <a href="<?= $escape('view_attachment.php?' . $query) ?>" target="_blank" rel="noopener">Open attachment</a>
+                <a href="<?= $escape('download_attachment.php?' . $query) ?>">Download</a>
+              </span>
+            </li>
+          <?php endforeach; ?>
+        </ol>
+      </main></body>
+      </html>
+      <?php
+      exit;
     }
 
     header("X-Content-Type-Options: nosniff");
@@ -419,7 +460,7 @@ if (is_file($autoload)) {
     header("X-Merge-Engine: fpdi");
     header("X-Merge-Order: " . implode(" | ", array_map("basename", $mergeFiles)));
 
-    $pdf->Output('I', $filename);
+    echo $preview;
     exit;
   }
 }
